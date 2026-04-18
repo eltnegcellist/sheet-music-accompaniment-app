@@ -1,0 +1,31 @@
+node_modules/
+dist/
+build/
+.vite/
+.cache/
+.DS_Store
+*.log
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Backend runtime artifacts
+backend/tmp/
+backend/.audiveris/
+backend/output/
+
+# Editor
+.idea/
+.vscode/
+
+# Generated audio samples (large)
+frontend/public/samples/*.mp3
+!frontend/public/samples/.gitkeep
