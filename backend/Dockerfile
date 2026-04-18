@@ -26,6 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # exist. Pre-create the dirs it expects so install completes cleanly.
     && mkdir -p /usr/share/applications /usr/share/desktop-directories \
                 /usr/share/icons/hicolor \
+                /usr/share/mime/packages \
     && apt-get install -y --no-install-recommends /tmp/audiveris.deb \
     && rm /tmp/audiveris.deb \
     && rm -rf /var/lib/apt/lists/*
