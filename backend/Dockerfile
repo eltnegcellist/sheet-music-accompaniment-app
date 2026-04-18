@@ -12,27 +12,28 @@ ENV AUDIVERIS_HOME=/opt/audiveris \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# System packages: Python runtime + Tesseract (Audiveris uses it for text OCR).
-# `apt-get install ./file.deb` resolves the .deb's transitive dependencies
-# automatically, which is why we install it via apt rather than dpkg.
+# System packages: Python runtime + Tesseract (Audiveris uses it for text OCR)
+# and xdg-utils (pulled in anyway by Audiveris; we install it explicitly so
+# we can stub its two entry points before Audiveris's postinst runs).
 #
 # Audiveris's postinst only calls `xdg-desktop-menu install ...desktop` and
-# `xdg-mime install ...MimeInfo.xml`. Both register GUI integrations we don't
-# need in a headless container, and both fail on minimal images because the
-# system dirs they write to don't exist. Stubbing the two commands with
-# no-op shims in /usr/local/bin (which precedes /usr/bin in PATH) sidesteps
-# the whole problem without chasing which dirs each release's postinst needs.
+# `xdg-mime install ...MimeInfo.xml`. Both register GUI integrations that a
+# headless container doesn't use, and both fail on minimal images because
+# the system dirs they write to (e.g. /usr/share/applications,
+# /usr/share/mime) don't exist. Overwrite the two binaries in /usr/bin with
+# no-op shims so the postinst succeeds regardless of which dirs future
+# releases touch.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       python3 python3-pip python3-venv \
       tesseract-ocr libtesseract-dev \
       curl ca-certificates \
+      xdg-utils \
     && curl -fL -o /tmp/audiveris.deb \
        "https://github.com/Audiveris/audiveris/releases/download/${AUDIVERIS_VERSION}/Audiveris-${AUDIVERIS_VERSION}-ubuntu22.04-x86_64.deb" \
-    && printf '#!/bin/sh\nexit 0\n' > /usr/local/bin/xdg-desktop-menu \
-    && printf '#!/bin/sh\nexit 0\n' > /usr/local/bin/xdg-mime \
-    && chmod +x /usr/local/bin/xdg-desktop-menu /usr/local/bin/xdg-mime \
+    && printf '#!/bin/sh\nexit 0\n' > /usr/bin/xdg-desktop-menu \
+    && printf '#!/bin/sh\nexit 0\n' > /usr/bin/xdg-mime \
+    && chmod +x /usr/bin/xdg-desktop-menu /usr/bin/xdg-mime \
     && apt-get install -y --no-install-recommends /tmp/audiveris.deb \
-    && rm /usr/local/bin/xdg-desktop-menu /usr/local/bin/xdg-mime \
     && rm /tmp/audiveris.deb \
     && rm -rf /var/lib/apt/lists/*
 
