@@ -21,6 +21,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       curl ca-certificates \
     && curl -fL -o /tmp/audiveris.deb \
        "https://github.com/Audiveris/audiveris/releases/download/${AUDIVERIS_VERSION}/Audiveris-${AUDIVERIS_VERSION}-ubuntu22.04-x86_64.deb" \
+    # The .deb's postinst calls xdg-desktop-menu to register a GUI launcher,
+    # which fails on a headless image because /usr/share/applications doesn't
+    # exist. Pre-create the dirs it expects so install completes cleanly.
+    && mkdir -p /usr/share/applications /usr/share/desktop-directories \
+                /usr/share/icons/hicolor \
     && apt-get install -y --no-install-recommends /tmp/audiveris.deb \
     && rm /tmp/audiveris.deb \
     && rm -rf /var/lib/apt/lists/*
