@@ -37,16 +37,20 @@ class OmrResult:
 
 
 def _audiveris_command(pdf_path: Path, output_dir: Path) -> list[str]:
-    home = Path(os.environ.get("AUDIVERIS_HOME", "/opt/audiveris"))
-    # The release zip extracts into a versioned folder; locate the launcher.
-    candidates = list(home.glob("**/bin/Audiveris"))
-    if not candidates:
-        raise AudiverisError(
-            f"Audiveris launcher not found under {home}. "
-            "Set AUDIVERIS_HOME to the install root."
-        )
+    # The .deb installer puts the launcher on PATH; honor that first so we
+    # don't hard-depend on a particular install layout.
+    launcher = shutil.which("Audiveris")
+    if launcher is None:
+        home = Path(os.environ.get("AUDIVERIS_HOME", "/opt/Audiveris"))
+        candidates = list(home.glob("**/bin/Audiveris"))
+        if not candidates:
+            raise AudiverisError(
+                f"Audiveris launcher not found on PATH or under {home}. "
+                "Install the Audiveris .deb or set AUDIVERIS_HOME."
+            )
+        launcher = str(candidates[0])
     return [
-        str(candidates[0]),
+        launcher,
         "-batch",
         "-export",
         "-output",
