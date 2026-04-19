@@ -7,12 +7,15 @@ measures that should be highlightable.
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 
 from lxml import etree
 
 from ..omr.audiveris_runner import OmrResult
+
+logger = logging.getLogger(__name__)
 
 
 # Canonical BPM for Italian tempo markings. Values sit mid-range per the usual
@@ -131,14 +134,32 @@ def _first_metronome_bpm(root: etree._Element) -> float | None:
 
 
 def _first_tempo_word_bpm(root: etree._Element) -> float | None:
-    for words_el in root.iter("words"):
-        text = (words_el.text or "").strip().lower()
-        if not text:
-            continue
-        # Strip trailing punctuation / decorative characters.
-        text = re.sub(r"[^\w\s]+$", "", text).strip()
+    # Audiveris emits tempo markings inconsistently: sometimes as proper
+    # <direction-type><words>Andantino</words></direction-type>, but often as
+    # <credit-words> on the title page (especially when the word sits above
+    # the first system, where Audiveris treats it as a credit/heading rather
+    # than a musical direction). Search both, plus any other stray text
+    # elements, so we don't silently miss obvious markings.
+    candidate_tags = ("words", "credit-words", "rehearsal")
+    collected: list[str] = []
+    for tag in candidate_tags:
+        for el in root.iter(tag):
+            text = (el.text or "").strip()
+            if text:
+                collected.append(text)
+
+    if collected:
+        logger.info("Tempo text candidates found: %r", collected)
+    else:
+        logger.info("No <words>/<credit-words>/<rehearsal> text in MusicXML")
+
+    for raw in collected:
+        text = raw.lower()
+        text = re.sub(r"[^\w\s]+", " ", text)
+        text = re.sub(r"\s+", " ", text).strip()
         for key in _TEMPO_WORDS_SORTED:
-            if key in text:
+            if re.search(rf"\b{re.escape(key)}\b", text):
+                logger.info("Matched tempo word %r -> %s BPM", key, _TEMPO_WORD_BPM[key])
                 return _TEMPO_WORD_BPM[key]
     return None
 

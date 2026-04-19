@@ -88,6 +88,52 @@ def test_word_allegro_moderato_beats_allegro():
     assert bpm == 118.0
 
 
+def test_credit_words_tempo():
+    # Audiveris often emits top-of-page tempo markings as <credit-words>
+    # rather than <direction><words>.
+    xml = """<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <credit page="1">
+    <credit-type>other</credit-type>
+    <credit-words default-x="600" default-y="1700">Andantino</credit-words>
+  </credit>
+  <part-list>
+    <score-part id="P1"><part-name>Piano</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>480</divisions></attributes>
+    </measure>
+  </part>
+</score-partwise>
+"""
+    _, bpm = extract_divisions_and_tempo(xml)
+    assert bpm == 90.0
+
+
+def test_uppercase_tempo_word():
+    xml = _score(
+        """<measure number="1">
+        <attributes><divisions>480</divisions></attributes>
+        <direction><direction-type><words>ANDANTINO</words></direction-type></direction>
+      </measure>"""
+    )
+    _, bpm = extract_divisions_and_tempo(xml)
+    assert bpm == 90.0
+
+
+def test_tempo_word_with_punctuation():
+    # "Andantino." or "Andantino (q = 90)" should still match.
+    xml = _score(
+        """<measure number="1">
+        <attributes><divisions>480</divisions></attributes>
+        <direction><direction-type><words>Andantino.</words></direction-type></direction>
+      </measure>"""
+    )
+    _, bpm = extract_divisions_and_tempo(xml)
+    assert bpm == 90.0
+
+
 def test_defaults_when_no_tempo_information():
     xml = _score(
         """<measure number="1">
