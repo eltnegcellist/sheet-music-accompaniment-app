@@ -3,11 +3,17 @@ import type { MeasureTiming, NoteEvent } from "../types";
 /**
  * Parse MusicXML and emit playback events for the requested part.
  *
- * Returns:
- *   - notes: ordered NoteEvent[] (rests are skipped)
- *   - measures: MeasureTiming[] aligned with the MusicXML measure numbers,
- *               useful for looping and highlighting.
+ * Two-pass design:
+ *   1. Walk every measure, collecting raw notes (with *relative* beat offsets
+ *      within the measure) and the observed measure length in beats.
+ *   2. Derive a canonical measure length — the mode of observed lengths across
+ *      non-pickup measures — and lay measures on a uniform grid at that
+ *      length. Working in beats (not ticks) is important because Audiveris
+ *      sometimes changes <divisions> mid-score, so tick counts aren't
+ *      comparable across measures.
  *
+ * This absorbs OMR outliers (a stray 2.5-beat measure inside an otherwise
+ * 2-beat piece would otherwise push every subsequent beat by half a beat).
  * Limitations (MVP): repeat structures (D.C., D.S., volta brackets) are not
  * unrolled; we play the score as written, top-to-bottom.
  */
@@ -26,24 +32,86 @@ export function parseMusicXml(
     return { notes: [], measures: [] };
   }
 
-  const notes: NoteEvent[] = [];
-  const measures: MeasureTiming[] = [];
+  const rawMeasures = collectRawMeasures(part);
+  const canonicalBeats = computeCanonicalBeats(rawMeasures);
 
-  let divisions = 1; // ticks per quarter; updated when <attributes><divisions>
-  // Expected measure length in ticks, derived from the current <time> signature.
-  // 0 means "unknown" — we haven't seen a time signature yet.
-  let expectedMeasureTicks = 0;
+  const measures: MeasureTiming[] = [];
+  const notes: NoteEvent[] = [];
   let elapsedBeats = 0;
 
-  const measureEls = Array.from(part.getElementsByTagName("measure"));
-  for (const measureEl of measureEls) {
+  for (const raw of rawMeasures) {
+    const lengthBeats = pickMeasureLength(raw, canonicalBeats);
+
+    if (
+      canonicalBeats > 0 &&
+      !raw.isImplicit &&
+      Math.abs(raw.observedBeats - canonicalBeats) > 1e-6
+    ) {
+      const action =
+        raw.observedBeats < canonicalBeats
+          ? "padded up to"
+          : "truncated down to";
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[musicxml] measure ${raw.index}: observed ${raw.observedBeats.toFixed(3)} beats, ` +
+          `${action} canonical ${canonicalBeats.toFixed(3)} beats`,
+      );
+    }
+
+    measures.push({
+      index: raw.index,
+      startBeat: elapsedBeats,
+      lengthBeats,
+    });
+
+    for (const n of raw.notes) {
+      notes.push({
+        beat: elapsedBeats + n.relativeBeats,
+        durationBeats: n.durationBeats,
+        pitch: n.pitch,
+        velocity: n.velocity,
+        measureIndex: n.measureIndex,
+      });
+    }
+
+    elapsedBeats += lengthBeats;
+  }
+
+  notes.sort((a, b) => a.beat - b.beat);
+  return { notes, measures };
+}
+
+interface RawNote {
+  /** Offset from the start of the owning measure, in beats. */
+  relativeBeats: number;
+  durationBeats: number;
+  pitch: string;
+  velocity: number;
+  measureIndex: number;
+}
+
+interface RawMeasure {
+  index: number;
+  isImplicit: boolean;
+  observedBeats: number;
+  /** Length suggested by the active <time> signature, in beats. 0 if unknown. */
+  expectedBeats: number;
+  notes: RawNote[];
+}
+
+function collectRawMeasures(part: Element): RawMeasure[] {
+  const out: RawMeasure[] = [];
+  let divisions = 1; // ticks per quarter; updated when <attributes><divisions>
+  let expectedMeasureTicks = 0;
+
+  for (const measureEl of Array.from(part.getElementsByTagName("measure"))) {
     const measureIndex = Number(measureEl.getAttribute("number") ?? "0") || 0;
-    // <measure implicit="yes"> marks an anacrusis / pickup that is deliberately
-    // shorter than a full bar. Don't pad those.
+    // <measure implicit="yes"> marks a pickup that is deliberately short.
+    // Exclude from the mode calculation and keep its observed length.
     const isImplicit = measureEl.getAttribute("implicit") === "yes";
-    const measureStartBeat = elapsedBeats;
     let measureLengthTicks = 0;
     let cursorTicks = 0;
+    const rawNotes: RawNote[] = [];
 
     for (const child of Array.from(measureEl.children)) {
       switch (child.tagName.toLowerCase()) {
@@ -101,9 +169,8 @@ export function parseMusicXml(
           if (!isRest) {
             const pitch = readPitch(child);
             if (pitch) {
-              notes.push({
-                beat:
-                  measureStartBeat + ticksToBeats(noteStartTicks, divisions),
+              rawNotes.push({
+                relativeBeats: ticksToBeats(noteStartTicks, divisions),
                 durationBeats: ticksToBeats(dur, divisions),
                 pitch,
                 velocity: 0.8,
@@ -121,46 +188,57 @@ export function parseMusicXml(
       }
     }
 
-    // OMR sometimes drops short notes/rests, leaving a measure whose content
-    // sums to less than one bar. If we advance by just the observed ticks the
-    // next measure starts early and every subsequent beat is shifted — the
-    // classic "skipped half a beat" symptom. Fall back to the time-signature
-    // length whenever we know it, except on explicitly short pickup measures.
-    const shouldPad =
-      !isImplicit &&
-      expectedMeasureTicks > 0 &&
-      measureLengthTicks < expectedMeasureTicks;
-    const effectiveLengthTicks = shouldPad
-      ? expectedMeasureTicks
-      : measureLengthTicks;
-    const lengthBeats =
-      effectiveLengthTicks > 0 ? ticksToBeats(effectiveLengthTicks, divisions) : 0;
-    if (
-      expectedMeasureTicks > 0 &&
-      !isImplicit &&
-      measureLengthTicks !== expectedMeasureTicks
-    ) {
-      // Log only irregular measures (we know the expected length and it
-      // doesn't match observed), so the console stays readable on clean
-      // scores. shouldPad = OMR dropped content; otherwise the measure is
-      // longer than the time signature would suggest.
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[musicxml] measure ${measureIndex}: observed ${measureLengthTicks} ticks, ` +
-          `expected ${expectedMeasureTicks} ticks (divisions=${divisions}) — ` +
-          (shouldPad ? "padded to expected" : "using observed"),
-      );
-    }
-    measures.push({
+    out.push({
       index: measureIndex,
-      startBeat: measureStartBeat,
-      lengthBeats,
+      isImplicit,
+      observedBeats: ticksToBeats(measureLengthTicks, divisions),
+      expectedBeats:
+        expectedMeasureTicks > 0
+          ? ticksToBeats(expectedMeasureTicks, divisions)
+          : 0,
+      notes: rawNotes,
     });
-    elapsedBeats += lengthBeats;
   }
 
-  notes.sort((a, b) => a.beat - b.beat);
-  return { notes, measures };
+  return out;
+}
+
+/**
+ * Canonical measure length (in beats) = mode of observed lengths across
+ * non-pickup, non-empty measures. More robust than trusting <time>+divisions
+ * because Audiveris occasionally emits a wrong time signature. Ties break to
+ * the smaller value for deterministic output.
+ */
+function computeCanonicalBeats(measures: RawMeasure[]): number {
+  const counts = new Map<number, number>();
+  for (const m of measures) {
+    if (m.isImplicit) continue;
+    if (m.observedBeats <= 0) continue;
+    // Quantize to 1/1000 of a beat to fold floating-point noise.
+    const key = Math.round(m.observedBeats * 1000) / 1000;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  if (counts.size === 0) return 0;
+
+  let bestKey = Number.POSITIVE_INFINITY;
+  let bestCount = 0;
+  for (const [k, c] of counts) {
+    if (c > bestCount || (c === bestCount && k < bestKey)) {
+      bestKey = k;
+      bestCount = c;
+    }
+  }
+  return Number.isFinite(bestKey) ? bestKey : 0;
+}
+
+function pickMeasureLength(raw: RawMeasure, canonicalBeats: number): number {
+  if (raw.isImplicit) {
+    if (raw.observedBeats > 0) return raw.observedBeats;
+    return raw.expectedBeats > 0 ? raw.expectedBeats : 0;
+  }
+  if (canonicalBeats > 0) return canonicalBeats;
+  if (raw.expectedBeats > 0) return raw.expectedBeats;
+  return raw.observedBeats;
 }
 
 function pickPart(doc: Document, partId: string | null): Element | null {
