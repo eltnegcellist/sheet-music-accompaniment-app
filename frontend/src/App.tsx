@@ -173,16 +173,18 @@ export default function App() {
       </main>
 
       <footer className="app__footer">
-        {analysis && (
-          <div className="analysis-actions">
-            <button type="button" onClick={handleDownloadMusicXml}>
-              MusicXML をダウンロード
-            </button>
-            <small>
-              次回は PDF と一緒にこのファイルもドロップすると OMR をスキップして即解析できます。
-            </small>
-          </div>
-        )}
+        <div className="analysis-actions">
+          <button
+            type="button"
+            onClick={handleDownloadMusicXml}
+            disabled={!analysis}
+          >
+            MusicXML をダウンロード
+          </button>
+          <small>
+            次回は PDF と一緒にこのファイルもドロップすると OMR をスキップして即解析できます。
+          </small>
+        </div>
         {analysis?.warnings && analysis.warnings.length > 0 && (
           <div className="warnings">
             {analysis.warnings.map((w, i) => (
