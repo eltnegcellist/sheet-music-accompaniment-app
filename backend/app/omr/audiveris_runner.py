@@ -62,26 +62,44 @@ def _audiveris_command(pdf_path: Path, output_dir: Path) -> list[str]:
 def run_audiveris(pdf_path: Path, output_dir: Path) -> OmrResult:
     """Run Audiveris and return MusicXML + measure layouts.
 
-    The output directory is created if missing.
+    The output directory is created if missing. Audiveris output is streamed
+    to the logger so operators can follow progress on long scores (a ~30 page
+    sonata can take 20+ minutes).
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
     cmd = _audiveris_command(pdf_path, output_dir)
     logger.info("Running Audiveris: %s", " ".join(cmd))
     try:
-        completed = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
-            check=False,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
-            timeout=600,
+            bufsize=1,
         )
     except FileNotFoundError as exc:
         raise AudiverisError(str(exc)) from exc
 
-    if completed.returncode != 0:
+    assert proc.stdout is not None
+    tail: list[str] = []
+    try:
+        for line in proc.stdout:
+            line = line.rstrip()
+            if line:
+                logger.info("audiveris: %s", line)
+                tail.append(line)
+                if len(tail) > 50:
+                    tail.pop(0)
+        returncode = proc.wait(timeout=1800)
+    except subprocess.TimeoutExpired as exc:
+        proc.kill()
+        raise AudiverisError("Audiveris timed out after 30 minutes") from exc
+
+    if returncode != 0:
         raise AudiverisError(
-            f"Audiveris exited {completed.returncode}: {completed.stderr.strip()}"
+            f"Audiveris exited {returncode}. Last output:\n"
+            + "\n".join(tail[-20:])
         )
 
     mxl_path = _find_first(output_dir, ("*.mxl", "*.xml"))
