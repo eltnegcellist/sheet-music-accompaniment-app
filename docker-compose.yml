@@ -10,7 +10,7 @@ services:
     environment:
       AUDIVERIS_HOME: /opt/audiveris
       PYTHONUNBUFFERED: "1"
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   frontend:
     image: node:20-alpine
