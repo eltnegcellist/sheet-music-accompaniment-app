@@ -40,9 +40,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY pyproject.toml ./
-RUN python3 -m pip install --no-cache-dir -e .
-
 COPY app ./app
+RUN python3 -m pip install --no-cache-dir .
 
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
