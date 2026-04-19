@@ -50,22 +50,16 @@ def _audiveris_command(pdf_path: Path, output_dir: Path) -> list[str]:
                 "Install the Audiveris .deb or set AUDIVERIS_HOME."
             )
         launcher = str(candidates[0])
-    # `-save` keeps the .omr project around even when the book-level export is
-    # refused (Audiveris blocks export if any sheet's transcription failed,
-    # which is common on long scores). That way we can still salvage layout
-    # information and per-sheet MusicXML on partial failures.
-    #
-    # We deliberately do NOT pass `-transcribe` alongside `-export`. `-export`
-    # already triggers transcription internally; adding `-transcribe` causes
-    # Audiveris 5.10 to run the pipeline twice and has been observed to
-    # corrupt internal state, triggering NullPointerExceptions in
-    # Voices.refineScore / Book.reduceScores on some PDFs that were fine
-    # with `-export` alone.
+    # Keep the CLI to the minimum set that was known to work: adding
+    # `-transcribe` or `-save` alongside `-export` has been observed to
+    # trigger NullPointerExceptions in Voices.refineScore / Book.reduceScores
+    # on some scores — including PDFs that parse cleanly with `-export`
+    # alone. `-export` internally transcribes and writes MusicXML, which
+    # is all we strictly need.
     return [
         launcher,
         "-batch",
         "-export",
-        "-save",
         "-output",
         str(output_dir),
         str(pdf_path),
