@@ -54,6 +54,7 @@ async def analyze(
         except AudiverisError as exc:
             logger.exception("Audiveris failed")
             raise HTTPException(500, f"OMR failed: {exc}") from exc
+        warnings.extend(omr_result.warnings)
 
         merged_xml = merge_layout_with_musicxml(
             omr_xml=omr_result.music_xml,

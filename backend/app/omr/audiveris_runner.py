@@ -34,6 +34,7 @@ class OmrResult:
     music_xml: str
     measures: list[MeasureLayout]
     page_sizes: list[tuple[float, float]] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
 
 def _audiveris_command(pdf_path: Path, output_dir: Path) -> list[str]:
@@ -49,10 +50,16 @@ def _audiveris_command(pdf_path: Path, output_dir: Path) -> list[str]:
                 "Install the Audiveris .deb or set AUDIVERIS_HOME."
             )
         launcher = str(candidates[0])
+    # `-save` keeps the .omr project around even when the book-level export is
+    # refused (Audiveris blocks export if any sheet's transcription failed,
+    # which is common on long scores). That way we can still salvage layout
+    # information and per-sheet MusicXML on partial failures.
     return [
         launcher,
         "-batch",
+        "-transcribe",
         "-export",
+        "-save",
         "-output",
         str(output_dir),
         str(pdf_path),
@@ -96,15 +103,30 @@ def run_audiveris(pdf_path: Path, output_dir: Path) -> OmrResult:
         proc.kill()
         raise AudiverisError("Audiveris timed out after 30 minutes") from exc
 
+    warnings: list[str] = []
     if returncode != 0:
-        raise AudiverisError(
-            f"Audiveris exited {returncode}. Last output:\n"
-            + "\n".join(tail[-20:])
+        # Audiveris refuses the book-level export when any sheet's transcription
+        # failed. That doesn't mean all sheets failed — per-sheet .mxl files may
+        # still be on disk. Try to salvage them before giving up.
+        warnings.append(
+            f"Audiveris exited with code {returncode}. Using any partial output "
+            "that was saved before the failure. See backend logs for details."
+        )
+        logger.warning(
+            "Audiveris non-zero exit (%s); attempting to salvage partial output."
+            " Last lines:\n%s",
+            returncode,
+            "\n".join(tail[-20:]),
         )
 
     mxl_path = _find_first(output_dir, ("*.mxl", "*.xml"))
     if mxl_path is None:
-        raise AudiverisError("Audiveris produced no MusicXML output")
+        # No MusicXML at all — we truly have nothing to play. Surface the
+        # Audiveris error rather than a silent empty response.
+        raise AudiverisError(
+            f"Audiveris produced no MusicXML output (exit {returncode}). "
+            "Last output:\n" + "\n".join(tail[-20:])
+        )
 
     music_xml = _read_musicxml(mxl_path)
 
@@ -115,8 +137,16 @@ def run_audiveris(pdf_path: Path, output_dir: Path) -> OmrResult:
         measures, page_sizes = parse_omr_project(omr_path)
     else:
         logger.warning("No .omr project file found; measure highlights disabled")
+        warnings.append(
+            "Audiveris did not save a project file; measure highlights disabled."
+        )
 
-    return OmrResult(music_xml=music_xml, measures=measures, page_sizes=page_sizes)
+    return OmrResult(
+        music_xml=music_xml,
+        measures=measures,
+        page_sizes=page_sizes,
+        warnings=warnings,
+    )
 
 
 def _find_first(directory: Path, patterns: tuple[str, ...]) -> Path | None:
