@@ -30,11 +30,17 @@ export function parseMusicXml(
   const measures: MeasureTiming[] = [];
 
   let divisions = 1; // ticks per quarter; updated when <attributes><divisions>
+  // Expected measure length in ticks, derived from the current <time> signature.
+  // 0 means "unknown" — we haven't seen a time signature yet.
+  let expectedMeasureTicks = 0;
   let elapsedBeats = 0;
 
   const measureEls = Array.from(part.getElementsByTagName("measure"));
   for (const measureEl of measureEls) {
     const measureIndex = Number(measureEl.getAttribute("number") ?? "0") || 0;
+    // <measure implicit="yes"> marks an anacrusis / pickup that is deliberately
+    // shorter than a full bar. Don't pad those.
+    const isImplicit = measureEl.getAttribute("implicit") === "yes";
     const measureStartBeat = elapsedBeats;
     let measureLengthTicks = 0;
     let cursorTicks = 0;
@@ -47,6 +53,29 @@ export function parseMusicXml(
             const parsed = Number.parseInt(divEl.textContent, 10);
             if (Number.isFinite(parsed) && parsed > 0) {
               divisions = parsed;
+            }
+          }
+          const timeEl = child.getElementsByTagName("time")[0];
+          if (timeEl) {
+            const beats = Number.parseInt(
+              timeEl.getElementsByTagName("beats")[0]?.textContent ?? "",
+              10,
+            );
+            const beatType = Number.parseInt(
+              timeEl.getElementsByTagName("beat-type")[0]?.textContent ?? "",
+              10,
+            );
+            if (
+              Number.isFinite(beats) &&
+              beats > 0 &&
+              Number.isFinite(beatType) &&
+              beatType > 0
+            ) {
+              // Ticks per whole note = divisions * 4, so one beat at `beat-type`
+              // spans (divisions * 4 / beat-type) ticks.
+              expectedMeasureTicks = Math.round(
+                (beats * divisions * 4) / beatType,
+              );
             }
           }
           break;
@@ -92,8 +121,19 @@ export function parseMusicXml(
       }
     }
 
+    // OMR sometimes drops short notes/rests, leaving a measure whose content
+    // sums to less than one bar. If we advance by just the observed ticks the
+    // next measure starts early and every subsequent beat is shifted — the
+    // classic "skipped half a beat" symptom. Fall back to the time-signature
+    // length whenever we know it, except on explicitly short pickup measures.
+    const effectiveLengthTicks =
+      !isImplicit &&
+      expectedMeasureTicks > 0 &&
+      measureLengthTicks < expectedMeasureTicks
+        ? expectedMeasureTicks
+        : measureLengthTicks;
     const lengthBeats =
-      measureLengthTicks > 0 ? ticksToBeats(measureLengthTicks, divisions) : 0;
+      effectiveLengthTicks > 0 ? ticksToBeats(effectiveLengthTicks, divisions) : 0;
     measures.push({
       index: measureIndex,
       startBeat: measureStartBeat,

@@ -47,6 +47,48 @@ describe("parseMusicXml", () => {
     ]);
   });
 
+  it("pads a short measure up to the time signature so subsequent measures stay aligned", () => {
+    // Measure 1 declares 4/4 but only has 2 beats of content (OMR dropped
+    // the second half). Measure 2 should still start at beat 4, not beat 2.
+    const shortMeasure = `<?xml version="1.0"?>
+<score-partwise><part-list><score-part id="P1"/></part-list><part id="P1">
+  <measure number="1">
+    <attributes>
+      <divisions>1</divisions>
+      <time><beats>4</beats><beat-type>4</beat-type></time>
+    </attributes>
+    <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>
+    <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration></note>
+  </measure>
+  <measure number="2">
+    <note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration></note>
+  </measure>
+</part></score-partwise>`;
+    const { notes, measures } = parseMusicXml(shortMeasure, "P1");
+    expect(measures[0]).toEqual({ index: 1, startBeat: 0, lengthBeats: 4 });
+    expect(measures[1]).toEqual({ index: 2, startBeat: 4, lengthBeats: 4 });
+    expect(notes[2]).toMatchObject({ pitch: "E4", beat: 4 });
+  });
+
+  it("leaves implicit (pickup) measures short", () => {
+    const anacrusis = `<?xml version="1.0"?>
+<score-partwise><part-list><score-part id="P1"/></part-list><part id="P1">
+  <measure number="0" implicit="yes">
+    <attributes>
+      <divisions>1</divisions>
+      <time><beats>4</beats><beat-type>4</beat-type></time>
+    </attributes>
+    <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>
+  </measure>
+  <measure number="1">
+    <note><pitch><step>D</step><octave>4</octave></pitch><duration>4</duration></note>
+  </measure>
+</part></score-partwise>`;
+    const { measures } = parseMusicXml(anacrusis, "P1");
+    expect(measures[0]).toEqual({ index: 0, startBeat: 0, lengthBeats: 1 });
+    expect(measures[1].startBeat).toBe(1);
+  });
+
   it("collapses chord notes onto the same beat", () => {
     const chord = `<?xml version="1.0"?>
 <score-partwise><part-list><score-part id="P1"/></part-list><part id="P1">
