@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .music.accompaniment import find_accompaniment_part
 from .music.merger import merge_layout_with_musicxml
 from .music.parser import extract_divisions_and_tempo, list_measures_with_bbox
-from .omr.audiveris_runner import AudiverisError, run_audiveris
+from .omr.audiveris_runner import AudiverisError, OmrResult, run_audiveris
 from .schemas import AnalyzeResponse, MeasureBox
 
 logger = logging.getLogger("accompanist")
@@ -49,12 +49,34 @@ async def analyze(
             user_xml = (await music_xml.read()).decode("utf-8", errors="replace")
 
         warnings: list[str] = []
-        try:
-            omr_result = run_audiveris(pdf_path, tmp / "out")
-        except AudiverisError as exc:
-            logger.exception("Audiveris failed")
-            raise HTTPException(500, f"OMR failed: {exc}") from exc
-        warnings.extend(omr_result.warnings)
+        # When the caller supplies a valid MusicXML we can skip Audiveris
+        # entirely. That's ~20x faster on long scores and sidesteps Audiveris
+        # bugs (NullPointerExceptions in reduceScores/Voices occur on some
+        # editions). The tradeoff: no layout info, so the PDF overlay can't
+        # highlight the current measure. Invalid user XML falls through to
+        # Audiveris so we still try to do something useful.
+        user_xml_looks_valid = user_xml is not None and (
+            "<score-partwise" in user_xml or "<score-timewise" in user_xml
+        )
+        if user_xml_looks_valid:
+            logger.info("Skipping Audiveris: user-supplied MusicXML provided")
+            warnings.append(
+                "Audiveris をスキップしてアップロードされた MusicXML で解析しました。"
+                "小節ハイライトは表示されません。"
+            )
+            omr_result = OmrResult(music_xml="", measures=[])
+        else:
+            if user_xml is not None:
+                warnings.append(
+                    "Uploaded MusicXML did not look valid; falling back to OMR."
+                )
+                user_xml = None
+            try:
+                omr_result = run_audiveris(pdf_path, tmp / "out")
+            except AudiverisError as exc:
+                logger.exception("Audiveris failed")
+                raise HTTPException(500, f"OMR failed: {exc}") from exc
+            warnings.extend(omr_result.warnings)
 
         merged_xml = merge_layout_with_musicxml(
             omr_xml=omr_result.music_xml,
