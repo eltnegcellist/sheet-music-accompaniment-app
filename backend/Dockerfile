@@ -39,9 +39,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY pyproject.toml ./
+# Install Python deps directly (pip 22 on jammy has trouble resolving deps
+# from pyproject.toml via build isolation; installing them explicitly is
+# both simpler and avoids that class of breakage). The app itself doesn't
+# need to be installed as a package — uvicorn runs it by module path and
+# WORKDIR puts /app on sys.path.
+RUN python3 -m pip install --no-cache-dir \
+      "fastapi>=0.115.0" \
+      "uvicorn[standard]>=0.32.0" \
+      "python-multipart>=0.0.12" \
+      "lxml>=5.3.0" \
+      "pydantic>=2.9.0"
+
 COPY app ./app
-RUN python3 -m pip install --no-cache-dir .
+COPY pyproject.toml ./
 
 EXPOSE 8000
 CMD ["python3", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
