@@ -13,6 +13,10 @@ export interface AnalyzeResponse {
   measures: MeasureBox[];
   divisions: number;
   tempo_bpm: number;
+  /** Which rule produced tempo_bpm: "sound" | "metronome" | "word" | "default" */
+  tempo_source?: string;
+  /** Text strings scanned for tempo words; useful to confirm what Audiveris OCR'd. */
+  tempo_candidates?: string[];
   page_sizes: [number, number][];
   warnings: string[];
 }

@@ -9,7 +9,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .music.accompaniment import find_accompaniment_part
 from .music.merger import merge_layout_with_musicxml
-from .music.parser import extract_divisions_and_tempo, list_measures_with_bbox
+from .music.parser import (
+    extract_divisions_and_tempo,
+    extract_tempo_info,
+    list_measures_with_bbox,
+)
 from .omr.audiveris_runner import AudiverisError, OmrResult, run_audiveris
 from .schemas import AnalyzeResponse, MeasureBox
 
@@ -91,7 +95,8 @@ async def analyze(
                 "falling back to last part."
             )
 
-        divisions, tempo_bpm = extract_divisions_and_tempo(merged_xml)
+        divisions, _ = extract_divisions_and_tempo(merged_xml)
+        tempo_info = extract_tempo_info(merged_xml)
         measures = [
             MeasureBox(index=m.index, page=m.page, bbox=m.bbox)
             for m in list_measures_with_bbox(omr_result, accompaniment_part_id)
@@ -102,7 +107,9 @@ async def analyze(
             accompaniment_part_id=accompaniment_part_id,
             measures=measures,
             divisions=divisions,
-            tempo_bpm=tempo_bpm,
+            tempo_bpm=tempo_info.bpm,
+            tempo_source=tempo_info.source,
+            tempo_candidates=tempo_info.candidates,
             page_sizes=omr_result.page_sizes,
             warnings=warnings,
         )

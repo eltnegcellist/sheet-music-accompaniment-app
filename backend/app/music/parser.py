@@ -51,52 +51,72 @@ class MeasureRef:
     bbox: tuple[float, float, float, float]
 
 
+@dataclass
+class TempoInfo:
+    """Result + provenance for the tempo extraction pass.
+
+    `source` tells us which rule fired, which is invaluable for debugging
+    scores where the UI ends up with the 120 default even though the
+    engraving clearly marks e.g. "Andantino". `candidates` lists the raw
+    text strings we scanned, so the user can see at a glance whether
+    Audiveris OCR'd the marking at all.
+    """
+
+    bpm: float
+    source: str  # "sound" | "metronome" | "word" | "default"
+    candidates: list[str]
+
+
 def _parse(xml: str) -> etree._Element:
     return etree.fromstring(xml.encode("utf-8"))
 
 
 def extract_divisions_and_tempo(music_xml: str) -> tuple[int, float]:
-    """Return (divisions, tempo_bpm) defaulting to (480, 120) when missing.
-
-    `divisions` is the number of MusicXML duration ticks per quarter note.
-    Tempo is resolved in priority order:
-      1. First <sound tempo="..."/> — authoritative numeric value.
-      2. First <metronome><beat-unit>...<per-minute>N</per-minute></metronome>
-         — numeric notation, normalized to quarter-note BPM.
-      3. First textual tempo word (Andantino, Allegro, etc.) mapped to a
-         canonical BPM.
-    """
     root = _parse(music_xml)
+    return _extract_divisions(root), _extract_tempo_info(root).bpm
 
-    divisions = 480
+
+def extract_tempo_info(music_xml: str) -> TempoInfo:
+    return _extract_tempo_info(_parse(music_xml))
+
+
+def _extract_divisions(root: etree._Element) -> int:
     div_el = root.find(".//attributes/divisions")
     if div_el is not None and div_el.text:
         try:
-            divisions = int(div_el.text)
+            return int(div_el.text)
         except ValueError:
             pass
-
-    tempo = _extract_tempo(root)
-    return divisions, tempo
+    return 480
 
 
-def _extract_tempo(root: etree._Element) -> float:
+def _extract_tempo_info(root: etree._Element) -> TempoInfo:
+    """Resolve tempo and track provenance.
+
+    Priority: <sound tempo=...> > <metronome> > tempo word > 120 default.
+    """
+    candidates = _collect_tempo_text(root)
+
     sound_el = root.find(".//sound[@tempo]")
     if sound_el is not None:
         try:
-            return float(sound_el.get("tempo") or 0) or 120.0
+            bpm = float(sound_el.get("tempo") or 0) or 120.0
+            logger.info("Tempo from <sound>: %s BPM", bpm)
+            return TempoInfo(bpm=bpm, source="sound", candidates=candidates)
         except ValueError:
             pass
 
     metro = _first_metronome_bpm(root)
     if metro is not None:
-        return metro
+        logger.info("Tempo from <metronome>: %s BPM", metro)
+        return TempoInfo(bpm=metro, source="metronome", candidates=candidates)
 
-    word = _first_tempo_word_bpm(root)
-    if word is not None:
-        return word
+    word_bpm = _first_tempo_word_bpm_from(candidates)
+    if word_bpm is not None:
+        return TempoInfo(bpm=word_bpm, source="word", candidates=candidates)
 
-    return 120.0
+    logger.info("No tempo information found; defaulting to 120 BPM")
+    return TempoInfo(bpm=120.0, source="default", candidates=candidates)
 
 
 # Beat-unit → quarter-note multiplier. Used to normalize metronome marks like
@@ -133,7 +153,7 @@ def _first_metronome_bpm(root: etree._Element) -> float | None:
     return None
 
 
-def _first_tempo_word_bpm(root: etree._Element) -> float | None:
+def _collect_tempo_text(root: etree._Element) -> list[str]:
     # Audiveris emits tempo markings inconsistently: sometimes as proper
     # <direction-type><words>Andantino</words></direction-type>, but often as
     # <credit-words> on the title page (especially when the word sits above
@@ -147,19 +167,26 @@ def _first_tempo_word_bpm(root: etree._Element) -> float | None:
             text = (el.text or "").strip()
             if text:
                 collected.append(text)
-
     if collected:
         logger.info("Tempo text candidates found: %r", collected)
     else:
         logger.info("No <words>/<credit-words>/<rehearsal> text in MusicXML")
+    return collected
 
-    for raw in collected:
+
+def _first_tempo_word_bpm_from(candidates: list[str]) -> float | None:
+    for raw in candidates:
         text = raw.lower()
         text = re.sub(r"[^\w\s]+", " ", text)
         text = re.sub(r"\s+", " ", text).strip()
         for key in _TEMPO_WORDS_SORTED:
             if re.search(rf"\b{re.escape(key)}\b", text):
-                logger.info("Matched tempo word %r -> %s BPM", key, _TEMPO_WORD_BPM[key])
+                logger.info(
+                    "Matched tempo word %r in %r -> %s BPM",
+                    key,
+                    raw,
+                    _TEMPO_WORD_BPM[key],
+                )
                 return _TEMPO_WORD_BPM[key]
     return None
 

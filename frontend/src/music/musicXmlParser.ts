@@ -126,14 +126,31 @@ export function parseMusicXml(
     // next measure starts early and every subsequent beat is shifted — the
     // classic "skipped half a beat" symptom. Fall back to the time-signature
     // length whenever we know it, except on explicitly short pickup measures.
-    const effectiveLengthTicks =
+    const shouldPad =
       !isImplicit &&
       expectedMeasureTicks > 0 &&
-      measureLengthTicks < expectedMeasureTicks
-        ? expectedMeasureTicks
-        : measureLengthTicks;
+      measureLengthTicks < expectedMeasureTicks;
+    const effectiveLengthTicks = shouldPad
+      ? expectedMeasureTicks
+      : measureLengthTicks;
     const lengthBeats =
       effectiveLengthTicks > 0 ? ticksToBeats(effectiveLengthTicks, divisions) : 0;
+    if (
+      expectedMeasureTicks > 0 &&
+      !isImplicit &&
+      measureLengthTicks !== expectedMeasureTicks
+    ) {
+      // Log only irregular measures (we know the expected length and it
+      // doesn't match observed), so the console stays readable on clean
+      // scores. shouldPad = OMR dropped content; otherwise the measure is
+      // longer than the time signature would suggest.
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[musicxml] measure ${measureIndex}: observed ${measureLengthTicks} ticks, ` +
+          `expected ${expectedMeasureTicks} ticks (divisions=${divisions}) — ` +
+          (shouldPad ? "padded to expected" : "using observed"),
+      );
+    }
     measures.push({
       index: measureIndex,
       startBeat: measureStartBeat,

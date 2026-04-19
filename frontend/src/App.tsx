@@ -184,6 +184,14 @@ export default function App() {
           <small>
             次回は PDF と一緒にこのファイルもドロップすると OMR をスキップして即解析できます。
           </small>
+          {analysis && (
+            <small className="tempo-debug">
+              テンポ: {analysis.tempo_bpm} bpm (source: {analysis.tempo_source ?? "?"})
+              {analysis.tempo_candidates && analysis.tempo_candidates.length > 0 && (
+                <> / 検出テキスト: {analysis.tempo_candidates.join(" | ")}</>
+              )}
+            </small>
+          )}
         </div>
         {analysis?.warnings && analysis.warnings.length > 0 && (
           <div className="warnings">

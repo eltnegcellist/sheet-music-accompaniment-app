@@ -15,6 +15,14 @@ class AnalyzeResponse(BaseModel):
     measures: list[MeasureBox]
     divisions: int
     tempo_bpm: float
+    tempo_source: str = Field(
+        default="default",
+        description="Which rule produced tempo_bpm: sound | metronome | word | default",
+    )
+    tempo_candidates: list[str] = Field(
+        default_factory=list,
+        description="All <words>/<credit-words>/<rehearsal> texts found — useful for diagnosing why tempo detection missed a marking.",
+    )
     page_sizes: list[tuple[float, float]] = Field(
         default_factory=list,
         description="Width/height in PDF points per page",
