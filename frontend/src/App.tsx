@@ -8,13 +8,20 @@ import {
   scheduleScore,
   type ScheduledHandle,
 } from "./audio/Scheduler";
-import { ensureAudioRunning, getPianoSampler } from "./audio/ToneEngine";
+import {
+  ensureAudioRunning,
+  getPianoSampler,
+  getViolinSynth,
+  soloVolumeToDb,
+  type SoloBus,
+} from "./audio/ToneEngine";
 import { PdfUploader } from "./components/PdfUploader";
 import { PdfViewer } from "./components/PdfViewer";
 import {
   PlaybackControls,
   type PlaybackState,
 } from "./components/PlaybackControls";
+import { SheetViewer } from "./components/SheetViewer";
 import { parseMusicXml } from "./music/musicXmlParser";
 import type { AnalyzeResponse } from "./types";
 
@@ -25,7 +32,10 @@ const DEFAULT_PLAYBACK: PlaybackState = {
   loop: false,
   countInBars: 1,
   metronome: false,
+  soloVolume: "normal",
 };
+
+type ViewMode = "pdf" | "sheet";
 
 export default function App() {
   const [pdfFile, setPdfFile] = useState<File | null>(null);
@@ -35,28 +45,46 @@ export default function App() {
   const [playback, setPlayback] = useState<PlaybackState>(DEFAULT_PLAYBACK);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentMeasure, setCurrentMeasure] = useState<number | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>("pdf");
 
   const samplerRef = useRef<Tone.Sampler | null>(null);
+  const soloBusRef = useRef<SoloBus | null>(null);
   const metronomeRef = useRef<Metronome | null>(null);
   const handleRef = useRef<ScheduledHandle | null>(null);
 
-  const score = useMemo(() => {
+  const accompanimentScore = useMemo(() => {
     if (!analysis) return null;
     return parseMusicXml(analysis.music_xml, analysis.accompaniment_part_id);
   }, [analysis]);
 
-  const measureCount = score?.measures.length ?? 0;
+  const soloScore = useMemo(() => {
+    if (!analysis?.solo_part_id) return null;
+    return parseMusicXml(analysis.music_xml, analysis.solo_part_id);
+  }, [analysis]);
+
+  const measureCount = accompanimentScore?.measures.length ?? 0;
+  const firstMeasure = accompanimentScore?.measures[0]?.index ?? 1;
+  const lastMeasure =
+    accompanimentScore?.measures[
+      (accompanimentScore?.measures.length ?? 1) - 1
+    ]?.index ?? 1;
 
   // Reset playback range when a new score loads.
   useEffect(() => {
-    if (!score || score.measures.length === 0) return;
+    if (!accompanimentScore || accompanimentScore.measures.length === 0) return;
+    const beats = analysis?.time_signature?.beats;
     setPlayback((p) => ({
       ...p,
       bpm: analysis?.tempo_bpm ?? p.bpm,
-      startMeasure: score.measures[0].index,
-      endMeasure: score.measures[score.measures.length - 1].index,
+      startMeasure: accompanimentScore.measures[0].index,
+      endMeasure:
+        accompanimentScore.measures[accompanimentScore.measures.length - 1]
+          .index,
     }));
-  }, [score, analysis]);
+    if (metronomeRef.current && beats) {
+      metronomeRef.current.setBeatsPerBar(beats);
+    }
+  }, [accompanimentScore, analysis]);
 
   const handleSelect = async (pdf: File, musicXml?: File) => {
     setPdfFile(pdf);
@@ -68,9 +96,9 @@ export default function App() {
       const result = await analyzePdf(pdf, musicXml);
       setAnalysis(result);
       setStatus(
-        `解析完了: ${result.measures.length} 小節 / 伴奏パート: ${
+        `解析完了: ${result.measures.length} 小節 / 伴奏: ${
           result.accompaniment_part_id ?? "(自動検出失敗)"
-        }`,
+        } / ソロ: ${result.solo_part_id ?? "なし"}`,
       );
     } catch (err) {
       setStatus(`エラー: ${(err as Error).message}`);
@@ -80,11 +108,14 @@ export default function App() {
   };
 
   const handlePlay = async () => {
-    if (!score || !analysis) return;
+    if (!accompanimentScore || !analysis) return;
     await ensureAudioRunning();
     if (!samplerRef.current) {
       setStatus("ピアノ音源を読み込み中…");
       samplerRef.current = await getPianoSampler();
+    }
+    if (soloScore && !soloBusRef.current) {
+      soloBusRef.current = await getViolinSynth();
     }
     if (!metronomeRef.current) {
       metronomeRef.current = new Metronome();
@@ -97,14 +128,26 @@ export default function App() {
     transport.cancel(0);
     transport.bpm.value = playback.bpm;
 
-    metronomeRef.current.setBeatsPerBar(4);
+    const beatsPerBar = analysis.time_signature?.beats ?? 4;
+    metronomeRef.current.setBeatsPerBar(beatsPerBar);
     metronomeRef.current.setEnabled(playback.metronome);
+    metronomeRef.current.setFermataBeats(
+      accompanimentScore.fermataBeats.concat(soloScore?.fermataBeats ?? []),
+    );
     metronomeRef.current.start();
 
+    if (soloBusRef.current) {
+      soloBusRef.current.volume.volume.value = soloVolumeToDb(
+        playback.soloVolume,
+      );
+    }
+
     handleRef.current = scheduleScore({
-      notes: score.notes,
-      measures: score.measures,
+      notes: accompanimentScore.notes,
+      measures: accompanimentScore.measures,
       sampler: samplerRef.current,
+      soloNotes: soloScore?.notes,
+      soloSynth: soloBusRef.current?.synth,
       onMeasureChange: (idx) => setCurrentMeasure(idx),
       startMeasure: playback.startMeasure,
       endMeasure: playback.endMeasure,
@@ -155,6 +198,14 @@ export default function App() {
     metronomeRef.current?.setEnabled(playback.metronome);
   }, [playback.metronome]);
 
+  useEffect(() => {
+    if (soloBusRef.current) {
+      soloBusRef.current.volume.volume.value = soloVolumeToDb(
+        playback.soloVolume,
+      );
+    }
+  }, [playback.soloVolume]);
+
   return (
     <div className="app">
       <header className="app__header">
@@ -164,12 +215,49 @@ export default function App() {
       </header>
 
       <main className="app__main">
-        <PdfViewer
-          pdfFile={pdfFile}
-          measures={analysis?.measures ?? []}
-          pageSizes={analysis?.page_sizes ?? []}
-          currentMeasureIndex={currentMeasure}
-        />
+        <div className="view-tabs">
+          <button
+            type="button"
+            className={viewMode === "pdf" ? "view-tabs__active" : ""}
+            onClick={() => setViewMode("pdf")}
+          >
+            PDF
+          </button>
+          <button
+            type="button"
+            className={viewMode === "sheet" ? "view-tabs__active" : ""}
+            onClick={() => setViewMode("sheet")}
+            disabled={!analysis}
+          >
+            譜面
+          </button>
+        </div>
+        {/* Both views stay mounted so OSMD can measure its container width
+            correctly on first render — toggling display:none collapses the
+            width to zero and OSMD produces a squashed layout. */}
+        <div
+          className={
+            "view-panel" + (viewMode === "pdf" ? "" : " view-panel--hidden")
+          }
+        >
+          <PdfViewer
+            pdfFile={pdfFile}
+            measures={analysis?.measures ?? []}
+            pageSizes={analysis?.page_sizes ?? []}
+            currentMeasureIndex={currentMeasure}
+          />
+        </div>
+        <div
+          className={
+            "view-panel" + (viewMode === "sheet" ? "" : " view-panel--hidden")
+          }
+        >
+          <SheetViewer
+            musicXml={analysis?.music_xml ?? null}
+            currentMeasureIndex={currentMeasure}
+            isPlaying={isPlaying}
+          />
+        </div>
       </main>
 
       <footer className="app__footer">
@@ -187,6 +275,13 @@ export default function App() {
           {analysis && (
             <small className="tempo-debug">
               テンポ: {analysis.tempo_bpm} bpm (source: {analysis.tempo_source ?? "?"})
+              {analysis.time_signature && (
+                <>
+                  {" / 拍子: "}
+                  {analysis.time_signature.beats}/
+                  {analysis.time_signature.beat_type}
+                </>
+              )}
               {analysis.tempo_candidates && analysis.tempo_candidates.length > 0 && (
                 <> / 検出テキスト: {analysis.tempo_candidates.join(" | ")}</>
               )}
@@ -204,8 +299,11 @@ export default function App() {
           state={playback}
           onChange={setPlayback}
           measureCount={measureCount}
+          firstMeasure={firstMeasure}
+          lastMeasure={lastMeasure}
+          hasSolo={!!soloScore}
           isPlaying={isPlaying}
-          isReady={!!score && !busy}
+          isReady={!!accompanimentScore && !busy}
           onPlay={handlePlay}
           onStop={handleStop}
         />

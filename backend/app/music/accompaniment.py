@@ -44,6 +44,24 @@ def find_accompaniment_part(music_xml: str) -> str | None:
     return parts[-1].get("id")
 
 
+def find_solo_part(music_xml: str, accompaniment_part_id: str | None) -> str | None:
+    """Pick the solo part: the first score-part that is NOT the accompaniment.
+
+    In a standard solo+piano score the soloist is conventionally listed above
+    the pianist. We therefore walk parts in document order and return the first
+    one whose id differs from the accompaniment.
+    """
+    if accompaniment_part_id is None:
+        return None
+    root = etree.fromstring(music_xml.encode("utf-8"))
+    parts = root.findall(".//score-part")
+    for part_el in parts:
+        part_id = part_el.get("id")
+        if part_id and part_id != accompaniment_part_id:
+            return part_id
+    return None
+
+
 def _part_has_two_staves(root: etree._Element, part_id: str) -> bool:
     part = root.find(f".//part[@id='{part_id}']")
     if part is None:

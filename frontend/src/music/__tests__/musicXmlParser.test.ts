@@ -145,4 +145,56 @@ describe("parseMusicXml", () => {
     expect(notes[0].beat).toBe(0);
     expect(notes[1].beat).toBe(0);
   });
+
+  it("applies dynamic markings to subsequent notes", () => {
+    const score = `<?xml version="1.0"?>
+<score-partwise><part-list><score-part id="P1"/></part-list><part id="P1">
+  <measure number="1">
+    <attributes><divisions>1</divisions></attributes>
+    <direction><direction-type><dynamics><p/></dynamics></direction-type></direction>
+    <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>
+    <direction><direction-type><dynamics><f/></dynamics></direction-type></direction>
+    <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration></note>
+  </measure>
+</part></score-partwise>`;
+    const { notes } = parseMusicXml(score, "P1");
+    expect(notes[0].velocity).toBeCloseTo(0.45);
+    expect(notes[1].velocity).toBeCloseTo(0.85);
+  });
+
+  it("stretches fermata notes and offsets subsequent beats", () => {
+    const score = `<?xml version="1.0"?>
+<score-partwise><part-list><score-part id="P1"/></part-list><part id="P1">
+  <measure number="1">
+    <attributes>
+      <divisions>1</divisions>
+      <time><beats>2</beats><beat-type>4</beat-type></time>
+    </attributes>
+    <note>
+      <pitch><step>C</step><octave>4</octave></pitch>
+      <duration>1</duration>
+    </note>
+    <note>
+      <pitch><step>D</step><octave>4</octave></pitch>
+      <duration>1</duration>
+      <notations><fermata/></notations>
+    </note>
+  </measure>
+  <measure number="2">
+    <note>
+      <pitch><step>E</step><octave>4</octave></pitch>
+      <duration>2</duration>
+    </note>
+  </measure>
+</part></score-partwise>`;
+    const { notes, measures, fermataBeats } = parseMusicXml(score, "P1");
+    // D is stretched by 75%.
+    const d = notes.find((n) => n.pitch === "D4");
+    expect(d?.durationBeats).toBeCloseTo(1.75);
+    // Measure 2 starts later by the fermata's extra duration.
+    expect(measures[1].startBeat).toBeCloseTo(2.75);
+    // Fermata release point is logged for metronome suppression.
+    expect(fermataBeats).toHaveLength(1);
+    expect(fermataBeats[0]).toBeCloseTo(2);
+  });
 });

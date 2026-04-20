@@ -7,16 +7,23 @@ export interface MeasureBox {
   bbox: [number, number, number, number];
 }
 
+export interface TimeSignature {
+  beats: number;
+  beat_type: number;
+}
+
 export interface AnalyzeResponse {
   music_xml: string;
   accompaniment_part_id: string | null;
+  solo_part_id: string | null;
   measures: MeasureBox[];
   divisions: number;
   tempo_bpm: number;
-  /** Which rule produced tempo_bpm: "sound" | "metronome" | "word" | "default" */
+  /** Which rule produced tempo_bpm: "sound" | "metronome" | "word" | "ocr-word" | "default" */
   tempo_source?: string;
   /** Text strings scanned for tempo words; useful to confirm what Audiveris OCR'd. */
   tempo_candidates?: string[];
+  time_signature: TimeSignature | null;
   page_sizes: [number, number][];
   warnings: string[];
 }

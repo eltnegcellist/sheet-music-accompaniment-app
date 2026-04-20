@@ -25,7 +25,8 @@ ENV AUDIVERIS_HOME=/opt/audiveris \
 # releases touch.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       python3 python3-pip python3-venv \
-      tesseract-ocr libtesseract-dev \
+      tesseract-ocr tesseract-ocr-ita tesseract-ocr-eng libtesseract-dev \
+      poppler-utils \
       curl ca-certificates \
       xdg-utils \
     && curl -fL -o /tmp/audiveris.deb \
@@ -49,7 +50,10 @@ RUN python3 -m pip install --no-cache-dir \
       "uvicorn[standard]>=0.32.0" \
       "python-multipart>=0.0.12" \
       "lxml>=5.3.0" \
-      "pydantic>=2.9.0"
+      "pydantic>=2.9.0" \
+      "pytesseract>=0.3.10" \
+      "pdf2image>=1.17.0" \
+      "pillow>=10.0.0"
 
 COPY app ./app
 COPY pyproject.toml ./

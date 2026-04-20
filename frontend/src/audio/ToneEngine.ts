@@ -1,12 +1,16 @@
 import * as Tone from "tone";
 
 /**
- * Lazily-constructed singleton sampler so we don't re-fetch the SoundFont on
- * every page render.
+ * Lazily-constructed singletons so we don't re-fetch samples or rebuild synth
+ * graphs on every page render.
  *
- * The sample set below is the "Salamander Grand Piano (Yamaha C5)" subset
- * hosted by the Tone.js project — sufficient quality for rehearsal use and a
- * familiar piano timbre. Swap the `baseUrl` to self-host if needed.
+ * Piano: Salamander Grand Piano subset hosted by the Tone.js project.
+ * Violin: a bowed-string-ish PolySynth (AM + sawtooth) with soft attack/
+ *         release. A synth is used instead of real samples so the solo
+ *         voice works offline and doesn't tie us to an external CDN for
+ *         violin assets; the timbre is intentionally warm-but-clearly-
+ *         distinct-from-piano so the solo line is easy to pick out from
+ *         the accompaniment during rehearsal.
  */
 let samplerPromise: Promise<Tone.Sampler> | null = null;
 
@@ -55,6 +59,56 @@ export function getPianoSampler(): Promise<Tone.Sampler> {
   });
 
   return samplerPromise;
+}
+
+/** Volume node for the solo/violin bus. The caller is expected to reuse the
+ *  same instance across the application so volume changes propagate. */
+export interface SoloBus {
+  synth: Tone.PolySynth;
+  volume: Tone.Volume;
+}
+
+let soloBusPromise: Promise<SoloBus> | null = null;
+
+export function getViolinSynth(): Promise<SoloBus> {
+  if (soloBusPromise) return soloBusPromise;
+
+  soloBusPromise = new Promise((resolve) => {
+    const volume = new Tone.Volume(0).toDestination();
+    const synth = new Tone.PolySynth(Tone.AMSynth, {
+      // A saw-based carrier with a slight amplitude modulation reads as a
+      // bowed string more than a piano, which is what we need so the user
+      // can pick the solo voice out from the accompaniment by ear.
+      harmonicity: 1.5,
+      oscillator: { type: "sawtooth" },
+      envelope: { attack: 0.08, decay: 0.1, sustain: 0.7, release: 0.4 },
+      modulation: { type: "sine" },
+      modulationEnvelope: {
+        attack: 0.2,
+        decay: 0.2,
+        sustain: 0.5,
+        release: 0.3,
+      },
+    });
+    synth.connect(volume);
+    resolve({ synth, volume });
+  });
+
+  return soloBusPromise;
+}
+
+/** Convert a "normal" | "karaoke" | "off" selection to a dB value. */
+export function soloVolumeToDb(
+  mode: "normal" | "karaoke" | "off",
+): number {
+  switch (mode) {
+    case "normal":
+      return 0;
+    case "karaoke":
+      return -18;
+    case "off":
+      return -Infinity;
+  }
 }
 
 /** Resume the AudioContext on a user gesture (required by browsers). */

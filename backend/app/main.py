@@ -7,15 +7,17 @@ from pathlib import Path
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
-from .music.accompaniment import find_accompaniment_part
+from .music.accompaniment import find_accompaniment_part, find_solo_part
 from .music.merger import merge_layout_with_musicxml
 from .music.parser import (
     extract_divisions_and_tempo,
     extract_tempo_info,
+    extract_time_signature,
     list_measures_with_bbox,
 )
+from .ocr.tempo_ocr import extract_tempo_from_pdf
 from .omr.audiveris_runner import AudiverisError, OmrResult, run_audiveris
-from .schemas import AnalyzeResponse, MeasureBox
+from .schemas import AnalyzeResponse, MeasureBox, TimeSignatureModel
 
 logger = logging.getLogger("accompanist")
 logging.basicConfig(level=logging.INFO)
@@ -94,9 +96,20 @@ async def analyze(
                 "Could not auto-detect accompaniment (piano) part; "
                 "falling back to last part."
             )
+        solo_part_id = find_solo_part(merged_xml, accompaniment_part_id)
 
         divisions, _ = extract_divisions_and_tempo(merged_xml)
         tempo_info = extract_tempo_info(merged_xml)
+        # If Audiveris didn't surface a tempo, try to OCR the top of the PDF
+        # directly. Slow-ish (~1–3s) so we only do it when the default fires.
+        if tempo_info.source == "default":
+            ocr_info = extract_tempo_from_pdf(pdf_path)
+            if ocr_info is not None:
+                logger.info(
+                    "Using OCR-derived tempo %.1f (was default)", ocr_info.bpm
+                )
+                tempo_info = ocr_info
+        time_signature = extract_time_signature(merged_xml)
         measures = [
             MeasureBox(index=m.index, page=m.page, bbox=m.bbox)
             for m in list_measures_with_bbox(omr_result, accompaniment_part_id)
@@ -105,11 +118,20 @@ async def analyze(
         return AnalyzeResponse(
             music_xml=merged_xml,
             accompaniment_part_id=accompaniment_part_id,
+            solo_part_id=solo_part_id,
             measures=measures,
             divisions=divisions,
             tempo_bpm=tempo_info.bpm,
             tempo_source=tempo_info.source,
             tempo_candidates=tempo_info.candidates,
+            time_signature=(
+                TimeSignatureModel(
+                    beats=time_signature.beats,
+                    beat_type=time_signature.beat_type,
+                )
+                if time_signature
+                else None
+            ),
             page_sizes=omr_result.page_sizes,
             warnings=warnings,
         )

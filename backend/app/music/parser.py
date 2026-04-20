@@ -52,6 +52,12 @@ class MeasureRef:
 
 
 @dataclass
+class TimeSignature:
+    beats: int
+    beat_type: int
+
+
+@dataclass
 class TempoInfo:
     """Result + provenance for the tempo extraction pass.
 
@@ -78,6 +84,36 @@ def extract_divisions_and_tempo(music_xml: str) -> tuple[int, float]:
 
 def extract_tempo_info(music_xml: str) -> TempoInfo:
     return _extract_tempo_info(_parse(music_xml))
+
+
+def extract_time_signature(music_xml: str) -> TimeSignature | None:
+    """Return the first `<time>` encountered, or None if absent/malformed.
+
+    We only return the first signature for now — meter changes mid-score are
+    possible but rare in the solo+piano repertoire this app targets, and the
+    metronome UI can only display one meter at a time.
+    """
+    root = _parse(music_xml)
+    time_el = root.find(".//attributes/time")
+    if time_el is None:
+        return None
+    beats_el = time_el.find("beats")
+    beat_type_el = time_el.find("beat-type")
+    if beats_el is None or beat_type_el is None:
+        return None
+    try:
+        beats = int((beats_el.text or "").strip())
+        beat_type = int((beat_type_el.text or "").strip())
+    except (TypeError, ValueError):
+        return None
+    if beats <= 0 or beat_type <= 0:
+        return None
+    return TimeSignature(beats=beats, beat_type=beat_type)
+
+
+def match_tempo_word_bpm(text: str) -> float | None:
+    """Public wrapper for tempo-word matching; used by the OCR fallback."""
+    return _first_tempo_word_bpm_from([text])
 
 
 def _extract_divisions(root: etree._Element) -> int:

@@ -1,4 +1,4 @@
-from app.music.accompaniment import find_accompaniment_part
+from app.music.accompaniment import find_accompaniment_part, find_solo_part
 
 
 SOLO_PIANO_DUET = """<?xml version="1.0" encoding="UTF-8"?>
@@ -60,3 +60,24 @@ def test_falls_back_to_name_match():
 
 def test_falls_back_to_last_part():
     assert find_accompaniment_part(NO_HINT) == "P2"
+
+
+def test_find_solo_returns_other_part():
+    # Accompaniment is P2 (piano); solo should be P1 (violin).
+    assert find_solo_part(SOLO_PIANO_DUET, "P2") == "P1"
+
+
+def test_find_solo_is_none_when_only_one_part():
+    single = """<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <part-list>
+    <score-part id="P1"><part-name>Piano</part-name></score-part>
+  </part-list>
+  <part id="P1"><measure number="1"/></part>
+</score-partwise>
+"""
+    assert find_solo_part(single, "P1") is None
+
+
+def test_find_solo_is_none_when_accompaniment_unknown():
+    assert find_solo_part(SOLO_PIANO_DUET, None) is None

@@ -20,7 +20,13 @@ import type { MeasureTiming, NoteEvent } from "../types";
 export function parseMusicXml(
   xml: string,
   partId: string | null,
-): { notes: NoteEvent[]; measures: MeasureTiming[] } {
+): {
+  notes: NoteEvent[];
+  measures: MeasureTiming[];
+  /** Absolute beat positions at which a fermata is held. Useful for
+   *  pausing the metronome click while the note is sustained. */
+  fermataBeats: number[];
+} {
   const doc = new DOMParser().parseFromString(xml, "application/xml");
   const parseError = doc.querySelector("parsererror");
   if (parseError) {
@@ -29,7 +35,7 @@ export function parseMusicXml(
 
   const part = pickPart(doc, partId);
   if (!part) {
-    return { notes: [], measures: [] };
+    return { notes: [], measures: [], fermataBeats: [] };
   }
 
   const rawMeasures = collectRawMeasures(part);
@@ -37,6 +43,7 @@ export function parseMusicXml(
 
   const measures: MeasureTiming[] = [];
   const notes: NoteEvent[] = [];
+  const fermataBeats: number[] = [];
   let elapsedBeats = 0;
 
   for (const raw of rawMeasures) {
@@ -58,10 +65,26 @@ export function parseMusicXml(
       );
     }
 
+    // Fermata stretch within this measure: extend the measure's length so
+    // subsequent measures stay aligned with audio, and stretch the fermata
+    // note itself so it's audibly longer. We use 1.75× (+75%) as a reasonable
+    // middle-of-the-road duration; real fermatas vary but this matches
+    // common rehearsal practice.
+    let measureFermataExtra = 0;
+    for (const n of raw.notes) {
+      if (n.hasFermata) {
+        const extra = n.durationBeats * 0.75;
+        measureFermataExtra += extra;
+        // Also log the absolute beat so we can pause metronome mid-bar.
+        fermataBeats.push(elapsedBeats + n.relativeBeats + n.durationBeats);
+        n.durationBeats += extra;
+      }
+    }
+
     measures.push({
       index: raw.index,
       startBeat: elapsedBeats,
-      lengthBeats,
+      lengthBeats: lengthBeats + measureFermataExtra,
     });
 
     for (const n of raw.notes) {
@@ -74,11 +97,11 @@ export function parseMusicXml(
       });
     }
 
-    elapsedBeats += lengthBeats;
+    elapsedBeats += lengthBeats + measureFermataExtra;
   }
 
   notes.sort((a, b) => a.beat - b.beat);
-  return { notes, measures };
+  return { notes, measures, fermataBeats };
 }
 
 interface RawNote {
@@ -88,6 +111,7 @@ interface RawNote {
   pitch: string;
   velocity: number;
   measureIndex: number;
+  hasFermata: boolean;
 }
 
 interface RawMeasure {
@@ -99,10 +123,31 @@ interface RawMeasure {
   notes: RawNote[];
 }
 
+// Velocity (0..1) table for MusicXML dynamic marks. The curve is mildly
+// compressed compared to the MIDI spec so that `pp` is still audible over the
+// metronome click and `ff` doesn't clip the default master gain.
+const DYNAMIC_VELOCITY: Record<string, number> = {
+  ppp: 0.2,
+  pp: 0.3,
+  p: 0.45,
+  mp: 0.6,
+  mf: 0.75,
+  f: 0.85,
+  ff: 0.95,
+  fff: 1.0,
+  sf: 0.95,
+  sfz: 0.95,
+  fp: 0.85,
+};
+
+const DEFAULT_VELOCITY = DYNAMIC_VELOCITY.mf;
+
 function collectRawMeasures(part: Element): RawMeasure[] {
   const out: RawMeasure[] = [];
   let divisions = 1; // ticks per quarter; updated when <attributes><divisions>
   let expectedMeasureTicks = 0;
+  // Running dynamic level (carried across measures). Default = mf.
+  let currentVelocity = DEFAULT_VELOCITY;
 
   for (const measureEl of Array.from(part.getElementsByTagName("measure"))) {
     const measureIndex = Number(measureEl.getAttribute("number") ?? "0") || 0;
@@ -148,6 +193,22 @@ function collectRawMeasures(part: Element): RawMeasure[] {
           }
           break;
         }
+        case "direction": {
+          const dyn = readDynamic(child);
+          if (dyn !== null) currentVelocity = dyn;
+          break;
+        }
+        case "sound": {
+          // <sound dynamics="NN"/> directly — MIDI-style 0..127 scale.
+          const dyn = child.getAttribute("dynamics");
+          if (dyn) {
+            const parsed = Number.parseFloat(dyn);
+            if (Number.isFinite(parsed) && parsed > 0) {
+              currentVelocity = Math.min(1, parsed / 127);
+            }
+          }
+          break;
+        }
         case "backup": {
           const dur = readDuration(child);
           cursorTicks = Math.max(0, cursorTicks - dur);
@@ -165,6 +226,7 @@ function collectRawMeasures(part: Element): RawMeasure[] {
           const noteStartTicks = isChord
             ? cursorTicks - dur // chord notes share the previous note's start
             : cursorTicks;
+          const hasFermata = hasFermataNotation(child);
 
           if (!isRest) {
             const pitch = readPitch(child);
@@ -173,8 +235,9 @@ function collectRawMeasures(part: Element): RawMeasure[] {
                 relativeBeats: ticksToBeats(noteStartTicks, divisions),
                 durationBeats: ticksToBeats(dur, divisions),
                 pitch,
-                velocity: 0.8,
+                velocity: currentVelocity,
                 measureIndex,
+                hasFermata,
               });
             }
           }
@@ -260,6 +323,40 @@ function readDuration(el: Element): number {
 
 function ticksToBeats(ticks: number, divisions: number): number {
   return divisions > 0 ? ticks / divisions : 0;
+}
+
+/**
+ * Inspect a <direction> for a <dynamics> child (the usual MusicXML location).
+ * Also honours an explicit <sound dynamics="NN"/> inside the direction, which
+ * some engravers use to override the dynamic tag's default velocity.
+ */
+function readDynamic(directionEl: Element): number | null {
+  const dynamicsEl = directionEl.getElementsByTagName("dynamics")[0];
+  if (dynamicsEl) {
+    for (const child of Array.from(dynamicsEl.children)) {
+      const key = child.tagName.toLowerCase();
+      if (key in DYNAMIC_VELOCITY) return DYNAMIC_VELOCITY[key];
+    }
+  }
+  const soundEl = directionEl.getElementsByTagName("sound")[0];
+  if (soundEl) {
+    const dyn = soundEl.getAttribute("dynamics");
+    if (dyn) {
+      const parsed = Number.parseFloat(dyn);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        return Math.min(1, parsed / 127);
+      }
+    }
+  }
+  return null;
+}
+
+function hasFermataNotation(noteEl: Element): boolean {
+  const notationsList = noteEl.getElementsByTagName("notations");
+  for (const n of Array.from(notationsList)) {
+    if (n.getElementsByTagName("fermata").length > 0) return true;
+  }
+  return false;
 }
 
 const STEP_TO_SEMITONE: Record<string, number> = {
