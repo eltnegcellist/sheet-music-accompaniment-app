@@ -162,6 +162,22 @@ describe("parseMusicXml", () => {
     expect(notes[1].velocity).toBeCloseTo(0.85);
   });
 
+  it("parses dynamics emitted as <words> text (Audiveris style)", () => {
+    const score = `<?xml version="1.0"?>
+<score-partwise><part-list><score-part id="P1"/></part-list><part id="P1">
+  <measure number="1">
+    <attributes><divisions>1</divisions></attributes>
+    <direction><direction-type><words>p</words></direction-type></direction>
+    <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>
+    <direction><direction-type><words>ff</words></direction-type></direction>
+    <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration></note>
+  </measure>
+</part></score-partwise>`;
+    const { notes } = parseMusicXml(score, "P1");
+    expect(notes[0].velocity).toBeCloseTo(0.45);
+    expect(notes[1].velocity).toBeCloseTo(0.95);
+  });
+
   it("stretches fermata notes and offsets subsequent beats", () => {
     const score = `<?xml version="1.0"?>
 <score-partwise><part-list><score-part id="P1"/></part-list><part id="P1">

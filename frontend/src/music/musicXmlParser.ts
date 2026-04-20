@@ -329,6 +329,12 @@ function ticksToBeats(ticks: number, divisions: number): number {
  * Inspect a <direction> for a <dynamics> child (the usual MusicXML location).
  * Also honours an explicit <sound dynamics="NN"/> inside the direction, which
  * some engravers use to override the dynamic tag's default velocity.
+ *
+ * Audiveris, annoyingly, frequently emits dynamics as italic *text* instead
+ * of proper <dynamics> tags — so we also look at <words>p</words>,
+ * <words>ff</words>, etc. This is the path that matters in practice: the
+ * Elgar "Salut d'Amour" test score, for instance, has every dynamic marking
+ * represented as <words> rather than <dynamics>.
  */
 function readDynamic(directionEl: Element): number | null {
   const dynamicsEl = directionEl.getElementsByTagName("dynamics")[0];
@@ -336,6 +342,19 @@ function readDynamic(directionEl: Element): number | null {
     for (const child of Array.from(dynamicsEl.children)) {
       const key = child.tagName.toLowerCase();
       if (key in DYNAMIC_VELOCITY) return DYNAMIC_VELOCITY[key];
+    }
+    // Some exporters write <dynamics>p</dynamics> with no child tags.
+    const text = (dynamicsEl.textContent ?? "").trim().toLowerCase();
+    if (text && text in DYNAMIC_VELOCITY) return DYNAMIC_VELOCITY[text];
+  }
+  // Audiveris-style: <words>p</words>, <words>ff</words>, …
+  const wordEls = directionEl.getElementsByTagName("words");
+  for (const el of Array.from(wordEls)) {
+    const raw = (el.textContent ?? "").trim().toLowerCase();
+    // Strip trailing punctuation ("p.") and look up.
+    const cleaned = raw.replace(/[^a-z]/g, "");
+    if (cleaned && cleaned in DYNAMIC_VELOCITY) {
+      return DYNAMIC_VELOCITY[cleaned];
     }
   }
   const soundEl = directionEl.getElementsByTagName("sound")[0];

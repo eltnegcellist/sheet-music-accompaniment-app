@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { OpenSheetMusicDisplay } from "opensheetmusicdisplay";
 
+import { sanitizeForOsmd } from "../music/sanitize";
+
 interface Props {
   musicXml: string | null;
   currentMeasureIndex: number | null;
@@ -9,12 +11,13 @@ interface Props {
 
 /**
  * Render the parsed MusicXML as SVG via OSMD and drive a cursor to the
- * currently-playing measure. We keep the OSMD instance around across renders
- * (it owns expensive layout state) and only rebuild it when the XML changes.
+ * currently-playing measure.
  *
- * Fallback strategy: if the OSMD cursor fails to reach the requested measure
- * (e.g. repeats confuse the iterator), we silently fall back to a translucent
- * overlay `<div>` positioned over the measure's bounding box.
+ * Failure recovery: if OSMD fails on the raw MusicXML (typically with a
+ * `realValue` / Fraction error when Audiveris emits an incomplete element),
+ * we retry once against a sanitized copy of the XML. This means a flaky
+ * first render gives the user a usable second render rather than a blank
+ * tab, at the cost of silently dropping known-broken fragments.
  */
 export function SheetViewer({
   musicXml,
@@ -32,7 +35,6 @@ export function SheetViewer({
 
     let cancelled = false;
 
-    // OSMD holds onto DOM nodes; clear them before re-creating.
     container.innerHTML = "";
     setStatus("譜面を生成中…");
 
@@ -46,18 +48,39 @@ export function SheetViewer({
     });
     osmdRef.current = osmd;
 
-    osmd
-      .load(musicXml)
-      .then(() => {
+    const tryLoad = async (xml: string): Promise<void> => {
+      await osmd.load(xml);
+      osmd.render();
+    };
+
+    (async () => {
+      try {
+        await tryLoad(musicXml);
+        if (!cancelled) setStatus("");
+      } catch (err) {
         if (cancelled) return;
-        osmd.render();
-        setStatus("");
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        console.error("[osmd] render failed", err);
-        setStatus(`譜面のレンダリングに失敗しました: ${(err as Error).message}`);
-      });
+        console.warn("[osmd] initial render failed, retrying sanitized", err);
+        setStatus("譜面を生成中… (サニタイズ後リトライ)");
+        try {
+          // OSMD holds internal state from the failed attempt; discard it.
+          container.innerHTML = "";
+          await tryLoad(sanitizeForOsmd(musicXml));
+          if (!cancelled) {
+            setStatus(
+              "一部の要素を修正して表示しました (詳細はコンソール参照)",
+            );
+          }
+        } catch (retryErr) {
+          if (cancelled) return;
+          console.error("[osmd] sanitized render also failed", retryErr);
+          setStatus(
+            `譜面のレンダリングに失敗しました: ${
+              (retryErr as Error).message
+            }`,
+          );
+        }
+      }
+    })();
 
     return () => {
       cancelled = true;
@@ -81,15 +104,10 @@ export function SheetViewer({
     try {
       osmd.cursor.show();
       osmd.cursor.reset();
-      // Advance until the cursor sits on the requested measure. OSMD uses
-      // 0-based measure indices internally; our measure index is the
-      // MusicXML-reported number (usually also 1-based), so we step until
-      // the cursor's measure number matches.
       for (let i = 0; i < 2000; i++) {
         const iter = osmd.cursor.iterator;
         if (iter.EndReached) break;
         const idx = iter.CurrentMeasureIndex;
-        // CurrentMeasureIndex is 0-based; our indices are 1-based.
         if (idx + 1 >= currentMeasureIndex) break;
         osmd.cursor.next();
       }
