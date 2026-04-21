@@ -162,6 +162,23 @@ describe("parseMusicXml", () => {
     expect(notes[1].velocity).toBeCloseTo(0.75);
   });
 
+  it("applies transpose chromatic + octave-change from attributes", () => {
+    const score = `<?xml version="1.0"?>
+<score-partwise><part-list><score-part id="P1"/></part-list><part id="P1">
+  <measure number="1">
+    <attributes>
+      <divisions>1</divisions>
+      <transpose><chromatic>2</chromatic><octave-change>1</octave-change></transpose>
+    </attributes>
+    <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>
+  </measure>
+</part></score-partwise>`;
+    const { notes } = parseMusicXml(score, "P1");
+    expect(notes).toHaveLength(1);
+    // C4 + 14 semitones => D5
+    expect(notes[0].pitch).toBe("D5");
+  });
+
   it("parses dynamics emitted as <words> text (Audiveris style)", () => {
     const score = `<?xml version="1.0"?>
 <score-partwise><part-list><score-part id="P1"/></part-list><part id="P1">

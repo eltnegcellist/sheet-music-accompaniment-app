@@ -154,6 +154,13 @@ interface RawNote {
   measureIndex: number;
   hasFermata: boolean;
 }
+interface ParserDiagnostics {
+  noteElements: number;
+  parsedNotes: number;
+  droppedMissingPitch: number;
+  droppedZeroDuration: number;
+  restNotes: number;
+}
 interface RawMeasure {
   index: number;
   isImplicit: boolean;
@@ -182,6 +189,14 @@ function collectRawMeasures(part: Element): RawMeasure[] {
   let divisions = 1;
   let expectedMeasureTicks = 0;
   let currentVelocity = DEFAULT_VELOCITY;
+  let transposeSemitones = 0;
+  const diagnostics: ParserDiagnostics = {
+    noteElements: 0,
+    parsedNotes: 0,
+    droppedMissingPitch: 0,
+    droppedZeroDuration: 0,
+    restNotes: 0,
+  };
   for (const measureEl of Array.from(part.getElementsByTagName("measure"))) {
     const measureIndex = Number(measureEl.getAttribute("number") ?? "0") || 0;
     const isImplicit = measureEl.getAttribute("implicit") === "yes";
@@ -203,6 +218,20 @@ function collectRawMeasures(part: Element): RawMeasure[] {
             if (Number.isFinite(beats) && beats > 0 && Number.isFinite(beatType) && beatType > 0) {
               expectedMeasureTicks = Math.round((beats * divisions * 4) / beatType);
             }
+          }
+          const transposeEl = child.getElementsByTagName("transpose")[0];
+          if (transposeEl) {
+            const chromatic = Number.parseInt(
+              transposeEl.getElementsByTagName("chromatic")[0]?.textContent ?? "",
+              10,
+            );
+            const octaveChange = Number.parseInt(
+              transposeEl.getElementsByTagName("octave-change")[0]?.textContent ?? "",
+              10,
+            );
+            const chromaticSemi = Number.isFinite(chromatic) ? chromatic : 0;
+            const octaveSemi = Number.isFinite(octaveChange) ? octaveChange * 12 : 0;
+            transposeSemitones = chromaticSemi + octaveSemi;
           }
           break;
         }
@@ -230,16 +259,23 @@ function collectRawMeasures(part: Element): RawMeasure[] {
           break;
         }
         case "note": {
+          diagnostics.noteElements += 1;
           const dur = readDuration(child);
+          if (dur <= 0) diagnostics.droppedZeroDuration += 1;
           const isChord = child.getElementsByTagName("chord").length > 0;
           const isRest = child.getElementsByTagName("rest").length > 0;
           const noteStartTicks = isChord ? cursorTicks - dur : cursorTicks;
           const hasFermata = hasFermataNotation(child);
           if (!isRest) {
-            const pitch = readPitch(child);
+            const pitch = readPitch(child, transposeSemitones);
             if (pitch) {
               rawNotes.push({ relativeBeats: ticksToBeats(noteStartTicks, divisions), durationBeats: ticksToBeats(dur, divisions), pitch, velocity: currentVelocity, measureIndex, hasFermata });
+              diagnostics.parsedNotes += 1;
+            } else {
+              diagnostics.droppedMissingPitch += 1;
             }
+          } else {
+            diagnostics.restNotes += 1;
           }
           if (!isChord) {
             cursorTicks += dur;
@@ -255,6 +291,12 @@ function collectRawMeasures(part: Element): RawMeasure[] {
       expectedBeats: expectedMeasureTicks > 0 ? ticksToBeats(expectedMeasureTicks, divisions) : 0,
       notes: rawNotes,
     });
+  }
+  const debugEnabled =
+    typeof window !== "undefined" &&
+    Boolean((window as { __IMSLP_DEBUG__?: boolean }).__IMSLP_DEBUG__);
+  if (debugEnabled) {
+    console.debug("[musicXmlParser.collectRawMeasures]", diagnostics);
   }
   return out;
 }
@@ -337,7 +379,7 @@ function hasFermataNotation(noteEl: Element): boolean {
 }
 const STEP_TO_SEMITONE: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
 const SEMITONE_TO_NAME = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-function readPitch(noteEl: Element): string | null {
+function readPitch(noteEl: Element, transposeSemitones = 0): string | null {
   const pitchEl = noteEl.getElementsByTagName("pitch")[0];
   if (!pitchEl) return null;
   const step = pitchEl.getElementsByTagName("step")[0]?.textContent ?? "";
@@ -348,5 +390,20 @@ function readPitch(noteEl: Element): string | null {
   const base = STEP_TO_SEMITONE[step] + alter;
   const normalized = ((base % 12) + 12) % 12;
   const octaveShift = Math.floor(base / 12);
-  return `${SEMITONE_TO_NAME[normalized]}${octave + octaveShift}`;
+  const noteName = `${SEMITONE_TO_NAME[normalized]}${octave + octaveShift}`;
+  return shiftPitch(noteName, transposeSemitones);
+}
+
+function shiftPitch(pitch: string, semitones: number): string {
+  if (!semitones) return pitch;
+  const match = /^([A-G]#?)(-?\d+)$/.exec(pitch);
+  if (!match) return pitch;
+  const name = match[1];
+  const octave = Number.parseInt(match[2], 10);
+  const semitone = SEMITONE_TO_NAME.indexOf(name);
+  if (semitone < 0 || !Number.isFinite(octave)) return pitch;
+  const midi = (octave + 1) * 12 + semitone + semitones;
+  const nextSemitone = ((midi % 12) + 12) % 12;
+  const nextOctave = Math.floor(midi / 12) - 1;
+  return `${SEMITONE_TO_NAME[nextSemitone]}${nextOctave}`;
 }

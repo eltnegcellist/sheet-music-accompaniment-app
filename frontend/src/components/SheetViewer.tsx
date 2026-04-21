@@ -30,6 +30,9 @@ export function SheetViewer({
   const osmdRef = useRef<OpenSheetMusicDisplay | null>(null);
   const lastSyncedMeasureRef = useRef<number | null>(null);
   const [status, setStatus] = useState<string>("");
+  const debugEnabled =
+    typeof window !== "undefined" &&
+    Boolean((window as { __IMSLP_DEBUG__?: boolean }).__IMSLP_DEBUG__);
 
   // Create / reload OSMD whenever the source XML changes.
   useEffect(() => {
@@ -108,28 +111,40 @@ export function SheetViewer({
       } catch {
         /* OSMD may not be ready yet; ignore */
       }
+      lastSyncedMeasureRef.current = null;
       return;
     }
 
     try {
-      const targetMeasure = Math.max(1, currentMeasureIndex);
-      const lastSyncedMeasure = lastSyncedMeasureRef.current;
+          const targetMeasure = Math.max(1, currentMeasureIndex);
+          const lastSyncedMeasure = lastSyncedMeasureRef.current;
+          osmd.cursor.show();
 
-      osmd.cursor.show();
+          let advancedSteps = 0;
+          if (lastSyncedMeasure === null || targetMeasure < lastSyncedMeasure) {
+            osmd.cursor.reset();
+            for (let i = 0; i < targetMeasure - 1; i++) {
+              if (osmd.cursor.iterator.EndReached) break;
+              osmd.cursor.next();
+              advancedSteps += 1;
+            }
+          } else if (targetMeasure > lastSyncedMeasure) {
+            const delta = targetMeasure - lastSyncedMeasure;
+            for (let i = 0; i < delta; i++) {
+              if (osmd.cursor.iterator.EndReached) break;
+              osmd.cursor.next();
+              advancedSteps += 1;
+            }
+          }
 
-      if (lastSyncedMeasure === null || targetMeasure < lastSyncedMeasure) {
-        osmd.cursor.reset();
-        for (let i = 0; i < targetMeasure - 1; i++) {
-          if (osmd.cursor.iterator.EndReached) break;
-          osmd.cursor.next();
-        }
-      } else if (targetMeasure > lastSyncedMeasure) {
-        const delta = targetMeasure - lastSyncedMeasure;
-        for (let i = 0; i < delta; i++) {
-          if (osmd.cursor.iterator.EndReached) break;
-          osmd.cursor.next();
-        }
-      }
+          lastSyncedMeasureRef.current = targetMeasure;
+          if (debugEnabled) {
+            console.debug("[sheet-cursor]", {
+              targetMeasure,
+              lastSyncedMeasure,
+              advancedSteps,
+            });
+          }
 
       lastSyncedMeasureRef.current = targetMeasure;
     } catch (err) {
