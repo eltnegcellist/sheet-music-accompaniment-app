@@ -116,34 +116,37 @@ export function SheetViewer({
     }
 
     try {
-      const targetMeasure = Math.max(1, currentMeasureIndex);
-      const lastSyncedMeasure = lastSyncedMeasureRef.current;
-      osmd.cursor.show();
+          const targetMeasure = Math.max(1, currentMeasureIndex);
+          const lastSyncedMeasure = lastSyncedMeasureRef.current;
+          osmd.cursor.show();
 
-      let advancedSteps = 0;
-      if (lastSyncedMeasure === null || targetMeasure < lastSyncedMeasure) {
-        osmd.cursor.reset();
-        for (let i = 0; i < targetMeasure - 1; i++) {
-          if (osmd.cursor.iterator.EndReached) break;
-          osmd.cursor.next();
-          advancedSteps += 1;
-        }
-      } else if (targetMeasure > lastSyncedMeasure) {
-        const delta = targetMeasure - lastSyncedMeasure;
-        for (let i = 0; i < delta; i++) {
-          if (osmd.cursor.iterator.EndReached) break;
-          osmd.cursor.next();
-          advancedSteps += 1;
-        }
-      }
+          let advancedSteps = 0;
+          if (lastSyncedMeasure === null || targetMeasure < lastSyncedMeasure) {
+            osmd.cursor.reset();
+            for (let i = 0; i < targetMeasure - 1; i++) {
+              if (osmd.cursor.iterator.EndReached) break;
+              osmd.cursor.next();
+              advancedSteps += 1;
+            }
+          } else if (targetMeasure > lastSyncedMeasure) {
+            const delta = targetMeasure - lastSyncedMeasure;
+            for (let i = 0; i < delta; i++) {
+              if (osmd.cursor.iterator.EndReached) break;
+              osmd.cursor.next();
+              advancedSteps += 1;
+            }
+          }
+
+          lastSyncedMeasureRef.current = targetMeasure;
+          if (debugEnabled) {
+            console.debug("[sheet-cursor]", {
+              targetMeasure,
+              lastSyncedMeasure,
+              advancedSteps,
+            });
+          }
+
       lastSyncedMeasureRef.current = targetMeasure;
-      if (debugEnabled) {
-        console.debug("[sheet-cursor]", {
-          targetMeasure,
-          lastSyncedMeasure,
-          advancedSteps,
-        });
-      }
     } catch (err) {
       console.warn("[osmd] cursor advance failed", err);
     }
