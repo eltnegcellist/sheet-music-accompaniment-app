@@ -131,8 +131,11 @@ export default function App() {
     const beatsPerBar = analysis.time_signature?.beats ?? 4;
     metronomeRef.current.setBeatsPerBar(beatsPerBar);
     metronomeRef.current.setEnabled(playback.metronome);
-    metronomeRef.current.setFermataBeats(
-      accompanimentScore.fermataBeats.concat(soloScore?.fermataBeats ?? []),
+    const allFermataBeats = accompanimentScore.fermataBeats.concat(
+      soloScore?.fermataBeats ?? [],
+    );
+    metronomeRef.current.setFermataWindows(
+      allFermataBeats.map((b) => ({ start: Math.max(0, b - 1), end: b })),
     );
     metronomeRef.current.start();
 
@@ -256,6 +259,7 @@ export default function App() {
             musicXml={analysis?.music_xml ?? null}
             currentMeasureIndex={currentMeasure}
             isPlaying={isPlaying}
+            isVisible={viewMode === "sheet"}
           />
         </div>
       </main>
@@ -274,7 +278,10 @@ export default function App() {
           </small>
           {analysis && (
             <small className="tempo-debug">
-              テンポ: {analysis.tempo_bpm} bpm (source: {analysis.tempo_source ?? "?"})
+              テンポ: {analysis.tempo_bpm} bpm
+              {analysis.tempo_matched_word
+                ? ` (${analysis.tempo_matched_word})`
+                : ` (source: ${analysis.tempo_source ?? "?"})`}
               {analysis.time_signature && (
                 <>
                   {" / 拍子: "}
@@ -282,9 +289,7 @@ export default function App() {
                   {analysis.time_signature.beat_type}
                 </>
               )}
-              {analysis.tempo_candidates && analysis.tempo_candidates.length > 0 && (
-                <> / 検出テキスト: {analysis.tempo_candidates.join(" | ")}</>
-              )}
+
             </small>
           )}
         </div>

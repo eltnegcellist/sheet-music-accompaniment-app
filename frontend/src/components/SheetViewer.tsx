@@ -7,6 +7,7 @@ interface Props {
   musicXml: string | null;
   currentMeasureIndex: number | null;
   isPlaying: boolean;
+  isVisible: boolean;
 }
 
 /**
@@ -23,6 +24,7 @@ export function SheetViewer({
   musicXml,
   currentMeasureIndex,
   isPlaying,
+  isVisible,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const osmdRef = useRef<OpenSheetMusicDisplay | null>(null);
@@ -92,7 +94,7 @@ export function SheetViewer({
   useEffect(() => {
     const osmd = osmdRef.current;
     if (!osmd) return;
-    if (!isPlaying || currentMeasureIndex === null) {
+    if (!isPlaying || currentMeasureIndex === null || !isVisible) {
       try {
         osmd.cursor.hide();
       } catch {
@@ -114,7 +116,7 @@ export function SheetViewer({
     } catch (err) {
       console.warn("[osmd] cursor advance failed", err);
     }
-  }, [currentMeasureIndex, isPlaying]);
+  }, [currentMeasureIndex, isPlaying, isVisible]);
 
   if (!musicXml) {
     return (

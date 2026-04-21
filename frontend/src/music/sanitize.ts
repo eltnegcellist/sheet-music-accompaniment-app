@@ -61,6 +61,13 @@ export function sanitizeForOsmd(xml: string): string {
     }
   }
 
+
+  // Strip <octave-shift> to prevent OSMD realValue crashes from malformed OMR output.
+  const shifts = Array.from(doc.getElementsByTagName("octave-shift"));
+  for (const s of shifts) {
+    s.parentNode?.removeChild(s);
+  }
+
   // Strip zero-duration non-grace notes.
   const notes = Array.from(doc.getElementsByTagName("note"));
   for (const n of notes) {

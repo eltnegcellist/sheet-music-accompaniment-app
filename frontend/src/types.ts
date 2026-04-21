@@ -21,6 +21,8 @@ export interface AnalyzeResponse {
   tempo_bpm: number;
   /** Which rule produced tempo_bpm: "sound" | "metronome" | "word" | "ocr-word" | "default" */
   tempo_source?: string;
+  /** Tempo word that actually matched (e.g. "allegro"). */
+  tempo_matched_word?: string | null;
   /** Text strings scanned for tempo words; useful to confirm what Audiveris OCR'd. */
   tempo_candidates?: string[];
   time_signature: TimeSignature | null;
@@ -49,4 +51,10 @@ export interface MeasureTiming {
   startBeat: number;
   /** Length of the measure in beats */
   lengthBeats: number;
+}
+
+/** A time window (in beats from score start) where a fermata is sustained. */
+export interface FermataWindow {
+  start: number;
+  end: number;
 }
