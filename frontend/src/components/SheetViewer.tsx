@@ -28,6 +28,7 @@ export function SheetViewer({
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const osmdRef = useRef<OpenSheetMusicDisplay | null>(null);
+  const lastSyncedMeasureRef = useRef<number | null>(null);
   const [status, setStatus] = useState<string>("");
 
   // Create / reload OSMD whenever the source XML changes.
@@ -38,6 +39,7 @@ export function SheetViewer({
     let cancelled = false;
 
     container.innerHTML = "";
+    lastSyncedMeasureRef.current = null;
     setStatus("譜面を生成中…");
 
     const osmd = new OpenSheetMusicDisplay(container, {
@@ -87,8 +89,14 @@ export function SheetViewer({
     return () => {
       cancelled = true;
       osmdRef.current = null;
+      lastSyncedMeasureRef.current = null;
     };
   }, [musicXml]);
+
+  useEffect(() => {
+    if (isPlaying) return;
+    lastSyncedMeasureRef.current = null;
+  }, [isPlaying]);
 
   // Drive the cursor to the current measure while playing.
   useEffect(() => {
@@ -104,15 +112,26 @@ export function SheetViewer({
     }
 
     try {
+      const targetMeasure = Math.max(1, currentMeasureIndex);
+      const lastSyncedMeasure = lastSyncedMeasureRef.current;
+
       osmd.cursor.show();
-      osmd.cursor.reset();
-      for (let i = 0; i < 2000; i++) {
-        const iter = osmd.cursor.iterator;
-        if (iter.EndReached) break;
-        const idx = iter.CurrentMeasureIndex;
-        if (idx + 1 >= currentMeasureIndex) break;
-        osmd.cursor.next();
+
+      if (lastSyncedMeasure === null || targetMeasure < lastSyncedMeasure) {
+        osmd.cursor.reset();
+        for (let i = 0; i < targetMeasure - 1; i++) {
+          if (osmd.cursor.iterator.EndReached) break;
+          osmd.cursor.next();
+        }
+      } else if (targetMeasure > lastSyncedMeasure) {
+        const delta = targetMeasure - lastSyncedMeasure;
+        for (let i = 0; i < delta; i++) {
+          if (osmd.cursor.iterator.EndReached) break;
+          osmd.cursor.next();
+        }
       }
+
+      lastSyncedMeasureRef.current = targetMeasure;
     } catch (err) {
       console.warn("[osmd] cursor advance failed", err);
     }
