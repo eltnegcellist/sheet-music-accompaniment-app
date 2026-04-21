@@ -49,6 +49,7 @@ def test_matches_andantino(tmp_path: Path, monkeypatch):
     assert result is not None
     assert result.bpm == 90.0
     assert result.source == "ocr-word"
+    assert result.matched_word == "andantino"
 
 
 def test_matches_allegro_moderato(tmp_path: Path, monkeypatch):
@@ -56,6 +57,7 @@ def test_matches_allegro_moderato(tmp_path: Path, monkeypatch):
     result = tempo_ocr.extract_tempo_from_pdf(tmp_path / "fake.pdf")
     assert result is not None
     assert result.bpm == 118.0
+    assert result.matched_word == "allegro moderato"
 
 
 def test_no_match_returns_none(tmp_path: Path, monkeypatch):

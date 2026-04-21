@@ -22,7 +22,7 @@ import {
   type PlaybackState,
 } from "./components/PlaybackControls";
 import { SheetViewer } from "./components/SheetViewer";
-import { parseMusicXml } from "./music/musicXmlParser";
+import { parseScore } from "./music/musicXmlParser";
 import type { AnalyzeResponse } from "./types";
 
 const DEFAULT_PLAYBACK: PlaybackState = {
@@ -52,15 +52,24 @@ export default function App() {
   const metronomeRef = useRef<Metronome | null>(null);
   const handleRef = useRef<ScheduledHandle | null>(null);
 
-  const accompanimentScore = useMemo(() => {
+  const parsedScore = useMemo(() => {
     if (!analysis) return null;
-    return parseMusicXml(analysis.music_xml, analysis.accompaniment_part_id);
+    return parseScore(
+      analysis.music_xml,
+      analysis.accompaniment_part_id,
+      analysis.solo_part_id ?? null,
+    );
   }, [analysis]);
 
+  const accompanimentScore = useMemo(() => {
+    if (!parsedScore) return null;
+    return { notes: parsedScore.accNotes, measures: parsedScore.measures };
+  }, [parsedScore]);
+
   const soloScore = useMemo(() => {
-    if (!analysis?.solo_part_id) return null;
-    return parseMusicXml(analysis.music_xml, analysis.solo_part_id);
-  }, [analysis]);
+    if (!parsedScore) return null;
+    return parsedScore.soloNotes.length > 0 ? { notes: parsedScore.soloNotes } : null;
+  }, [parsedScore]);
 
   const measureCount = accompanimentScore?.measures.length ?? 0;
   const firstMeasure = accompanimentScore?.measures[0]?.index ?? 1;
@@ -131,9 +140,7 @@ export default function App() {
     const beatsPerBar = analysis.time_signature?.beats ?? 4;
     metronomeRef.current.setBeatsPerBar(beatsPerBar);
     metronomeRef.current.setEnabled(playback.metronome);
-    metronomeRef.current.setFermataBeats(
-      accompanimentScore.fermataBeats.concat(soloScore?.fermataBeats ?? []),
-    );
+    metronomeRef.current.setFermataWindows(parsedScore?.fermataWindows ?? []);
     metronomeRef.current.start();
 
     if (soloBusRef.current) {
@@ -256,6 +263,7 @@ export default function App() {
             musicXml={analysis?.music_xml ?? null}
             currentMeasureIndex={currentMeasure}
             isPlaying={isPlaying}
+            isVisible={viewMode === "sheet"}
           />
         </div>
       </main>
@@ -274,7 +282,10 @@ export default function App() {
           </small>
           {analysis && (
             <small className="tempo-debug">
-              テンポ: {analysis.tempo_bpm} bpm (source: {analysis.tempo_source ?? "?"})
+              テンポ: {analysis.tempo_bpm} bpm
+              {analysis.tempo_matched_word
+                ? ` (${analysis.tempo_matched_word})`
+                : ` (source: ${analysis.tempo_source ?? "?"})`}
               {analysis.time_signature && (
                 <>
                   {" / 拍子: "}
@@ -282,9 +293,7 @@ export default function App() {
                   {analysis.time_signature.beat_type}
                 </>
               )}
-              {analysis.tempo_candidates && analysis.tempo_candidates.length > 0 && (
-                <> / 検出テキスト: {analysis.tempo_candidates.join(" | ")}</>
-              )}
+
             </small>
           )}
         </div>
