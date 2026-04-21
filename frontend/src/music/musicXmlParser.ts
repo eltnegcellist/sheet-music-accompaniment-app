@@ -96,6 +96,59 @@ export function parseMusicXml(
   xml: string,
   partId: string | null,
 ): { notes: NoteEvent[]; measures: MeasureTiming[]; fermataBeats: number[] } {
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  const parseError = doc.querySelector("parsererror");
+  if (parseError) throw new Error("Failed to parse MusicXML");
+
+  const part = pickPart(doc, partId);
+  if (!part) return { notes: [], measures: [], fermataBeats: [] };
+
+  const rawMeasures = collectRawMeasures(part);
+  const canonicalBeats = computeCanonicalBeats(rawMeasures);
+  const notes: NoteEvent[] = [];
+  const measures: MeasureTiming[] = [];
+  const fermataBeats: number[] = [];
+  let elapsedBeats = 0;
+
+  for (const raw of rawMeasures) {
+    const lengthBeats = pickMeasureLength(raw, canonicalBeats);
+    let measureFermataExtra = 0;
+
+    measures.push({
+      index: raw.index,
+      startBeat: elapsedBeats,
+      lengthBeats: lengthBeats,
+    });
+
+    for (const n of raw.notes) {
+      const selfExtra = n.hasFermata ? n.durationBeats * 0.75 : 0;
+      if (n.hasFermata) {
+        measureFermataExtra += selfExtra;
+        fermataBeats.push(elapsedBeats + n.relativeBeats + n.durationBeats);
+      }
+      notes.push({
+        beat: elapsedBeats + n.relativeBeats,
+        durationBeats: n.durationBeats + selfExtra,
+        pitch: n.pitch,
+        velocity: n.velocity,
+        measureIndex: n.measureIndex,
+      });
+    }
+
+    measures[measures.length - 1].lengthBeats += measureFermataExtra;
+    elapsedBeats += lengthBeats + measureFermataExtra;
+  }
+
+  accNotes.sort((a, b) => a.beat - b.beat);
+  soloNotes.sort((a, b) => a.beat - b.beat);
+  fermataWindows.sort((a, b) => a.start - b.start);
+  return { accNotes, soloNotes, measures, fermataWindows };
+}
+
+export function parseMusicXml(
+  xml: string,
+  partId: string | null,
+): { notes: NoteEvent[]; measures: MeasureTiming[]; fermataBeats: number[] } {
   const parsed = parseScore(xml, partId, null);
   return {
     notes: parsed.accNotes,

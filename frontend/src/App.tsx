@@ -140,7 +140,12 @@ export default function App() {
     const beatsPerBar = analysis.time_signature?.beats ?? 4;
     metronomeRef.current.setBeatsPerBar(beatsPerBar);
     metronomeRef.current.setEnabled(playback.metronome);
-    metronomeRef.current.setFermataWindows(parsedScore?.fermataWindows ?? []);
+    const allFermataBeats = accompanimentScore.fermataBeats.concat(
+      soloScore?.fermataBeats ?? [],
+    );
+    metronomeRef.current.setFermataWindows(
+      allFermataBeats.map((b) => ({ start: Math.max(0, b - 1), end: b })),
+    );
     metronomeRef.current.start();
 
     if (soloBusRef.current) {
