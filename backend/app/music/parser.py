@@ -69,8 +69,9 @@ class TempoInfo:
     """
 
     bpm: float
-    source: str  # "sound" | "metronome" | "word" | "default"
+    source: str  # "sound" | "metronome" | "word" | "ocr-word" | "default"
     candidates: list[str]
+    matched_word: str | None = None
 
 
 def _parse(xml: str) -> etree._Element:
@@ -111,7 +112,7 @@ def extract_time_signature(music_xml: str) -> TimeSignature | None:
     return TimeSignature(beats=beats, beat_type=beat_type)
 
 
-def match_tempo_word_bpm(text: str) -> float | None:
+def match_tempo_word_bpm(text: str) -> tuple[float, str] | None:
     """Public wrapper for tempo-word matching; used by the OCR fallback."""
     return _first_tempo_word_bpm_from([text])
 
@@ -147,9 +148,15 @@ def _extract_tempo_info(root: etree._Element) -> TempoInfo:
         logger.info("Tempo from <metronome>: %s BPM", metro)
         return TempoInfo(bpm=metro, source="metronome", candidates=candidates)
 
-    word_bpm = _first_tempo_word_bpm_from(candidates)
-    if word_bpm is not None:
-        return TempoInfo(bpm=word_bpm, source="word", candidates=candidates)
+    word_match = _first_tempo_word_bpm_from(candidates)
+    if word_match is not None:
+        bpm, word = word_match
+        return TempoInfo(
+            bpm=bpm,
+            source="word",
+            candidates=candidates,
+            matched_word=word,
+        )
 
     logger.info("No tempo information found; defaulting to 120 BPM")
     return TempoInfo(bpm=120.0, source="default", candidates=candidates)
@@ -210,7 +217,7 @@ def _collect_tempo_text(root: etree._Element) -> list[str]:
     return collected
 
 
-def _first_tempo_word_bpm_from(candidates: list[str]) -> float | None:
+def _first_tempo_word_bpm_from(candidates: list[str]) -> tuple[float, str] | None:
     for raw in candidates:
         text = raw.lower()
         text = re.sub(r"[^\w\s]+", " ", text)
@@ -223,7 +230,7 @@ def _first_tempo_word_bpm_from(candidates: list[str]) -> float | None:
                     raw,
                     _TEMPO_WORD_BPM[key],
                 )
-                return _TEMPO_WORD_BPM[key]
+                return _TEMPO_WORD_BPM[key], key
     return None
 
 

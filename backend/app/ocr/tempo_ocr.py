@@ -63,9 +63,15 @@ def extract_tempo_from_pdf(pdf_path: Path) -> TempoInfo | None:
         return None
 
     for line in candidates:
-        bpm = match_tempo_word_bpm(line)
-        if bpm is not None:
-            logger.info("OCR matched tempo word in %r -> %s BPM", line, bpm)
-            return TempoInfo(bpm=bpm, source="ocr-word", candidates=candidates)
+        match = match_tempo_word_bpm(line)
+        if match is not None:
+            bpm, word = match
+            logger.info("OCR matched tempo word in %r -> %s BPM (%s)", line, bpm, word)
+            return TempoInfo(
+                bpm=bpm,
+                source="ocr-word",
+                candidates=candidates,
+                matched_word=word,
+            )
 
     return None
