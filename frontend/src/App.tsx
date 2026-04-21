@@ -117,7 +117,7 @@ export default function App() {
   };
 
   const handlePlay = async () => {
-    if (!accompanimentScore || !analysis) return;
+    if (!accompanimentScore || !analysis || !parsedScore) return;
     await ensureAudioRunning();
     if (!samplerRef.current) {
       setStatus("ピアノ音源を読み込み中…");
@@ -140,9 +140,7 @@ export default function App() {
     const beatsPerBar = analysis.time_signature?.beats ?? 4;
     metronomeRef.current.setBeatsPerBar(beatsPerBar);
     metronomeRef.current.setEnabled(playback.metronome);
-    const allFermataBeats = accompanimentScore.fermataBeats.concat(
-      soloScore?.fermataBeats ?? [],
-    );
+    const allFermataBeats = parsedScore.fermataWindows.map((w) => w.start);
     metronomeRef.current.setFermataWindows(
       allFermataBeats.map((b) => ({ start: Math.max(0, b - 1), end: b })),
     );
