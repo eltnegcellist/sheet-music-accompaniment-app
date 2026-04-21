@@ -21,23 +21,22 @@ export function parseScore(
   const soloMeasures = soloPart ? collectRawMeasures(soloPart) : [];
   const canonicalBeats = computeCanonicalBeats([...accMeasures, ...soloMeasures]);
 
-  const allMeasureIndices = new Set([
-    ...accMeasures.map((m) => m.index),
-    ...soloMeasures.map((m) => m.index),
-  ]);
-  const sortedIndices = Array.from(allMeasureIndices).sort((a, b) => a - b);
-
   const accNotes: NoteEvent[] = [];
   const soloNotes: NoteEvent[] = [];
   const measures: MeasureTiming[] = [];
   const fermataWindows: FermataWindow[] = [];
   let elapsedBeats = 0;
 
-  for (const index of sortedIndices) {
-    const accM = accMeasures.find((m) => m.index === index);
-    const soloM = soloMeasures.find((m) => m.index === index);
+  // IMPORTANT: align parts by *measure order*, not by measure@number.
+  // Some sources contain duplicate/non-numeric numbering; index-based lookups
+  // can drop later measures and gradually erase notes during playback.
+  const totalMeasures = Math.max(accMeasures.length, soloMeasures.length);
+  for (let measurePos = 0; measurePos < totalMeasures; measurePos++) {
+    const accM = accMeasures[measurePos];
+    const soloM = soloMeasures[measurePos];
     const mForLength = accM ?? soloM;
     if (!mForLength) continue;
+    const index = mForLength.index;
 
     const baseLength = pickMeasureLength(mForLength, canonicalBeats);
     const allRawNotes = [...(accM?.notes ?? []), ...(soloM?.notes ?? [])];

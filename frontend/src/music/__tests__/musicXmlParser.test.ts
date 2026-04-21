@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseMusicXml } from "../musicXmlParser";
+import { parseMusicXml, parseScore } from "../musicXmlParser";
 
 const SCORE = `<?xml version="1.0" encoding="UTF-8"?>
 <score-partwise version="4.0">
@@ -212,5 +212,43 @@ describe("parseMusicXml", () => {
     // Fermata release point is logged for metronome suppression.
     expect(fermataBeats).toHaveLength(1);
     expect(fermataBeats[0]).toBeCloseTo(2);
+  });
+
+  it("does not drop measures when measure numbers are duplicated", () => {
+    const score = `<?xml version="1.0"?>
+<score-partwise>
+  <part-list>
+    <score-part id="P1"/><score-part id="P2"/>
+  </part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+      <note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration></note>
+    </measure>
+    <measure number="1">
+      <note><pitch><step>D</step><octave>4</octave></pitch><duration>4</duration></note>
+    </measure>
+    <measure number="2">
+      <note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration></note>
+    </measure>
+  </part>
+  <part id="P2">
+    <measure number="1">
+      <attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+      <note><pitch><step>G</step><octave>3</octave></pitch><duration>4</duration></note>
+    </measure>
+    <measure number="1">
+      <note><pitch><step>A</step><octave>3</octave></pitch><duration>4</duration></note>
+    </measure>
+    <measure number="2">
+      <note><pitch><step>B</step><octave>3</octave></pitch><duration>4</duration></note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+    const parsed = parseScore(score, "P1", "P2");
+    expect(parsed.accNotes.map((n) => n.pitch)).toEqual(["C4", "D4", "E4"]);
+    expect(parsed.soloNotes.map((n) => n.pitch)).toEqual(["G3", "A3", "B3"]);
+    expect(parsed.measures).toHaveLength(3);
   });
 });

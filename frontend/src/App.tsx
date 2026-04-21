@@ -263,6 +263,7 @@ export default function App() {
             musicXml={analysis?.music_xml ?? null}
             currentMeasureIndex={currentMeasure}
             isPlaying={isPlaying}
+            isVisible={viewMode === "sheet"}
           />
         </div>
       </main>
