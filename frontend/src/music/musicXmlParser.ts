@@ -142,22 +142,8 @@ export function parseMusicXml(
     elapsedBeats += lengthBeats + measureFermataExtra;
   }
 
-  accNotes.sort((a, b) => a.beat - b.beat);
-  soloNotes.sort((a, b) => a.beat - b.beat);
-  fermataWindows.sort((a, b) => a.start - b.start);
-  return { accNotes, soloNotes, measures, fermataWindows };
-}
-
-export function parseMusicXml(
-  xml: string,
-  partId: string | null,
-): { notes: NoteEvent[]; measures: MeasureTiming[]; fermataBeats: number[] } {
-  const parsed = parseScore(xml, partId, null);
-  return {
-    notes: parsed.accNotes,
-    measures: parsed.measures,
-    fermataBeats: parsed.fermataWindows.map((w) => w.start),
-  };
+  notes.sort((a, b) => a.beat - b.beat);
+  return { notes, measures, fermataBeats };
 }
 
 interface RawNote {
