@@ -96,6 +96,9 @@ export function parseMusicXml(
   xml: string,
   partId: string | null,
 ): { notes: NoteEvent[]; measures: MeasureTiming[]; fermataBeats: number[] } {
+  // Keep this parser path intentionally independent from parseScore().
+  // In practice this has proven the most stable scheduling source for each
+  // individual part during long-form playback.
   const doc = new DOMParser().parseFromString(xml, "application/xml");
   const parseError = doc.querySelector("parsererror");
   if (parseError) throw new Error("Failed to parse MusicXML");
