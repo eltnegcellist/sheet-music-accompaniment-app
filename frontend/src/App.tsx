@@ -22,7 +22,7 @@ import {
   type PlaybackState,
 } from "./components/PlaybackControls";
 import { SheetViewer } from "./components/SheetViewer";
-import { parseMusicXml } from "./music/musicXmlParser";
+import { parseScore } from "./music/musicXmlParser";
 import type { AnalyzeResponse } from "./types";
 
 const DEFAULT_PLAYBACK: PlaybackState = {
@@ -52,15 +52,24 @@ export default function App() {
   const metronomeRef = useRef<Metronome | null>(null);
   const handleRef = useRef<ScheduledHandle | null>(null);
 
-  const accompanimentScore = useMemo(() => {
+  const parsedScore = useMemo(() => {
     if (!analysis) return null;
-    return parseMusicXml(analysis.music_xml, analysis.accompaniment_part_id);
+    return parseScore(
+      analysis.music_xml,
+      analysis.accompaniment_part_id,
+      analysis.solo_part_id ?? null,
+    );
   }, [analysis]);
 
+  const accompanimentScore = useMemo(() => {
+    if (!parsedScore) return null;
+    return { notes: parsedScore.accNotes, measures: parsedScore.measures };
+  }, [parsedScore]);
+
   const soloScore = useMemo(() => {
-    if (!analysis?.solo_part_id) return null;
-    return parseMusicXml(analysis.music_xml, analysis.solo_part_id);
-  }, [analysis]);
+    if (!parsedScore) return null;
+    return parsedScore.soloNotes.length > 0 ? { notes: parsedScore.soloNotes } : null;
+  }, [parsedScore]);
 
   const measureCount = accompanimentScore?.measures.length ?? 0;
   const firstMeasure = accompanimentScore?.measures[0]?.index ?? 1;
