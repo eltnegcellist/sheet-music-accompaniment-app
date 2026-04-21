@@ -123,6 +123,7 @@ async def analyze(
             divisions=divisions,
             tempo_bpm=tempo_info.bpm,
             tempo_source=tempo_info.source,
+            tempo_matched_word=tempo_info.matched_word,
             tempo_candidates=tempo_info.candidates,
             time_signature=(
                 TimeSignatureModel(

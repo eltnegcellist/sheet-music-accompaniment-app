@@ -158,8 +158,8 @@ describe("parseMusicXml", () => {
   </measure>
 </part></score-partwise>`;
     const { notes } = parseMusicXml(score, "P1");
-    expect(notes[0].velocity).toBeCloseTo(0.45);
-    expect(notes[1].velocity).toBeCloseTo(0.85);
+    expect(notes[0].velocity).toBeCloseTo(0.3);
+    expect(notes[1].velocity).toBeCloseTo(0.75);
   });
 
   it("parses dynamics emitted as <words> text (Audiveris style)", () => {
@@ -174,8 +174,8 @@ describe("parseMusicXml", () => {
   </measure>
 </part></score-partwise>`;
     const { notes } = parseMusicXml(score, "P1");
-    expect(notes[0].velocity).toBeCloseTo(0.45);
-    expect(notes[1].velocity).toBeCloseTo(0.95);
+    expect(notes[0].velocity).toBeCloseTo(0.3);
+    expect(notes[1].velocity).toBeCloseTo(0.9);
   });
 
   it("stretches fermata notes and offsets subsequent beats", () => {

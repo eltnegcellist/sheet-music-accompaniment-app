@@ -25,6 +25,10 @@ class AnalyzeResponse(BaseModel):
         default="default",
         description="Which rule produced tempo_bpm: sound | metronome | word | ocr-word | default",
     )
+    tempo_matched_word: str | None = Field(
+        default=None,
+        description="The specific tempo word matched (e.g. 'allegro') if source is word or ocr-word.",
+    )
     tempo_candidates: list[str] = Field(
         default_factory=list,
         description="All <words>/<credit-words>/<rehearsal> texts found — useful for diagnosing why tempo detection missed a marking.",
