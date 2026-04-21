@@ -219,12 +219,11 @@ export default function App() {
   return (
     <div className="app">
       <header className="app__header">
-        <strong>IMSLP Accompanist</strong>
-        <PdfUploader disabled={busy} onSelect={handleSelect} />
-        <span className="status">{status}</span>
-      </header>
-
-      <main className="app__main">
+        <div className="app__header-main">
+          <strong>IMSLP Accompanist</strong>
+          <PdfUploader disabled={busy} onSelect={handleSelect} />
+          <span className="status">{status}</span>
+        </div>
         <div className="view-tabs">
           <button
             type="button"
@@ -242,6 +241,9 @@ export default function App() {
             譜面
           </button>
         </div>
+      </header>
+
+      <main className="app__main">
         {/* Both views stay mounted so OSMD can measure its container width
             correctly on first render — toggling display:none collapses the
             width to zero and OSMD produces a squashed layout. */}
