@@ -28,7 +28,11 @@ export function SheetViewer({
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const osmdRef = useRef<OpenSheetMusicDisplay | null>(null);
+  const lastSyncedMeasureRef = useRef<number | null>(null);
   const [status, setStatus] = useState<string>("");
+  const debugEnabled =
+    typeof window !== "undefined" &&
+    Boolean((window as { __IMSLP_DEBUG__?: boolean }).__IMSLP_DEBUG__);
 
   // Create / reload OSMD whenever the source XML changes.
   useEffect(() => {
@@ -87,6 +91,7 @@ export function SheetViewer({
     return () => {
       cancelled = true;
       osmdRef.current = null;
+      lastSyncedMeasureRef.current = null;
     };
   }, [musicXml]);
 
@@ -100,18 +105,31 @@ export function SheetViewer({
       } catch {
         /* OSMD may not be ready yet; ignore */
       }
+      lastSyncedMeasureRef.current = null;
       return;
     }
 
     try {
       osmd.cursor.show();
-      osmd.cursor.reset();
-      for (let i = 0; i < 2000; i++) {
+      const lastSynced = lastSyncedMeasureRef.current;
+      if (lastSynced === null || currentMeasureIndex < lastSynced) {
+        osmd.cursor.reset();
+      }
+      let steps = 0;
+      for (let i = 0; i < 5000; i++) {
         const iter = osmd.cursor.iterator;
         if (iter.EndReached) break;
         const idx = iter.CurrentMeasureIndex;
         if (idx + 1 >= currentMeasureIndex) break;
         osmd.cursor.next();
+        steps += 1;
+      }
+      lastSyncedMeasureRef.current = currentMeasureIndex;
+      if (debugEnabled) {
+        console.debug("[sheet-cursor]", {
+          targetMeasure: currentMeasureIndex,
+          advancedSteps: steps,
+        });
       }
     } catch (err) {
       console.warn("[osmd] cursor advance failed", err);

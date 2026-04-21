@@ -9,7 +9,7 @@ export interface ScheduleOptions {
   /** Optional solo voice played on a separate synth/sampler. */
   soloNotes?: NoteEvent[];
   soloSynth?: { triggerAttackRelease: Tone.PolySynth["triggerAttackRelease"] };
-  /** Called whenever the playhead enters a new measure. */
+  /** Called whenever the playhead enters a new measure ordinal (1-based). */
   onMeasureChange: (measureIndex: number) => void;
   /** 1-based measure to start from (inclusive). */
   startMeasure?: number;
@@ -71,6 +71,9 @@ export function scheduleScore(opts: ScheduleOptions): ScheduledHandle {
 
   const offset = startBeat;
   const playable = notes.filter((n) => n.beat >= startBeat && n.beat < endBeat);
+  const debugEnabled =
+    typeof window !== "undefined" &&
+    Boolean((window as { __IMSLP_DEBUG__?: boolean }).__IMSLP_DEBUG__);
 
   for (const note of playable) {
     const id = transport.schedule((t) => {
@@ -101,15 +104,27 @@ export function scheduleScore(opts: ScheduleOptions): ScheduledHandle {
     }
   }
 
-  for (const m of measures) {
+  for (let i = 0; i < measures.length; i++) {
+    const m = measures[i];
     if (m.startBeat < startBeat || m.startBeat >= endBeat) continue;
     const id = transport.schedule((t) => {
       // Drawing inside Tone.Draw keeps React's state update aligned with the
       // audio callback's wall-clock time rather than the JS event loop, which
       // avoids highlight jitter when the main thread is busy.
-      Tone.getDraw().schedule(() => onMeasureChange(m.index), t);
+      Tone.getDraw().schedule(() => onMeasureChange(i + 1), t);
     }, beatsToBarsBeats(m.startBeat - offset));
     ids.push(id);
+  }
+  if (debugEnabled) {
+    console.debug("[scheduleScore]", {
+      totalNotes: notes.length,
+      playableNotes: playable.length,
+      soloNotes: soloNotes?.length ?? 0,
+      measures: measures.length,
+      startBeat,
+      endBeat,
+      scheduledEvents: ids.length,
+    });
   }
 
   if (loop) {

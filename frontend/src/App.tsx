@@ -32,6 +32,7 @@ const DEFAULT_PLAYBACK: PlaybackState = {
   loop: false,
   countInBars: 1,
   metronome: false,
+  pianoVolume: 100,
   soloVolume: "normal",
 };
 
@@ -45,9 +46,13 @@ export default function App() {
   const [playback, setPlayback] = useState<PlaybackState>(DEFAULT_PLAYBACK);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentMeasure, setCurrentMeasure] = useState<number | null>(null);
+  const [currentMeasureOrdinal, setCurrentMeasureOrdinal] = useState<number | null>(
+    null,
+  );
   const [viewMode, setViewMode] = useState<ViewMode>("pdf");
 
   const samplerRef = useRef<Tone.Sampler | null>(null);
+  const pianoVolumeRef = useRef<Tone.Volume | null>(null);
   const soloBusRef = useRef<SoloBus | null>(null);
   const metronomeRef = useRef<Metronome | null>(null);
   const handleRef = useRef<ScheduledHandle | null>(null);
@@ -100,6 +105,7 @@ export default function App() {
     setBusy(true);
     setAnalysis(null);
     setCurrentMeasure(null);
+    setCurrentMeasureOrdinal(null);
     setStatus("解析中… (OMR には数十秒かかる場合があります)");
     try {
       const result = await analyzePdf(pdf, musicXml);
@@ -117,11 +123,16 @@ export default function App() {
   };
 
   const handlePlay = async () => {
-    if (!accompanimentScore || !analysis) return;
+    if (!accompanimentScore || !analysis || !parsedScore) return;
     await ensureAudioRunning();
     if (!samplerRef.current) {
       setStatus("ピアノ音源を読み込み中…");
       samplerRef.current = await getPianoSampler();
+      if (!pianoVolumeRef.current) {
+        pianoVolumeRef.current = new Tone.Volume(0).toDestination();
+      }
+      samplerRef.current.disconnect();
+      samplerRef.current.connect(pianoVolumeRef.current);
     }
     if (soloScore && !soloBusRef.current) {
       soloBusRef.current = await getViolinSynth();
@@ -140,9 +151,7 @@ export default function App() {
     const beatsPerBar = analysis.time_signature?.beats ?? 4;
     metronomeRef.current.setBeatsPerBar(beatsPerBar);
     metronomeRef.current.setEnabled(playback.metronome);
-    const allFermataBeats = accompanimentScore.fermataBeats.concat(
-      soloScore?.fermataBeats ?? [],
-    );
+    const allFermataBeats = parsedScore.fermataWindows.map((w) => w.start);
     metronomeRef.current.setFermataWindows(
       allFermataBeats.map((b) => ({ start: Math.max(0, b - 1), end: b })),
     );
@@ -153,6 +162,11 @@ export default function App() {
         playback.soloVolume,
       );
     }
+    if (pianoVolumeRef.current) {
+      pianoVolumeRef.current.volume.value = Tone.gainToDb(
+        Math.max(0.0001, playback.pianoVolume / 100),
+      );
+    }
 
     handleRef.current = scheduleScore({
       notes: accompanimentScore.notes,
@@ -160,7 +174,11 @@ export default function App() {
       sampler: samplerRef.current,
       soloNotes: soloScore?.notes,
       soloSynth: soloBusRef.current?.synth,
-      onMeasureChange: (idx) => setCurrentMeasure(idx),
+      onMeasureChange: (ordinal) => {
+        setCurrentMeasureOrdinal(ordinal);
+        const measureNumber = accompanimentScore.measures[ordinal - 1]?.index ?? null;
+        setCurrentMeasure(measureNumber);
+      },
       startMeasure: playback.startMeasure,
       endMeasure: playback.endMeasure,
       loop: playback.loop,
@@ -198,6 +216,7 @@ export default function App() {
     handleRef.current = null;
     setIsPlaying(false);
     setCurrentMeasure(null);
+    setCurrentMeasureOrdinal(null);
     setStatus("停止");
   };
 
@@ -217,6 +236,14 @@ export default function App() {
       );
     }
   }, [playback.soloVolume]);
+
+  useEffect(() => {
+    if (!pianoVolumeRef.current) return;
+    pianoVolumeRef.current.volume.rampTo(
+      Tone.gainToDb(Math.max(0.0001, playback.pianoVolume / 100)),
+      0.05,
+    );
+  }, [playback.pianoVolume]);
 
   return (
     <div className="app">
@@ -266,7 +293,7 @@ export default function App() {
         >
           <SheetViewer
             musicXml={analysis?.music_xml ?? null}
-            currentMeasureIndex={currentMeasure}
+            currentMeasureIndex={currentMeasureOrdinal}
             isPlaying={isPlaying}
             isVisible={viewMode === "sheet"}
           />

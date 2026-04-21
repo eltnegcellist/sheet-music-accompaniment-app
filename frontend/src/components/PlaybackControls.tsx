@@ -9,6 +9,7 @@ export interface PlaybackState {
   loop: boolean;
   countInBars: number;
   metronome: boolean;
+  pianoVolume: number;
   soloVolume: SoloVolumeMode;
 }
 
@@ -70,6 +71,17 @@ export function PlaybackControls({
           max={240}
           value={state.bpm}
           onChange={intInput("bpm")}
+        />
+      </label>
+
+      <label>
+        伴奏音量 ({state.pianoVolume}%)
+        <input
+          type="range"
+          min={0}
+          max={120}
+          value={state.pianoVolume}
+          onChange={intInput("pianoVolume")}
         />
       </label>
 
