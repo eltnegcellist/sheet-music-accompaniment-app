@@ -42,6 +42,7 @@ export function SheetViewer({
     let cancelled = false;
 
     container.innerHTML = "";
+    lastSyncedMeasureRef.current = null;
     setStatus("譜面を生成中…");
 
     const osmd = new OpenSheetMusicDisplay(container, {
@@ -95,6 +96,11 @@ export function SheetViewer({
     };
   }, [musicXml]);
 
+  useEffect(() => {
+    if (isPlaying) return;
+    lastSyncedMeasureRef.current = null;
+  }, [isPlaying]);
+
   // Drive the cursor to the current measure while playing.
   useEffect(() => {
     const osmd = osmdRef.current;
@@ -110,25 +116,32 @@ export function SheetViewer({
     }
 
     try {
+      const targetMeasure = Math.max(1, currentMeasureIndex);
+      const lastSyncedMeasure = lastSyncedMeasureRef.current;
       osmd.cursor.show();
-      const lastSynced = lastSyncedMeasureRef.current;
-      if (lastSynced === null || currentMeasureIndex < lastSynced) {
+
+      let advancedSteps = 0;
+      if (lastSyncedMeasure === null || targetMeasure < lastSyncedMeasure) {
         osmd.cursor.reset();
+        for (let i = 0; i < targetMeasure - 1; i++) {
+          if (osmd.cursor.iterator.EndReached) break;
+          osmd.cursor.next();
+          advancedSteps += 1;
+        }
+      } else if (targetMeasure > lastSyncedMeasure) {
+        const delta = targetMeasure - lastSyncedMeasure;
+        for (let i = 0; i < delta; i++) {
+          if (osmd.cursor.iterator.EndReached) break;
+          osmd.cursor.next();
+          advancedSteps += 1;
+        }
       }
-      let steps = 0;
-      for (let i = 0; i < 5000; i++) {
-        const iter = osmd.cursor.iterator;
-        if (iter.EndReached) break;
-        const idx = iter.CurrentMeasureIndex;
-        if (idx + 1 >= currentMeasureIndex) break;
-        osmd.cursor.next();
-        steps += 1;
-      }
-      lastSyncedMeasureRef.current = currentMeasureIndex;
+      lastSyncedMeasureRef.current = targetMeasure;
       if (debugEnabled) {
         console.debug("[sheet-cursor]", {
-          targetMeasure: currentMeasureIndex,
-          advancedSteps: steps,
+          targetMeasure,
+          lastSyncedMeasure,
+          advancedSteps,
         });
       }
     } catch (err) {
