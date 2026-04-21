@@ -19,6 +19,18 @@ describe("sanitizeForOsmd", () => {
     expect(cleaned).not.toContain("<time></time>");
   });
 
+  it("removes <octave-shift> tags that crash OSMD", () => {
+    const xml = `<?xml version="1.0"?>
+<score-partwise><part-list><score-part id="P1"/></part-list><part id="P1">
+  <measure number="1">
+    <direction><direction-type><octave-shift type="up" size="8"/></direction-type></direction>
+    <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>
+  </measure>
+</part></score-partwise>`;
+    const cleaned = sanitizeForOsmd(xml);
+    expect(cleaned).not.toContain("octave-shift");
+  });
+
   it("repairs zero <divisions> to 1 rather than dropping the element", () => {
     const xml = `<?xml version="1.0"?>
 <score-partwise><part-list><score-part id="P1"/></part-list><part id="P1">
