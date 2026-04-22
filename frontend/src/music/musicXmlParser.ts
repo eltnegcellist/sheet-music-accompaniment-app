@@ -27,16 +27,23 @@ export function parseScore(
   const fermataWindows: FermataWindow[] = [];
   let elapsedBeats = 0;
 
-  // IMPORTANT: align parts by *measure order*, not by measure@number.
-  // Some sources contain duplicate/non-numeric numbering; index-based lookups
-  // can drop later measures and gradually erase notes during playback.
-  const totalMeasures = Math.max(accMeasures.length, soloMeasures.length);
-  for (let measurePos = 0; measurePos < totalMeasures; measurePos++) {
-    const accM = accMeasures[measurePos];
-    const soloM = soloMeasures[measurePos];
-    const mForLength = accM ?? soloM;
-    if (!mForLength) continue;
-    const index = mForLength.index;
+  // Hybrid alignment:
+  // - timeline is driven by accompaniment order (when available), because
+  //   accompaniment usually has the most stable OMR.
+  // - solo measures are consumed by matching measure numbers first; this avoids
+  //   catastrophic drift when OMR drops one solo measure entirely.
+  const timeline = accMeasures.length > 0 ? accMeasures : soloMeasures;
+  const accByIndex = toIndexedQueues(accMeasures);
+  const soloByIndex = toIndexedQueues(soloMeasures);
+
+  for (let measurePos = 0; measurePos < timeline.length; measurePos++) {
+    const base = timeline[measurePos];
+    const index = base.index;
+    const accM =
+      (accMeasures.length > 0 ? takeQueuedMeasure(accByIndex, index) : null) ??
+      accMeasures[measurePos];
+    const soloM = takeQueuedMeasure(soloByIndex, index) ?? null;
+    const mForLength = accM ?? soloM ?? base;
 
     const baseLength = pickMeasureLength(mForLength, canonicalBeats);
     const allRawNotes = [...(accM?.notes ?? []), ...(soloM?.notes ?? [])];
@@ -90,6 +97,29 @@ export function parseScore(
   soloNotes.sort((a, b) => a.beat - b.beat);
   fermataWindows.sort((a, b) => a.start - b.start);
   return { accNotes, soloNotes, measures, fermataWindows };
+}
+
+function toIndexedQueues(
+  measures: RawMeasure[],
+): Map<number, RawMeasure[]> {
+  const out = new Map<number, RawMeasure[]>();
+  for (const m of measures) {
+    const existing = out.get(m.index);
+    if (existing) existing.push(m);
+    else out.set(m.index, [m]);
+  }
+  return out;
+}
+
+function takeQueuedMeasure(
+  queues: Map<number, RawMeasure[]>,
+  index: number,
+): RawMeasure | null {
+  const q = queues.get(index);
+  if (!q || q.length === 0) return null;
+  const next = q.shift() ?? null;
+  if (q.length === 0) queues.delete(index);
+  return next;
 }
 
 export function parseMusicXml(

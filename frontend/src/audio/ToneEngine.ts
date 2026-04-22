@@ -103,9 +103,9 @@ export function soloVolumeToDb(
 ): number {
   switch (mode) {
     case "normal":
-      return 0;
+      return 2;
     case "karaoke":
-      return -18;
+      return -8;
     case "off":
       return -Infinity;
   }
