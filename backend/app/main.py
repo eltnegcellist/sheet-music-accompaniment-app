@@ -16,7 +16,7 @@ from .music.parser import (
     extract_time_signature,
     list_measures_with_bbox,
 )
-from .ocr.tempo_ocr import extract_tempo_from_pdf
+from .ocr.tempo_ocr import extract_tempo_from_pdf, extract_title_from_pdf
 from .omr.audiveris_runner import AudiverisError, OmrResult, run_audiveris
 from .schemas import AnalyzeResponse, MeasureBox, TimeSignatureModel
 
@@ -128,6 +128,11 @@ async def analyze(
                 )
                 tempo_info = ocr_info
         score_title = extract_score_title(merged_xml)
+        if score_title is None and pdf is not None:
+            ocr_title = extract_title_from_pdf(pdf_path)
+            if ocr_title:
+                score_title = ocr_title
+                warnings.append("タイトルをPDF OCRで補完しました。")
         time_signature = extract_time_signature(merged_xml)
         measures = [
             MeasureBox(index=m.index, page=m.page, bbox=m.bbox)
