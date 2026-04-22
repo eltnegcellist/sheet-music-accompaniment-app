@@ -119,7 +119,7 @@ def run_audiveris(pdf_path: Path, output_dir: Path) -> OmrResult:
             "\n".join(tail[-20:]),
         )
 
-    mxl_path = _find_first(output_dir, ("*.mxl", "*.xml"))
+    mxl_path = _find_best_musicxml(output_dir)
     if mxl_path is None:
         # No MusicXML at all — we truly have nothing to play. Surface the
         # Audiveris error rather than a silent empty response.
@@ -154,6 +154,28 @@ def _find_first(directory: Path, patterns: tuple[str, ...]) -> Path | None:
         for path in sorted(directory.rglob(pattern)):
             return path
     return None
+
+
+def _find_best_musicxml(directory: Path) -> Path | None:
+    """Pick the most complete MusicXML candidate from Audiveris output.
+
+    Audiveris often emits both score-level and sheet-level files; taking the
+    lexicographically first path can accidentally choose a partial sheet file.
+    Prefer non-sheet names and larger files, then fall back deterministically.
+    """
+    candidates: list[Path] = []
+    for pattern in ("*.mxl", "*.xml"):
+        candidates.extend(sorted(directory.rglob(pattern)))
+    if not candidates:
+        return None
+
+    def rank(path: Path) -> tuple[int, int, str]:
+        name = path.name.lower()
+        looks_partial = int(("sheet" in name) or ("page" in name))
+        size = path.stat().st_size if path.exists() else 0
+        return (looks_partial, -size, str(path))
+
+    return sorted(candidates, key=rank)[0]
 
 
 def _read_musicxml(path: Path) -> str:

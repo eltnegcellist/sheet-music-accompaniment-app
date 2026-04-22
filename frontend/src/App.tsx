@@ -100,18 +100,24 @@ export default function App() {
     }
   }, [accompanimentScore, analysis]);
 
-  const handleSelect = async (pdf: File, musicXml?: File) => {
-    setPdfFile(pdf);
+  const handleSelect = async (pdf?: File, musicXml?: File) => {
+    setPdfFile(pdf ?? null);
     setBusy(true);
     setAnalysis(null);
     setCurrentMeasure(null);
     setCurrentMeasureOrdinal(null);
-    setStatus("解析中… (OMR には数十秒かかる場合があります)");
+    setStatus(
+      pdf
+        ? "解析中… (OMR には数十秒かかる場合があります)"
+        : "MusicXML を読み込み中…",
+    );
     try {
       const result = await analyzePdf(pdf, musicXml);
       setAnalysis(result);
       setStatus(
-        `解析完了: ${result.measures.length} 小節 / 伴奏: ${
+        `解析完了: ${result.measures.length} 小節 / タイトル: ${
+          result.score_title ?? "(未検出)"
+        } / 伴奏: ${
           result.accompaniment_part_id ?? "(自動検出失敗)"
         } / ソロ: ${result.solo_part_id ?? "なし"}`,
       );
@@ -295,6 +301,7 @@ export default function App() {
         >
           <SheetViewer
             musicXml={analysis?.music_xml ?? null}
+            scoreTitle={analysis?.score_title ?? null}
             currentMeasureIndex={currentMeasureOrdinal}
             isPlaying={isPlaying}
             isVisible={viewMode === "sheet"}

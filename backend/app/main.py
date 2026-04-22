@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .music.accompaniment import find_accompaniment_part, find_solo_part
 from .music.merger import merge_layout_with_musicxml
 from .music.parser import (
+    extract_score_title,
     extract_divisions_and_tempo,
     extract_tempo_info,
     extract_time_signature,
@@ -39,16 +40,22 @@ def health() -> dict[str, str]:
 
 @app.post("/analyze", response_model=AnalyzeResponse)
 async def analyze(
-    pdf: UploadFile = File(...),
+    pdf: UploadFile | None = File(default=None),
     music_xml: UploadFile | None = File(default=None),
 ) -> AnalyzeResponse:
-    if pdf.content_type not in {"application/pdf", "application/octet-stream"}:
+    if pdf is None and music_xml is None:
+        raise HTTPException(400, "Either pdf or music_xml must be provided.")
+    if pdf is not None and pdf.content_type not in {
+        "application/pdf",
+        "application/octet-stream",
+    }:
         raise HTTPException(400, f"Unexpected content-type: {pdf.content_type}")
 
     with tempfile.TemporaryDirectory() as tmp_root:
         tmp = Path(tmp_root)
         pdf_path = tmp / "input.pdf"
-        pdf_path.write_bytes(await pdf.read())
+        if pdf is not None:
+            pdf_path.write_bytes(await pdf.read())
 
         user_xml: str | None = None
         if music_xml is not None:
@@ -64,7 +71,13 @@ async def analyze(
         user_xml_looks_valid = user_xml is not None and (
             "<score-partwise" in user_xml or "<score-timewise" in user_xml
         )
-        if user_xml_looks_valid:
+        if user_xml_looks_valid and pdf is None:
+            logger.info("Using user-supplied MusicXML without PDF")
+            warnings.append(
+                "MusicXML のみで解析しました。PDF連動ハイライトは利用できません。"
+            )
+            omr_result = OmrResult(music_xml="", measures=[])
+        elif user_xml_looks_valid:
             logger.info("Skipping Audiveris: user-supplied MusicXML provided")
             warnings.append(
                 "Audiveris をスキップしてアップロードされた MusicXML で解析しました。"
@@ -77,6 +90,11 @@ async def analyze(
                     "Uploaded MusicXML did not look valid; falling back to OMR."
                 )
                 user_xml = None
+            if pdf is None:
+                raise HTTPException(
+                    400,
+                    "music_xml is invalid. Please upload a valid MusicXML or add a PDF.",
+                )
             try:
                 omr_result = run_audiveris(pdf_path, tmp / "out")
             except AudiverisError as exc:
@@ -103,12 +121,13 @@ async def analyze(
         # If Audiveris didn't surface a tempo, try to OCR the top of the PDF
         # directly. Slow-ish (~1–3s) so we only do it when the default fires.
         if tempo_info.source == "default":
-            ocr_info = extract_tempo_from_pdf(pdf_path)
+            ocr_info = extract_tempo_from_pdf(pdf_path) if pdf is not None else None
             if ocr_info is not None:
                 logger.info(
                     "Using OCR-derived tempo %.1f (was default)", ocr_info.bpm
                 )
                 tempo_info = ocr_info
+        score_title = extract_score_title(merged_xml)
         time_signature = extract_time_signature(merged_xml)
         measures = [
             MeasureBox(index=m.index, page=m.page, bbox=m.bbox)
@@ -117,6 +136,7 @@ async def analyze(
 
         return AnalyzeResponse(
             music_xml=merged_xml,
+            score_title=score_title,
             accompaniment_part_id=accompaniment_part_id,
             solo_part_id=solo_part_id,
             measures=measures,

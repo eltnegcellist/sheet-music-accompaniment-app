@@ -14,6 +14,7 @@ export interface TimeSignature {
 
 export interface AnalyzeResponse {
   music_xml: string;
+  score_title?: string | null;
   accompaniment_part_id: string | null;
   solo_part_id: string | null;
   measures: MeasureBox[];

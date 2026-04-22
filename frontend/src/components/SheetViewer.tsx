@@ -5,6 +5,7 @@ import { sanitizeForOsmd } from "../music/sanitize";
 
 interface Props {
   musicXml: string | null;
+  scoreTitle: string | null;
   currentMeasureIndex: number | null;
   isPlaying: boolean;
   isVisible: boolean;
@@ -22,6 +23,7 @@ interface Props {
  */
 export function SheetViewer({
   musicXml,
+  scoreTitle,
   currentMeasureIndex,
   isPlaying,
   isVisible,
@@ -48,7 +50,7 @@ export function SheetViewer({
     const osmd = new OpenSheetMusicDisplay(container, {
       autoResize: true,
       backend: "svg",
-      drawTitle: true,
+      drawTitle: false,
       drawComposer: true,
       drawCredits: false,
       followCursor: true,
@@ -162,6 +164,7 @@ export function SheetViewer({
 
   return (
     <div className="sheet-viewer">
+      {scoreTitle && <h3 className="sheet-viewer__title">{scoreTitle}</h3>}
       {status && <div className="sheet-viewer__status">{status}</div>}
       <div ref={containerRef} />
     </div>
