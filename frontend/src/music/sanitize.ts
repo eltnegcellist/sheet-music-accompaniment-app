@@ -31,6 +31,58 @@ export function sanitizeForOsmd(xml: string): string {
     return xml; // If the XML itself is malformed, nothing we can do here.
   }
 
+  // Fill missing measure numbers per-part so OSMD keeps vertical alignment
+  // across staves even when OMR drops full measures in one part.
+  const parts = Array.from(doc.getElementsByTagName("part"));
+  if (parts.length > 1) {
+    const referencePart = pickReferencePart(parts);
+    const canonicalNumbers = getDirectMeasureChildren(referencePart)
+      .map((m) => Number.parseInt(m.getAttribute("number") ?? "", 10))
+      .filter((n) => Number.isFinite(n));
+
+    for (const part of parts) {
+      if (part === referencePart) continue;
+      const measures = getDirectMeasureChildren(part);
+      let cursor = 0;
+
+      for (const targetNum of canonicalNumbers) {
+        let found = false;
+        while (cursor < measures.length) {
+          const num = Number.parseInt(measures[cursor].getAttribute("number") ?? "", 10);
+          if (!Number.isFinite(num)) {
+            cursor++;
+            continue;
+          }
+          if (num === targetNum) {
+            found = true;
+            cursor++;
+            break;
+          }
+          if (num < targetNum) {
+            cursor++;
+            continue;
+          }
+          break;
+        }
+
+        if (!found) {
+          const emptyMeasure = createEmptyMeasure(doc, targetNum);
+          if (cursor < measures.length) {
+            part.insertBefore(emptyMeasure, measures[cursor]);
+            measures.splice(cursor, 0, emptyMeasure);
+          } else {
+            part.appendChild(emptyMeasure);
+            measures.push(emptyMeasure);
+          }
+          cursor++;
+        }
+      }
+    }
+
+    // Keep key signatures consistent with the best-recognized part.
+    alignKeySignaturesToReference(referencePart, parts);
+  }
+
   // Strip incomplete <time> elements.
   const times = Array.from(doc.getElementsByTagName("time"));
   for (const t of times) {
@@ -85,4 +137,191 @@ export function sanitizeForOsmd(xml: string): string {
   }
 
   return new XMLSerializer().serializeToString(doc);
+}
+
+function getDirectMeasureChildren(part: Element): Element[] {
+  return Array.from(part.children).filter(
+    (el) => el.tagName.toLowerCase() === "measure",
+  );
+}
+
+function pickReferencePart(parts: Element[]): Element {
+  let ref = parts[0];
+  let refScore = scorePartQuality(ref);
+  for (const part of parts) {
+    const score = scorePartQuality(part);
+    if (score > refScore) {
+      ref = part;
+      refScore = score;
+    }
+  }
+  return ref;
+}
+
+function createEmptyMeasure(doc: Document, number: number): Element {
+  const emptyMeasure = doc.createElement("measure");
+  emptyMeasure.setAttribute("number", String(number));
+  const note = doc.createElement("note");
+  const rest = doc.createElement("rest");
+  const duration = doc.createElement("duration");
+  duration.textContent = "1";
+  note.appendChild(rest);
+  note.appendChild(duration);
+  emptyMeasure.appendChild(note);
+
+  return emptyMeasure;
+}
+
+interface KeyState {
+  fifths: string;
+  mode: string | null;
+}
+
+function alignKeySignaturesToReference(referencePart: Element, parts: Element[]): void {
+  const keyByMeasure = new Map<number, KeyState>();
+  let currentKey: KeyState | null = null;
+  for (const measure of getDirectMeasureChildren(referencePart)) {
+    const measureNumber = Number.parseInt(measure.getAttribute("number") ?? "", 10);
+    if (!Number.isFinite(measureNumber)) continue;
+    const explicit = readExplicitKeyState(measure);
+    if (explicit) currentKey = explicit;
+    if (currentKey) keyByMeasure.set(measureNumber, currentKey);
+  }
+
+  for (const part of parts) {
+    if (part === referencePart) continue;
+    for (const measure of getDirectMeasureChildren(part)) {
+      const measureNumber = Number.parseInt(measure.getAttribute("number") ?? "", 10);
+      if (!Number.isFinite(measureNumber)) continue;
+      const refKey = keyByMeasure.get(measureNumber);
+      if (!refKey) continue;
+      const beforeKey = readExplicitKeyState(measure);
+      writeMeasureKeyState(measure, refKey);
+      if (!sameKeyState(beforeKey, refKey)) {
+        dropNaturalAccidentalsContradictingKey(measure, refKey);
+      }
+    }
+  }
+}
+
+function readExplicitKeyState(measure: Element): KeyState | null {
+  for (const child of Array.from(measure.children)) {
+    if (child.tagName.toLowerCase() !== "attributes") continue;
+    const keyEl = child.getElementsByTagName("key")[0];
+    if (!keyEl) continue;
+    const fifthsText = keyEl.getElementsByTagName("fifths")[0]?.textContent?.trim() ?? "";
+    if (!fifthsText) continue;
+    const modeText = keyEl.getElementsByTagName("mode")[0]?.textContent?.trim() ?? null;
+    return { fifths: fifthsText, mode: modeText };
+  }
+  return null;
+}
+
+function writeMeasureKeyState(measure: Element, keyState: KeyState): void {
+  const doc = measure.ownerDocument;
+  if (!doc) return;
+  let attributes = Array.from(measure.children).find(
+    (child) => child.tagName.toLowerCase() === "attributes",
+  );
+  if (!attributes) {
+    attributes = doc.createElement("attributes");
+    measure.insertBefore(attributes, measure.firstChild);
+  }
+
+  let keyEl = attributes.getElementsByTagName("key")[0];
+  if (!keyEl) {
+    keyEl = doc.createElement("key");
+    attributes.appendChild(keyEl);
+  }
+
+  let fifthsEl = keyEl.getElementsByTagName("fifths")[0];
+  if (!fifthsEl) {
+    fifthsEl = doc.createElement("fifths");
+    keyEl.appendChild(fifthsEl);
+  }
+  fifthsEl.textContent = keyState.fifths;
+
+  const existingMode = keyEl.getElementsByTagName("mode")[0];
+  if (keyState.mode) {
+    if (existingMode) existingMode.textContent = keyState.mode;
+    else {
+      const modeEl = doc.createElement("mode");
+      modeEl.textContent = keyState.mode;
+      keyEl.appendChild(modeEl);
+    }
+  } else if (existingMode) {
+    keyEl.removeChild(existingMode);
+  }
+}
+
+function sameKeyState(a: KeyState | null, b: KeyState): boolean {
+  if (!a) return false;
+  return a.fifths === b.fifths && (a.mode ?? "") === (b.mode ?? "");
+}
+
+function dropNaturalAccidentalsContradictingKey(measure: Element, keyState: KeyState): void {
+  const fifths = Number.parseInt(keyState.fifths, 10);
+  if (!Number.isFinite(fifths)) return;
+
+  for (const note of Array.from(measure.getElementsByTagName("note"))) {
+    if (note.getElementsByTagName("rest").length > 0) continue;
+    const pitch = note.getElementsByTagName("pitch")[0];
+    if (!pitch) continue;
+    const step = (pitch.getElementsByTagName("step")[0]?.textContent ?? "").trim().toUpperCase();
+    if (!step) continue;
+
+    const impliedAlter = keyAlterForStep(fifths, step);
+    if (impliedAlter === 0) continue;
+
+    const accidentalEl = note.getElementsByTagName("accidental")[0];
+    const accidentalText = accidentalEl?.textContent?.trim().toLowerCase() ?? "";
+    const alterEl = pitch.getElementsByTagName("alter")[0];
+    const alterValue = alterEl ? Number.parseFloat(alterEl.textContent ?? "") : null;
+    const hasExplicitChromaticAlter = alterValue !== null && Number.isFinite(alterValue) && alterValue !== 0;
+    const marksNatural = accidentalText === "natural" || alterValue === 0;
+
+    if (marksNatural && !hasExplicitChromaticAlter) {
+      if (accidentalText === "natural" && accidentalEl?.parentNode) {
+        accidentalEl.parentNode.removeChild(accidentalEl);
+      }
+      if (alterEl && alterValue === 0) {
+        alterEl.parentNode?.removeChild(alterEl);
+      }
+    }
+  }
+}
+
+function keyAlterForStep(fifths: number, step: string): number {
+  const sharpOrder = ["F", "C", "G", "D", "A", "E", "B"];
+  const flatOrder = ["B", "E", "A", "D", "G", "C", "F"];
+  if (fifths > 0) {
+    const affected = new Set(sharpOrder.slice(0, Math.min(7, fifths)));
+    return affected.has(step) ? 1 : 0;
+  }
+  if (fifths < 0) {
+    const affected = new Set(flatOrder.slice(0, Math.min(7, Math.abs(fifths))));
+    return affected.has(step) ? -1 : 0;
+  }
+  return 0;
+}
+
+function scorePartQuality(part: Element): number {
+  const measures = getDirectMeasureChildren(part);
+  const measureCount = measures.length;
+  let explicitKeyCount = 0;
+  let nonRestNoteCount = 0;
+
+  for (const measure of measures) {
+    if (readExplicitKeyState(measure)) explicitKeyCount += 1;
+    for (const note of Array.from(measure.getElementsByTagName("note"))) {
+      if (note.getElementsByTagName("rest").length > 0) continue;
+      nonRestNoteCount += 1;
+    }
+  }
+
+  // Heuristic:
+  // - explicit key declarations are the strongest signal,
+  // - then note density (accompaniment is usually richer than solo),
+  // - then measure count.
+  return explicitKeyCount * 1_000_000 + nonRestNoteCount * 1_000 + measureCount;
 }
