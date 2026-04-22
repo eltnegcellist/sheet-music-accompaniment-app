@@ -29,6 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       poppler-utils \
       curl ca-certificates \
       xdg-utils \
+      libgl1 libglib2.0-0 \
     && curl -fL -o /tmp/audiveris.deb \
        "https://github.com/Audiveris/audiveris/releases/download/${AUDIVERIS_VERSION}/Audiveris-${AUDIVERIS_VERSION}-ubuntu22.04-x86_64.deb" \
     && printf '#!/bin/sh\nexit 0\n' > /usr/bin/xdg-desktop-menu \
@@ -53,7 +54,11 @@ RUN python3 -m pip install --no-cache-dir \
       "pydantic>=2.9.0" \
       "pytesseract>=0.3.10" \
       "pdf2image>=1.17.0" \
-      "pillow>=10.0.0"
+      "pillow>=10.0.0" \
+      "oemer>=0.1.5" \
+      "music21>=9.1.0" \
+      "numpy>=1.26.0" \
+      "pandas>=2.2.0"
 
 COPY app ./app
 COPY pyproject.toml ./
