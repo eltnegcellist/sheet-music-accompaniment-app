@@ -55,6 +55,13 @@ export function sanitizeForOsmd(xml: string): string {
         if (existingNumbers.has(targetNum)) continue;
         const emptyMeasure = doc.createElement("measure");
         emptyMeasure.setAttribute("number", String(targetNum));
+        const note = doc.createElement("note");
+        const rest = doc.createElement("rest");
+        const duration = doc.createElement("duration");
+        duration.textContent = "1";
+        note.appendChild(rest);
+        note.appendChild(duration);
+        emptyMeasure.appendChild(note);
 
         const insertBefore = getDirectMeasureChildren(part).find((m) => {
           const num = Number.parseInt(m.getAttribute("number") ?? "", 10);

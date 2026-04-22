@@ -94,5 +94,16 @@ describe("sanitizeForOsmd", () => {
 
     expect(numbersPerPart[0]).toEqual([1, 2, 3]);
     expect(numbersPerPart[1]).toEqual([1, 2, 3]);
+
+    const part1Measure2 = Array.from(parts[0].children).find(
+      (el) => el.tagName.toLowerCase() === "measure" && el.getAttribute("number") === "2",
+    );
+    const part2Measure3 = Array.from(parts[1].children).find(
+      (el) => el.tagName.toLowerCase() === "measure" && el.getAttribute("number") === "3",
+    );
+    expect(part1Measure2?.getElementsByTagName("rest").length).toBe(1);
+    expect(part2Measure3?.getElementsByTagName("rest").length).toBe(1);
+    expect(part1Measure2?.getElementsByTagName("duration")[0]?.textContent).toBe("1");
+    expect(part2Measure3?.getElementsByTagName("duration")[0]?.textContent).toBe("1");
   });
 });
