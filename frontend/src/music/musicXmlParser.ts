@@ -236,7 +236,7 @@ const DEFAULT_VELOCITY = DYNAMIC_VELOCITY.mf;
 function collectRawMeasures(part: Element): RawMeasure[] {
   const out: RawMeasure[] = [];
   let divisions = 1;
-  let expectedMeasureTicks = 0;
+  let currentExpectedBeats = 0;
   let currentVelocity = DEFAULT_VELOCITY;
   let transposeSemitones = 0;
   const diagnostics: ParserDiagnostics = {
@@ -265,7 +265,7 @@ function collectRawMeasures(part: Element): RawMeasure[] {
             const beats = Number.parseInt(timeEl.getElementsByTagName("beats")[0]?.textContent ?? "",10);
             const beatType = Number.parseInt(timeEl.getElementsByTagName("beat-type")[0]?.textContent ?? "",10);
             if (Number.isFinite(beats) && beats > 0 && Number.isFinite(beatType) && beatType > 0) {
-              expectedMeasureTicks = Math.round((beats * divisions * 4) / beatType);
+              currentExpectedBeats = (beats * 4) / beatType;
             }
           }
           const transposeEl = child.getElementsByTagName("transpose")[0];
@@ -337,7 +337,7 @@ function collectRawMeasures(part: Element): RawMeasure[] {
       index: measureIndex,
       isImplicit,
       observedBeats: ticksToBeats(measureLengthTicks, divisions),
-      expectedBeats: expectedMeasureTicks > 0 ? ticksToBeats(expectedMeasureTicks, divisions) : 0,
+      expectedBeats: currentExpectedBeats,
       notes: rawNotes,
     });
   }
