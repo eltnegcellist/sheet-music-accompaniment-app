@@ -15,11 +15,9 @@ interface Props {
  * Render the parsed MusicXML as SVG via OSMD and drive a cursor to the
  * currently-playing measure.
  *
- * Failure recovery: if OSMD fails on the raw MusicXML (typically with a
- * `realValue` / Fraction error when Audiveris emits an incomplete element),
- * we retry once against a sanitized copy of the XML. This means a flaky
- * first render gives the user a usable second render rather than a blank
- * tab, at the cost of silently dropping known-broken fragments.
+ * We always sanitize before rendering so dropped/invalid OMR fragments can be
+ * normalized consistently (including missing-measure padding), not only on
+ * fatal render errors.
  */
 export function SheetViewer({
   musicXml,
@@ -63,20 +61,21 @@ export function SheetViewer({
     };
 
     (async () => {
+      const sanitizedXml = sanitizeForOsmd(musicXml);
       try {
-        await tryLoad(musicXml);
+        await tryLoad(sanitizedXml);
         if (!cancelled) setStatus("");
       } catch (err) {
         if (cancelled) return;
-        console.warn("[osmd] initial render failed, retrying sanitized", err);
-        setStatus("譜面を生成中… (サニタイズ後リトライ)");
+        console.warn("[osmd] sanitized render failed, retrying raw xml", err);
+        setStatus("譜面を生成中… (元XMLでリトライ)");
         try {
           // OSMD holds internal state from the failed attempt; discard it.
           container.innerHTML = "";
-          await tryLoad(sanitizeForOsmd(musicXml));
+          await tryLoad(musicXml);
           if (!cancelled) {
             setStatus(
-              "一部の要素を修正して表示しました (詳細はコンソール参照)",
+              "サニタイズなしで表示しました (詳細はコンソール参照)",
             );
           }
         } catch (retryErr) {
