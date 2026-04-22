@@ -352,8 +352,15 @@ function computeCanonicalBeats(measures: RawMeasure[]): number {
 
 function pickMeasureLength(raw: RawMeasure, canonicalBeats: number): number {
   if (raw.isImplicit) return raw.observedBeats > 0 ? raw.observedBeats : raw.expectedBeats;
-  if (canonicalBeats > 0) return canonicalBeats;
+  // Prefer explicit meter-derived length when available so playback follows
+  // the MusicXML score (including meter changes) as closely as possible.
   if (raw.expectedBeats > 0) return raw.expectedBeats;
+  if (raw.observedBeats <= 0) return canonicalBeats > 0 ? canonicalBeats : 0;
+  if (canonicalBeats <= 0) return raw.observedBeats;
+
+  // Only quantize extreme OMR outliers. Keep near-canonical measures as-is.
+  if (raw.observedBeats < canonicalBeats * 0.5) return canonicalBeats;
+  if (raw.observedBeats > canonicalBeats * 1.5) return canonicalBeats;
   return raw.observedBeats;
 }
 
