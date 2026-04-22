@@ -228,7 +228,7 @@ describe("sanitizeForOsmd", () => {
 
     expect(keyFifths).toBe("2");
     expect(accidental).toBeUndefined();
-    expect(alter).toBeUndefined();
+    expect(alter?.textContent).toBe("1");
   });
 
   it("drops contradictory naturals even when key signature is unchanged in later measures", () => {
@@ -272,7 +272,7 @@ describe("sanitizeForOsmd", () => {
     const alter = note.getElementsByTagName("alter")[0];
 
     expect(accidental).toBeUndefined();
-    expect(alter).toBeUndefined();
+    expect(alter?.textContent).toBe("1");
   });
 
   it("prefers the part with stronger key metadata as alignment reference", () => {
