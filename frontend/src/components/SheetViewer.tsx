@@ -116,35 +116,33 @@ export function SheetViewer({
     }
 
     try {
-          const targetMeasure = Math.max(1, currentMeasureIndex);
-          const lastSyncedMeasure = lastSyncedMeasureRef.current;
-          osmd.cursor.show();
+      const targetMeasure = Math.max(1, currentMeasureIndex);
+      const lastSyncedMeasure = lastSyncedMeasureRef.current;
+      osmd.cursor.show();
 
-          let advancedSteps = 0;
-          if (lastSyncedMeasure === null || targetMeasure < lastSyncedMeasure) {
-            osmd.cursor.reset();
-            for (let i = 0; i < targetMeasure - 1; i++) {
-              if (osmd.cursor.iterator.EndReached) break;
-              osmd.cursor.next();
-              advancedSteps += 1;
-            }
-          } else if (targetMeasure > lastSyncedMeasure) {
-            const delta = targetMeasure - lastSyncedMeasure;
-            for (let i = 0; i < delta; i++) {
-              if (osmd.cursor.iterator.EndReached) break;
-              osmd.cursor.next();
-              advancedSteps += 1;
-            }
-          }
+      let advancedSteps = 0;
+      if (lastSyncedMeasure === null || targetMeasure < lastSyncedMeasure) {
+        osmd.cursor.reset();
+      }
 
-          lastSyncedMeasureRef.current = targetMeasure;
-          if (debugEnabled) {
-            console.debug("[sheet-cursor]", {
-              targetMeasure,
-              lastSyncedMeasure,
-              advancedSteps,
-            });
-          }
+      // OSMD cursor.next() advances by timestamp (note/rest), not by measure.
+      // Keep stepping until the iterator reaches the target measure.
+      while (
+        !osmd.cursor.iterator.EndReached &&
+        osmd.cursor.iterator.CurrentMeasureIndex < targetMeasure - 1
+      ) {
+        osmd.cursor.next();
+        advancedSteps += 1;
+      }
+
+      if (debugEnabled) {
+        console.debug("[sheet-cursor]", {
+          targetMeasure,
+          lastSyncedMeasure,
+          advancedSteps,
+          currentMeasureIndex: osmd.cursor.iterator.CurrentMeasureIndex,
+        });
+      }
 
       lastSyncedMeasureRef.current = targetMeasure;
     } catch (err) {
