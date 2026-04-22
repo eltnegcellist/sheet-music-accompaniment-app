@@ -27,23 +27,42 @@ export function parseScore(
   const fermataWindows: FermataWindow[] = [];
   let elapsedBeats = 0;
 
-  // Hybrid alignment:
-  // - timeline is driven by accompaniment order (when available), because
-  //   accompaniment usually has the most stable OMR.
-  // - solo measures are consumed by matching measure numbers first; this avoids
-  //   catastrophic drift when OMR drops one solo measure entirely.
-  const timeline = accMeasures.length > 0 ? accMeasures : soloMeasures;
+  // Build a merged measure timeline so that missing measure indices in either
+  // part do not cause the other part to be skipped.
+  const targetIndices: number[] = [];
+  let a = 0;
+  let s = 0;
+  while (a < accMeasures.length || s < soloMeasures.length) {
+    const accIdx =
+      a < accMeasures.length ? accMeasures[a].index : Number.POSITIVE_INFINITY;
+    const soloIdx =
+      s < soloMeasures.length ? soloMeasures[s].index : Number.POSITIVE_INFINITY;
+
+    if (accIdx === soloIdx) {
+      targetIndices.push(accIdx);
+      a++;
+      s++;
+    } else if (accIdx < soloIdx) {
+      targetIndices.push(accIdx);
+      a++;
+    } else {
+      targetIndices.push(soloIdx);
+      s++;
+    }
+  }
+
   const accByIndex = toIndexedQueues(accMeasures);
   const soloByIndex = toIndexedQueues(soloMeasures);
 
-  for (let measurePos = 0; measurePos < timeline.length; measurePos++) {
-    const base = timeline[measurePos];
-    const index = base.index;
-    const accM =
-      (accMeasures.length > 0 ? takeQueuedMeasure(accByIndex, index) : null) ??
-      accMeasures[measurePos];
-    const soloM = takeQueuedMeasure(soloByIndex, index) ?? null;
-    const mForLength = accM ?? soloM ?? base;
+  for (let i = 0; i < targetIndices.length; i++) {
+    const index = targetIndices[i];
+    const accM = takeQueuedMeasure(accByIndex, index);
+    const soloM = takeQueuedMeasure(soloByIndex, index);
+
+    if (!accM && !soloM) continue;
+
+    const mForLength = accM ?? soloM;
+    if (!mForLength) continue;
 
     const baseLength = pickMeasureLength(mForLength, canonicalBeats);
     const allRawNotes = [...(accM?.notes ?? []), ...(soloM?.notes ?? [])];
