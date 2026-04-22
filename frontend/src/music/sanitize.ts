@@ -31,6 +31,50 @@ export function sanitizeForOsmd(xml: string): string {
     return xml; // If the XML itself is malformed, nothing we can do here.
   }
 
+  // Fill missing measure numbers per-part so OSMD keeps vertical alignment
+  // across staves even when OMR drops full measures in one part.
+  const parts = Array.from(doc.getElementsByTagName("part"));
+  if (parts.length > 1) {
+    const allMeasureNumbers = new Set<number>();
+    for (const part of parts) {
+      for (const m of getDirectMeasureChildren(part)) {
+        const num = Number.parseInt(m.getAttribute("number") ?? "", 10);
+        if (Number.isFinite(num)) allMeasureNumbers.add(num);
+      }
+    }
+
+    const sortedNumbers = Array.from(allMeasureNumbers).sort((a, b) => a - b);
+    for (const part of parts) {
+      const existingNumbers = new Set<number>();
+      for (const m of getDirectMeasureChildren(part)) {
+        const num = Number.parseInt(m.getAttribute("number") ?? "", 10);
+        if (Number.isFinite(num)) existingNumbers.add(num);
+      }
+
+      for (const targetNum of sortedNumbers) {
+        if (existingNumbers.has(targetNum)) continue;
+        const emptyMeasure = doc.createElement("measure");
+        emptyMeasure.setAttribute("number", String(targetNum));
+        const note = doc.createElement("note");
+        const rest = doc.createElement("rest");
+        const duration = doc.createElement("duration");
+        duration.textContent = "1";
+        note.appendChild(rest);
+        note.appendChild(duration);
+        emptyMeasure.appendChild(note);
+
+        const insertBefore = getDirectMeasureChildren(part).find((m) => {
+          const num = Number.parseInt(m.getAttribute("number") ?? "", 10);
+          return Number.isFinite(num) && num > targetNum;
+        });
+
+        if (insertBefore) part.insertBefore(emptyMeasure, insertBefore);
+        else part.appendChild(emptyMeasure);
+        existingNumbers.add(targetNum);
+      }
+    }
+  }
+
   // Strip incomplete <time> elements.
   const times = Array.from(doc.getElementsByTagName("time"));
   for (const t of times) {
@@ -85,4 +129,10 @@ export function sanitizeForOsmd(xml: string): string {
   }
 
   return new XMLSerializer().serializeToString(doc);
+}
+
+function getDirectMeasureChildren(part: Element): Element[] {
+  return Array.from(part.children).filter(
+    (el) => el.tagName.toLowerCase() === "measure",
+  );
 }
