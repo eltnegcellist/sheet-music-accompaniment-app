@@ -231,6 +231,50 @@ describe("sanitizeForOsmd", () => {
     expect(alter).toBeUndefined();
   });
 
+  it("drops contradictory naturals even when key signature is unchanged in later measures", () => {
+    const xml = `<?xml version="1.0"?>
+<score-partwise>
+  <part-list><score-part id="P1"/><score-part id="P2"/></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><key><fifths>2</fifths><mode>major</mode></key></attributes>
+      <note><pitch><step>F</step><octave>4</octave></pitch><duration>1</duration></note>
+    </measure>
+    <measure number="2">
+      <note><pitch><step>C</step><octave>5</octave></pitch><duration>1</duration></note>
+    </measure>
+  </part>
+  <part id="P2">
+    <measure number="1">
+      <attributes><key><fifths>2</fifths><mode>major</mode></key></attributes>
+      <note>
+        <pitch><step>F</step><alter>0</alter><octave>4</octave></pitch>
+        <accidental>natural</accidental>
+        <duration>1</duration>
+      </note>
+    </measure>
+    <measure number="2">
+      <note>
+        <pitch><step>C</step><alter>0</alter><octave>5</octave></pitch>
+        <accidental>natural</accidental>
+        <duration>1</duration>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+    const cleaned = sanitizeForOsmd(xml);
+    const doc = new DOMParser().parseFromString(cleaned, "application/xml");
+    const part2 = doc.getElementsByTagName("part")[1];
+    const measure2 = part2.getElementsByTagName("measure")[1];
+    const note = measure2.getElementsByTagName("note")[0];
+    const accidental = note.getElementsByTagName("accidental")[0];
+    const alter = note.getElementsByTagName("alter")[0];
+
+    expect(accidental).toBeUndefined();
+    expect(alter).toBeUndefined();
+  });
+
   it("prefers the part with stronger key metadata as alignment reference", () => {
     const xml = `<?xml version="1.0"?>
 <score-partwise>

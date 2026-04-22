@@ -195,11 +195,8 @@ function alignKeySignaturesToReference(referencePart: Element, parts: Element[])
       if (!Number.isFinite(measureNumber)) continue;
       const refKey = keyByMeasure.get(measureNumber);
       if (!refKey) continue;
-      const beforeKey = readExplicitKeyState(measure);
       writeMeasureKeyState(measure, refKey);
-      if (!sameKeyState(beforeKey, refKey)) {
-        dropNaturalAccidentalsContradictingKey(measure, refKey);
-      }
+      dropNaturalAccidentalsContradictingKey(measure, refKey);
     }
   }
 }
@@ -252,11 +249,6 @@ function writeMeasureKeyState(measure: Element, keyState: KeyState): void {
   } else if (existingMode) {
     keyEl.removeChild(existingMode);
   }
-}
-
-function sameKeyState(a: KeyState | null, b: KeyState): boolean {
-  if (!a) return false;
-  return a.fifths === b.fifths && (a.mode ?? "") === (b.mode ?? "");
 }
 
 function dropNaturalAccidentalsContradictingKey(measure: Element, keyState: KeyState): void {
