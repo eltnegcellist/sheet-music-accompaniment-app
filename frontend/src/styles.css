@@ -96,6 +96,12 @@ body {
   font-size: 13px;
 }
 
+.sheet-viewer__title {
+  margin: 0 0 8px 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
 .app__footer {
   border-top: 1px solid #333;
   padding: 12px 20px;
