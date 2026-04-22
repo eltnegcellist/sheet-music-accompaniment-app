@@ -105,10 +105,10 @@ def _ocr_top_strip_line_boxes(pdf_path: Path) -> tuple[list[_OcrLine], int]:
         raw = (data["text"][i] or "").strip()
         if not raw:
             continue
-        conf_raw = (data["conf"][i] or "").strip()
+        conf_raw = data["conf"][i]
         try:
             conf = float(conf_raw)
-        except ValueError:
+        except (TypeError, ValueError):
             conf = -1.0
         if conf < 0:
             continue
