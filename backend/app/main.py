@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from .music.accompaniment import find_accompaniment_part, find_solo_part
+from .music.fusion import fuse_omr_results
 from .music.merger import merge_layout_with_musicxml
 from .music.parser import (
     extract_score_title,
@@ -18,6 +21,7 @@ from .music.parser import (
 )
 from .ocr.tempo_ocr import extract_tempo_from_pdf, extract_title_from_pdf
 from .omr.audiveris_runner import AudiverisError, OmrResult, run_audiveris
+from .omr.oemer_runner import run_oemer
 from .schemas import AnalyzeResponse, MeasureBox, TimeSignatureModel
 
 logger = logging.getLogger("accompanist")
@@ -95,12 +99,25 @@ async def analyze(
                     400,
                     "music_xml is invalid. Please upload a valid MusicXML or add a PDF.",
                 )
+            oemer_xml: str | None = None
             try:
-                omr_result = run_audiveris(pdf_path, tmp / "out")
+                loop = asyncio.get_running_loop()
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    aud_task = loop.run_in_executor(pool, run_audiveris, pdf_path, tmp / "out")
+                    oem_task = loop.run_in_executor(pool, run_oemer, pdf_path, tmp / "oemer")
+                    omr_result, oemer_xml = await asyncio.gather(aud_task, oem_task)
             except AudiverisError as exc:
                 logger.exception("Audiveris failed")
                 raise HTTPException(500, f"OMR failed: {exc}") from exc
             warnings.extend(omr_result.warnings)
+
+            if oemer_xml is not None:
+                fused_xml, replaced_count = fuse_omr_results(omr_result.music_xml, oemer_xml)
+                omr_result.music_xml = fused_xml
+                if replaced_count > 0:
+                    warnings.append(
+                        f"Audiveris/Oemer fusion replaced {replaced_count} measure(s)."
+                    )
 
         merged_xml = merge_layout_with_musicxml(
             omr_xml=omr_result.music_xml,
