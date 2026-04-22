@@ -259,7 +259,9 @@ function dropNaturalAccidentalsContradictingKey(measure: Element, keyState: KeyS
     if (note.getElementsByTagName("rest").length > 0) continue;
     const pitch = note.getElementsByTagName("pitch")[0];
     if (!pitch) continue;
-    const step = (pitch.getElementsByTagName("step")[0]?.textContent ?? "").trim().toUpperCase();
+    const stepEl = pitch.getElementsByTagName("step")[0];
+    if (!stepEl) continue;
+    const step = (stepEl.textContent ?? "").trim().toUpperCase();
     if (!step) continue;
 
     const impliedAlter = keyAlterForStep(fifths, step);
@@ -269,15 +271,31 @@ function dropNaturalAccidentalsContradictingKey(measure: Element, keyState: KeyS
     const accidentalText = accidentalEl?.textContent?.trim().toLowerCase() ?? "";
     const alterEl = pitch.getElementsByTagName("alter")[0];
     const alterValue = alterEl ? Number.parseFloat(alterEl.textContent ?? "") : null;
-    const hasExplicitChromaticAlter = alterValue !== null && Number.isFinite(alterValue) && alterValue !== 0;
-    const marksNatural = accidentalText === "natural" || alterValue === 0;
+    const isCurrentlyNatural =
+      accidentalText === "natural" || alterValue === 0 || alterValue === null;
+    const hasExplicitChromaticAlter =
+      alterValue !== null &&
+      Number.isFinite(alterValue) &&
+      alterValue !== 0 &&
+      alterValue !== impliedAlter;
 
-    if (marksNatural && !hasExplicitChromaticAlter) {
+    if (isCurrentlyNatural && !hasExplicitChromaticAlter) {
       if (accidentalText === "natural" && accidentalEl?.parentNode) {
         accidentalEl.parentNode.removeChild(accidentalEl);
       }
-      if (alterEl && alterValue === 0) {
-        alterEl.parentNode?.removeChild(alterEl);
+
+      const doc = measure.ownerDocument;
+      if (!doc) continue;
+      if (alterEl) {
+        alterEl.textContent = String(impliedAlter);
+      } else {
+        const newAlter = doc.createElement("alter");
+        newAlter.textContent = String(impliedAlter);
+        if (stepEl.nextSibling) {
+          pitch.insertBefore(newAlter, stepEl.nextSibling);
+        } else {
+          pitch.appendChild(newAlter);
+        }
       }
     }
   }

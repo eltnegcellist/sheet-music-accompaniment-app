@@ -23,6 +23,7 @@ import {
 } from "./components/PlaybackControls";
 import { SheetViewer } from "./components/SheetViewer";
 import { parseScore } from "./music/musicXmlParser";
+import { sanitizeForOsmd } from "./music/sanitize";
 import type { AnalyzeResponse } from "./types";
 
 const DEFAULT_PLAYBACK: PlaybackState = {
@@ -113,6 +114,7 @@ export default function App() {
     );
     try {
       const result = await analyzePdf(pdf, musicXml);
+      result.music_xml = sanitizeForOsmd(result.music_xml);
       setAnalysis(result);
       const parsed = parseScore(
         result.music_xml,
