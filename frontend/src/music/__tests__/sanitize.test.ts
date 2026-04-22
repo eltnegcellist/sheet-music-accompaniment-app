@@ -144,4 +144,47 @@ describe("sanitizeForOsmd", () => {
     expect(part2Measure13?.getElementsByTagName("rest").length).toBe(1);
     expect(part2Measure14?.getElementsByTagName("rest").length).toBe(1);
   });
+
+  it("aligns non-reference part key signatures to the reference part", () => {
+    const xml = `<?xml version="1.0"?>
+<score-partwise>
+  <part-list><score-part id="P1"/><score-part id="P2"/></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <key><fifths>2</fifths><mode>major</mode></key>
+      </attributes>
+      <note><rest/><duration>1</duration></note>
+    </measure>
+    <measure number="2"><note><rest/><duration>1</duration></note></measure>
+    <measure number="3"><note><rest/><duration>1</duration></note></measure>
+  </part>
+  <part id="P2">
+    <measure number="1">
+      <attributes>
+        <key><fifths>0</fifths><mode>major</mode></key>
+      </attributes>
+      <note><rest/><duration>1</duration></note>
+    </measure>
+    <measure number="2"><note><rest/><duration>1</duration></note></measure>
+    <measure number="3"><note><rest/><duration>1</duration></note></measure>
+  </part>
+</score-partwise>`;
+
+    const cleaned = sanitizeForOsmd(xml);
+    const doc = new DOMParser().parseFromString(cleaned, "application/xml");
+    const part2 = doc.getElementsByTagName("part")[1];
+    const part2Measures = Array.from(part2.children).filter(
+      (el) => el.tagName.toLowerCase() === "measure",
+    );
+
+    const fifths = part2Measures.map(
+      (m) =>
+        m.getElementsByTagName("attributes")[0]
+          ?.getElementsByTagName("key")[0]
+          ?.getElementsByTagName("fifths")[0]
+          ?.textContent ?? "",
+    );
+    expect(fifths).toEqual(["2", "2", "2"]);
+  });
 });

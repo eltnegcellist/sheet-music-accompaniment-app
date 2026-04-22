@@ -78,6 +78,9 @@ export function sanitizeForOsmd(xml: string): string {
         }
       }
     }
+
+    // Keep key signatures consistent with the best-recognized part.
+    alignKeySignaturesToReference(referencePart, parts);
   }
 
   // Strip incomplete <time> elements.
@@ -164,4 +167,82 @@ function createEmptyMeasure(doc: Document, number: number): Element {
   emptyMeasure.appendChild(note);
 
   return emptyMeasure;
+}
+
+interface KeyState {
+  fifths: string;
+  mode: string | null;
+}
+
+function alignKeySignaturesToReference(referencePart: Element, parts: Element[]): void {
+  const keyByMeasure = new Map<number, KeyState>();
+  let currentKey: KeyState | null = null;
+  for (const measure of getDirectMeasureChildren(referencePart)) {
+    const measureNumber = Number.parseInt(measure.getAttribute("number") ?? "", 10);
+    if (!Number.isFinite(measureNumber)) continue;
+    const explicit = readExplicitKeyState(measure);
+    if (explicit) currentKey = explicit;
+    if (currentKey) keyByMeasure.set(measureNumber, currentKey);
+  }
+
+  for (const part of parts) {
+    if (part === referencePart) continue;
+    for (const measure of getDirectMeasureChildren(part)) {
+      const measureNumber = Number.parseInt(measure.getAttribute("number") ?? "", 10);
+      if (!Number.isFinite(measureNumber)) continue;
+      const refKey = keyByMeasure.get(measureNumber);
+      if (!refKey) continue;
+      writeMeasureKeyState(measure, refKey);
+    }
+  }
+}
+
+function readExplicitKeyState(measure: Element): KeyState | null {
+  for (const child of Array.from(measure.children)) {
+    if (child.tagName.toLowerCase() !== "attributes") continue;
+    const keyEl = child.getElementsByTagName("key")[0];
+    if (!keyEl) continue;
+    const fifthsText = keyEl.getElementsByTagName("fifths")[0]?.textContent?.trim() ?? "";
+    if (!fifthsText) continue;
+    const modeText = keyEl.getElementsByTagName("mode")[0]?.textContent?.trim() ?? null;
+    return { fifths: fifthsText, mode: modeText };
+  }
+  return null;
+}
+
+function writeMeasureKeyState(measure: Element, keyState: KeyState): void {
+  const doc = measure.ownerDocument;
+  if (!doc) return;
+  let attributes = Array.from(measure.children).find(
+    (child) => child.tagName.toLowerCase() === "attributes",
+  );
+  if (!attributes) {
+    attributes = doc.createElement("attributes");
+    measure.insertBefore(attributes, measure.firstChild);
+  }
+
+  let keyEl = attributes.getElementsByTagName("key")[0];
+  if (!keyEl) {
+    keyEl = doc.createElement("key");
+    attributes.appendChild(keyEl);
+  }
+
+  let fifthsEl = keyEl.getElementsByTagName("fifths")[0];
+  if (!fifthsEl) {
+    fifthsEl = doc.createElement("fifths");
+    keyEl.appendChild(fifthsEl);
+  }
+  fifthsEl.textContent = keyState.fifths;
+
+  const existingMode = keyEl.getElementsByTagName("mode")[0];
+  if (keyState.mode) {
+    if (existingMode) existingMode.textContent = keyState.mode;
+    else {
+      const modeEl = doc.createElement("mode");
+      modeEl.textContent = keyState.mode;
+      keyEl.appendChild(modeEl);
+    }
+  } else if (existingMode) {
+    keyEl.removeChild(existingMode);
+  }
 }
