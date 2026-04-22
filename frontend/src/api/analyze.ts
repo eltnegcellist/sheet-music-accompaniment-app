@@ -5,11 +5,16 @@ const BACKEND_URL =
   "http://localhost:8000";
 
 export async function analyzePdf(
-  pdf: File,
+  pdf?: File,
   musicXml?: File,
 ): Promise<AnalyzeResponse> {
+  if (!pdf && !musicXml) {
+    throw new Error("PDF か MusicXML のどちらかを選択してください。");
+  }
   const form = new FormData();
-  form.append("pdf", pdf);
+  if (pdf) {
+    form.append("pdf", pdf);
+  }
   if (musicXml) {
     form.append("music_xml", musicXml);
   }

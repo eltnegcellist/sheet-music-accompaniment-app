@@ -179,6 +179,39 @@ describe("parseMusicXml", () => {
     expect(notes[0].pitch).toBe("D5");
   });
 
+  it("respects time-signature changes instead of forcing canonical bar length", () => {
+    const score = `<?xml version="1.0"?>
+<score-partwise><part-list><score-part id="P1"/></part-list><part id="P1">
+  <measure number="1">
+    <attributes>
+      <divisions>1</divisions>
+      <time><beats>4</beats><beat-type>4</beat-type></time>
+    </attributes>
+    <note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration></note>
+  </measure>
+  <measure number="2">
+    <attributes>
+      <time><beats>3</beats><beat-type>4</beat-type></time>
+    </attributes>
+    <note><pitch><step>D</step><octave>4</octave></pitch><duration>3</duration></note>
+  </measure>
+  <measure number="3">
+    <note><pitch><step>E</step><octave>4</octave></pitch><duration>3</duration></note>
+  </measure>
+</part></score-partwise>`;
+    const { measures, notes } = parseMusicXml(score, "P1");
+    expect(measures).toEqual([
+      { index: 1, startBeat: 0, lengthBeats: 4 },
+      { index: 2, startBeat: 4, lengthBeats: 3 },
+      { index: 3, startBeat: 7, lengthBeats: 3 },
+    ]);
+    expect(notes.map((n) => [n.pitch, n.beat])).toEqual([
+      ["C4", 0],
+      ["D4", 4],
+      ["E4", 7],
+    ]);
+  });
+
   it("parses dynamics emitted as <words> text (Audiveris style)", () => {
     const score = `<?xml version="1.0"?>
 <score-partwise><part-list><score-part id="P1"/></part-list><part id="P1">
@@ -267,5 +300,43 @@ describe("parseMusicXml", () => {
     expect(parsed.accNotes.map((n) => n.pitch)).toEqual(["C4", "D4", "E4"]);
     expect(parsed.soloNotes.map((n) => n.pitch)).toEqual(["G3", "A3", "B3"]);
     expect(parsed.measures).toHaveLength(3);
+  });
+
+  it("keeps solo aligned when OMR skips one solo measure", () => {
+    const score = `<?xml version="1.0"?>
+<score-partwise>
+  <part-list>
+    <score-part id="P1"/><score-part id="P2"/>
+  </part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+      <note><pitch><step>C</step><octave>3</octave></pitch><duration>4</duration></note>
+    </measure>
+    <measure number="2">
+      <note><pitch><step>D</step><octave>3</octave></pitch><duration>4</duration></note>
+    </measure>
+    <measure number="3">
+      <note><pitch><step>E</step><octave>3</octave></pitch><duration>4</duration></note>
+    </measure>
+  </part>
+  <part id="P2">
+    <measure number="1">
+      <attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+      <note><pitch><step>G</step><octave>4</octave></pitch><duration>4</duration></note>
+    </measure>
+    <measure number="3">
+      <note><pitch><step>A</step><octave>4</octave></pitch><duration>4</duration></note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+    const parsed = parseScore(score, "P1", "P2");
+    expect(parsed.measures.map((m) => m.index)).toEqual([1, 2, 3]);
+    // Measure 2 is missing in solo, but measure 3 should still land at beat 8.
+    expect(parsed.soloNotes.map((n) => [n.pitch, n.beat])).toEqual([
+      ["G4", 0],
+      ["A4", 8],
+    ]);
   });
 });

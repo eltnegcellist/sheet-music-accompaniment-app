@@ -5,6 +5,7 @@ import { sanitizeForOsmd } from "../music/sanitize";
 
 interface Props {
   musicXml: string | null;
+  scoreTitle: string | null;
   currentMeasureIndex: number | null;
   isPlaying: boolean;
   isVisible: boolean;
@@ -22,6 +23,7 @@ interface Props {
  */
 export function SheetViewer({
   musicXml,
+  scoreTitle,
   currentMeasureIndex,
   isPlaying,
   isVisible,
@@ -48,7 +50,7 @@ export function SheetViewer({
     const osmd = new OpenSheetMusicDisplay(container, {
       autoResize: true,
       backend: "svg",
-      drawTitle: true,
+      drawTitle: false,
       drawComposer: true,
       drawCredits: false,
       followCursor: true,
@@ -116,35 +118,33 @@ export function SheetViewer({
     }
 
     try {
-          const targetMeasure = Math.max(1, currentMeasureIndex);
-          const lastSyncedMeasure = lastSyncedMeasureRef.current;
-          osmd.cursor.show();
+      const targetMeasure = Math.max(1, currentMeasureIndex);
+      const lastSyncedMeasure = lastSyncedMeasureRef.current;
+      osmd.cursor.show();
 
-          let advancedSteps = 0;
-          if (lastSyncedMeasure === null || targetMeasure < lastSyncedMeasure) {
-            osmd.cursor.reset();
-            for (let i = 0; i < targetMeasure - 1; i++) {
-              if (osmd.cursor.iterator.EndReached) break;
-              osmd.cursor.next();
-              advancedSteps += 1;
-            }
-          } else if (targetMeasure > lastSyncedMeasure) {
-            const delta = targetMeasure - lastSyncedMeasure;
-            for (let i = 0; i < delta; i++) {
-              if (osmd.cursor.iterator.EndReached) break;
-              osmd.cursor.next();
-              advancedSteps += 1;
-            }
-          }
+      let advancedSteps = 0;
+      if (lastSyncedMeasure === null || targetMeasure < lastSyncedMeasure) {
+        osmd.cursor.reset();
+      }
 
-          lastSyncedMeasureRef.current = targetMeasure;
-          if (debugEnabled) {
-            console.debug("[sheet-cursor]", {
-              targetMeasure,
-              lastSyncedMeasure,
-              advancedSteps,
-            });
-          }
+      // OSMD cursor.next() advances by timestamp (note/rest), not by measure.
+      // Keep stepping until the iterator reaches the target measure.
+      while (
+        !osmd.cursor.iterator.EndReached &&
+        osmd.cursor.iterator.CurrentMeasureIndex < targetMeasure - 1
+      ) {
+        osmd.cursor.next();
+        advancedSteps += 1;
+      }
+
+      if (debugEnabled) {
+        console.debug("[sheet-cursor]", {
+          targetMeasure,
+          lastSyncedMeasure,
+          advancedSteps,
+          currentMeasureIndex: osmd.cursor.iterator.CurrentMeasureIndex,
+        });
+      }
 
       lastSyncedMeasureRef.current = targetMeasure;
     } catch (err) {
@@ -164,6 +164,7 @@ export function SheetViewer({
 
   return (
     <div className="sheet-viewer">
+      {scoreTitle && <h3 className="sheet-viewer__title">{scoreTitle}</h3>}
       {status && <div className="sheet-viewer__status">{status}</div>}
       <div ref={containerRef} />
     </div>

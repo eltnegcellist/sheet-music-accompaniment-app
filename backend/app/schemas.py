@@ -16,6 +16,7 @@ class TimeSignatureModel(BaseModel):
 
 class AnalyzeResponse(BaseModel):
     music_xml: str
+    score_title: str | None = None
     accompaniment_part_id: str | None
     solo_part_id: str | None = None
     measures: list[MeasureBox]

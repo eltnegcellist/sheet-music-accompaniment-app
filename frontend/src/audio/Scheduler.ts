@@ -23,6 +23,13 @@ export interface ScheduledHandle {
   ids: number[];
 }
 
+function normalizeSoloVelocity(value: number): number {
+  // OMR'd dynamics can become overly small for solo voices (e.g. ppp everywhere)
+  // and become inaudible behind accompaniment. Keep expressive variation while
+  // enforcing an audible floor.
+  return Math.min(1, Math.max(0.4, value * 1.25));
+}
+
 /** Convert a 1-based measure number to its starting beat in the score. */
 export function measureToBeat(
   measures: MeasureTiming[],
@@ -97,7 +104,7 @@ export function scheduleScore(opts: ScheduleOptions): ScheduledHandle {
           note.pitch,
           toToneDuration(note.durationBeats),
           t,
-          note.velocity,
+          normalizeSoloVelocity(note.velocity),
         );
       }, beatsToBarsBeats(note.beat - offset));
       ids.push(id);

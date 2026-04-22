@@ -87,6 +87,21 @@ def extract_tempo_info(music_xml: str) -> TempoInfo:
     return _extract_tempo_info(_parse(music_xml))
 
 
+def extract_score_title(music_xml: str) -> str | None:
+    """Return a human-readable title if present in the score metadata."""
+    root = _parse(music_xml)
+    for path in (
+        ".//work/work-title",
+        ".//movement-title",
+        ".//credit/credit-words",
+    ):
+        el = root.find(path)
+        text = (el.text or "").strip() if el is not None else ""
+        if text:
+            return text
+    return None
+
+
 def extract_time_signature(music_xml: str) -> TimeSignature | None:
     """Return the first `<time>` encountered, or None if absent/malformed.
 
