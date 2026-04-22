@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from "react";
 
 interface Props {
   disabled?: boolean;
-  onSelect: (pdf: File, musicXml?: File) => void;
+  onSelect: (pdf?: File, musicXml?: File) => void;
 }
 
 export function PdfUploader({ disabled, onSelect }: Props) {
@@ -18,7 +18,7 @@ export function PdfUploader({ disabled, onSelect }: Props) {
         if (/\.pdf$/i.test(f.name)) pdf = f;
         else if (/\.(xml|musicxml|mxl)$/i.test(f.name)) xml = f;
       }
-      if (pdf) onSelect(pdf, xml);
+      if (pdf || xml) onSelect(pdf, xml);
     },
     [onSelect],
   );
@@ -39,9 +39,9 @@ export function PdfUploader({ disabled, onSelect }: Props) {
           pickFromList(e.dataTransfer.files);
         }}
       >
-        PDFをドロップ、またはクリックして選択
+        PDF / MusicXML をドロップ、またはクリックして選択
         <br />
-        <small>(オプション: 同じ曲の MusicXML も同時に渡せます)</small>
+        <small>(MusicXMLのみでも再生できます。PDF同時指定でハイライト対応)</small>
       </div>
       <input
         ref={inputRef}
