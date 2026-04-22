@@ -31,6 +31,55 @@ export function sanitizeForOsmd(xml: string): string {
     return xml; // If the XML itself is malformed, nothing we can do here.
   }
 
+  // Fill missing measure numbers per-part so OSMD keeps vertical alignment
+  // across staves even when OMR drops full measures in one part.
+  const parts = Array.from(doc.getElementsByTagName("part"));
+  if (parts.length > 1) {
+    const referencePart = pickReferencePart(parts);
+    const canonicalNumbers = getDirectMeasureChildren(referencePart)
+      .map((m) => Number.parseInt(m.getAttribute("number") ?? "", 10))
+      .filter((n) => Number.isFinite(n));
+
+    for (const part of parts) {
+      if (part === referencePart) continue;
+      const measures = getDirectMeasureChildren(part);
+      let cursor = 0;
+
+      for (const targetNum of canonicalNumbers) {
+        let found = false;
+        while (cursor < measures.length) {
+          const num = Number.parseInt(measures[cursor].getAttribute("number") ?? "", 10);
+          if (!Number.isFinite(num)) {
+            cursor++;
+            continue;
+          }
+          if (num === targetNum) {
+            found = true;
+            cursor++;
+            break;
+          }
+          if (num < targetNum) {
+            cursor++;
+            continue;
+          }
+          break;
+        }
+
+        if (!found) {
+          const emptyMeasure = createEmptyMeasure(doc, targetNum);
+          if (cursor < measures.length) {
+            part.insertBefore(emptyMeasure, measures[cursor]);
+            measures.splice(cursor, 0, emptyMeasure);
+          } else {
+            part.appendChild(emptyMeasure);
+            measures.push(emptyMeasure);
+          }
+          cursor++;
+        }
+      }
+    }
+  }
+
   // Strip incomplete <time> elements.
   const times = Array.from(doc.getElementsByTagName("time"));
   for (const t of times) {
@@ -85,4 +134,34 @@ export function sanitizeForOsmd(xml: string): string {
   }
 
   return new XMLSerializer().serializeToString(doc);
+}
+
+function getDirectMeasureChildren(part: Element): Element[] {
+  return Array.from(part.children).filter(
+    (el) => el.tagName.toLowerCase() === "measure",
+  );
+}
+
+function pickReferencePart(parts: Element[]): Element {
+  let ref = parts[0];
+  for (const part of parts) {
+    if (getDirectMeasureChildren(part).length > getDirectMeasureChildren(ref).length) {
+      ref = part;
+    }
+  }
+  return ref;
+}
+
+function createEmptyMeasure(doc: Document, number: number): Element {
+  const emptyMeasure = doc.createElement("measure");
+  emptyMeasure.setAttribute("number", String(number));
+  const note = doc.createElement("note");
+  const rest = doc.createElement("rest");
+  const duration = doc.createElement("duration");
+  duration.textContent = "1";
+  note.appendChild(rest);
+  note.appendChild(duration);
+  emptyMeasure.appendChild(note);
+
+  return emptyMeasure;
 }
