@@ -132,7 +132,6 @@ async def analyze(
             ocr_title = extract_title_from_pdf(pdf_path)
             if ocr_title:
                 score_title = ocr_title
-                warnings.append("タイトルをPDF OCRで補完しました。")
         time_signature = extract_time_signature(merged_xml)
         measures = [
             MeasureBox(index=m.index, page=m.page, bbox=m.bbox)
