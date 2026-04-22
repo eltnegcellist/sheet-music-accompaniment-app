@@ -114,8 +114,13 @@ export default function App() {
     try {
       const result = await analyzePdf(pdf, musicXml);
       setAnalysis(result);
+      const parsed = parseScore(
+        result.music_xml,
+        result.accompaniment_part_id,
+        result.solo_part_id ?? null,
+      );
       setStatus(
-        `解析完了: ${result.measures.length} 小節 / タイトル: ${
+        `解析完了: ${parsed.measures.length} 小節 / タイトル: ${
           result.score_title ?? "(未検出)"
         } / 伴奏: ${
           result.accompaniment_part_id ?? "(自動検出失敗)"
