@@ -192,7 +192,11 @@ function alignKeySignaturesToReference(referencePart: Element, parts: Element[])
       if (!Number.isFinite(measureNumber)) continue;
       const refKey = keyByMeasure.get(measureNumber);
       if (!refKey) continue;
+      const beforeKey = readExplicitKeyState(measure);
       writeMeasureKeyState(measure, refKey);
+      if (!sameKeyState(beforeKey, refKey)) {
+        dropNaturalAccidentalsContradictingKey(measure, refKey);
+      }
     }
   }
 }
@@ -245,4 +249,55 @@ function writeMeasureKeyState(measure: Element, keyState: KeyState): void {
   } else if (existingMode) {
     keyEl.removeChild(existingMode);
   }
+}
+
+function sameKeyState(a: KeyState | null, b: KeyState): boolean {
+  if (!a) return false;
+  return a.fifths === b.fifths && (a.mode ?? "") === (b.mode ?? "");
+}
+
+function dropNaturalAccidentalsContradictingKey(measure: Element, keyState: KeyState): void {
+  const fifths = Number.parseInt(keyState.fifths, 10);
+  if (!Number.isFinite(fifths)) return;
+
+  for (const note of Array.from(measure.getElementsByTagName("note"))) {
+    if (note.getElementsByTagName("rest").length > 0) continue;
+    const pitch = note.getElementsByTagName("pitch")[0];
+    if (!pitch) continue;
+    const step = (pitch.getElementsByTagName("step")[0]?.textContent ?? "").trim().toUpperCase();
+    if (!step) continue;
+
+    const impliedAlter = keyAlterForStep(fifths, step);
+    if (impliedAlter === 0) continue;
+
+    const accidentalEl = note.getElementsByTagName("accidental")[0];
+    const accidentalText = accidentalEl?.textContent?.trim().toLowerCase() ?? "";
+    const alterEl = pitch.getElementsByTagName("alter")[0];
+    const alterValue = alterEl ? Number.parseFloat(alterEl.textContent ?? "") : null;
+    const hasExplicitChromaticAlter = alterValue !== null && Number.isFinite(alterValue) && alterValue !== 0;
+    const marksNatural = accidentalText === "natural" || alterValue === 0;
+
+    if (marksNatural && !hasExplicitChromaticAlter) {
+      if (accidentalText === "natural" && accidentalEl?.parentNode) {
+        accidentalEl.parentNode.removeChild(accidentalEl);
+      }
+      if (alterEl && alterValue === 0) {
+        alterEl.parentNode?.removeChild(alterEl);
+      }
+    }
+  }
+}
+
+function keyAlterForStep(fifths: number, step: string): number {
+  const sharpOrder = ["F", "C", "G", "D", "A", "E", "B"];
+  const flatOrder = ["B", "E", "A", "D", "G", "C", "F"];
+  if (fifths > 0) {
+    const affected = new Set(sharpOrder.slice(0, Math.min(7, fifths)));
+    return affected.has(step) ? 1 : 0;
+  }
+  if (fifths < 0) {
+    const affected = new Set(flatOrder.slice(0, Math.min(7, Math.abs(fifths))));
+    return affected.has(step) ? -1 : 0;
+  }
+  return 0;
 }

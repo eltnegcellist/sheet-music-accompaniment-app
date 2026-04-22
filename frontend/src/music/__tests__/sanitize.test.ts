@@ -187,4 +187,47 @@ describe("sanitizeForOsmd", () => {
     );
     expect(fifths).toEqual(["2", "2", "2"]);
   });
+
+  it("drops natural accidentals introduced by missing key signatures after key alignment", () => {
+    const xml = `<?xml version="1.0"?>
+<score-partwise>
+  <part-list><score-part id="P1"/><score-part id="P2"/></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <key><fifths>2</fifths><mode>major</mode></key>
+      </attributes>
+      <note><pitch><step>F</step><octave>4</octave></pitch><duration>1</duration></note>
+    </measure>
+  </part>
+  <part id="P2">
+    <measure number="1">
+      <attributes>
+        <key><fifths>0</fifths><mode>major</mode></key>
+      </attributes>
+      <note>
+        <pitch><step>F</step><alter>0</alter><octave>4</octave></pitch>
+        <accidental>natural</accidental>
+        <duration>1</duration>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+    const cleaned = sanitizeForOsmd(xml);
+    const doc = new DOMParser().parseFromString(cleaned, "application/xml");
+    const note = doc.getElementsByTagName("part")[1].getElementsByTagName("note")[0];
+    const accidental = note.getElementsByTagName("accidental")[0];
+    const alter = note.getElementsByTagName("alter")[0];
+    const keyFifths = doc
+      .getElementsByTagName("part")[1]
+      .getElementsByTagName("measure")[0]
+      .getElementsByTagName("attributes")[0]
+      .getElementsByTagName("key")[0]
+      .getElementsByTagName("fifths")[0]?.textContent;
+
+    expect(keyFifths).toBe("2");
+    expect(accidental).toBeUndefined();
+    expect(alter).toBeUndefined();
+  });
 });
