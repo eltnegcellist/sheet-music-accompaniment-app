@@ -147,9 +147,12 @@ function getDirectMeasureChildren(part: Element): Element[] {
 
 function pickReferencePart(parts: Element[]): Element {
   let ref = parts[0];
+  let refScore = scorePartQuality(ref);
   for (const part of parts) {
-    if (getDirectMeasureChildren(part).length > getDirectMeasureChildren(ref).length) {
+    const score = scorePartQuality(part);
+    if (score > refScore) {
       ref = part;
+      refScore = score;
     }
   }
   return ref;
@@ -300,4 +303,25 @@ function keyAlterForStep(fifths: number, step: string): number {
     return affected.has(step) ? -1 : 0;
   }
   return 0;
+}
+
+function scorePartQuality(part: Element): number {
+  const measures = getDirectMeasureChildren(part);
+  const measureCount = measures.length;
+  let explicitKeyCount = 0;
+  let nonRestNoteCount = 0;
+
+  for (const measure of measures) {
+    if (readExplicitKeyState(measure)) explicitKeyCount += 1;
+    for (const note of Array.from(measure.getElementsByTagName("note"))) {
+      if (note.getElementsByTagName("rest").length > 0) continue;
+      nonRestNoteCount += 1;
+    }
+  }
+
+  // Heuristic:
+  // - explicit key declarations are the strongest signal,
+  // - then note density (accompaniment is usually richer than solo),
+  // - then measure count.
+  return explicitKeyCount * 1_000_000 + nonRestNoteCount * 1_000 + measureCount;
 }
