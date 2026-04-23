@@ -10,7 +10,8 @@ ENV AUDIVERIS_HOME=/opt/audiveris \
     PATH=/opt/audiveris/bin:${PATH} \
     DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    CUDA_VISIBLE_DEVICES=""
 
 # System packages: Python runtime + Tesseract (Audiveris uses it for text OCR)
 # and xdg-utils (pulled in anyway by Audiveris; we install it explicitly so
@@ -29,6 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       poppler-utils \
       curl ca-certificates \
       xdg-utils \
+      libgl1 libglib2.0-0 \
     && curl -fL -o /tmp/audiveris.deb \
        "https://github.com/Audiveris/audiveris/releases/download/${AUDIVERIS_VERSION}/Audiveris-${AUDIVERIS_VERSION}-ubuntu22.04-x86_64.deb" \
     && printf '#!/bin/sh\nexit 0\n' > /usr/bin/xdg-desktop-menu \
@@ -53,7 +55,27 @@ RUN python3 -m pip install --no-cache-dir \
       "pydantic>=2.9.0" \
       "pytesseract>=0.3.10" \
       "pdf2image>=1.17.0" \
-      "pillow>=10.0.0"
+      "pillow>=10.0.0" \
+      "oemer>=0.1.5" \
+      "music21>=9.1.0" \
+      "numpy>=1.26.0" \
+      "pandas>=2.2.0" \
+      "onnxruntime>=1.18.0" \
+    && python3 -m pip uninstall -y onnxruntime-gpu || true \
+    && python3 - <<'PY'
+from pathlib import Path
+from PIL import Image
+import subprocess
+
+out = Path('/tmp/oemer-warmup')
+out.mkdir(parents=True, exist_ok=True)
+img = out / 'warmup.png'
+Image.new('RGB', (64, 64), 'white').save(img)
+import os
+env = os.environ.copy()
+env['CUDA_VISIBLE_DEVICES'] = ''
+subprocess.run(['oemer', str(img), '-o', str(out)], check=False, env=env)
+PY
 
 COPY app ./app
 COPY pyproject.toml ./
