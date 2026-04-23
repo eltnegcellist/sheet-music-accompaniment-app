@@ -16,6 +16,7 @@ dependencies = [
   "music21>=9.1.0",
   "numpy>=1.26.0",
   "pandas>=2.2.0",
+  "onnxruntime>=1.18.0",
 ]
 
 [project.optional-dependencies]
