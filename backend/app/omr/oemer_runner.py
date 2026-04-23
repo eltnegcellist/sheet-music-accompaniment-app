@@ -9,6 +9,7 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from lxml import etree
 from pdf2image import convert_from_path
 
 logger = logging.getLogger("accompanist")
@@ -31,91 +32,138 @@ def _read_musicxml(path: Path) -> str | None:
     return path.read_text(encoding="utf-8", errors="replace")
 
 
-def _pdf_to_input_image(pdf_path: Path, image_dir: Path) -> tuple[Path | None, list[str]]:
-    """Render PDF to an image for Oemer (which expects raster input)."""
+def _render_pdf_pages(pdf_path: Path, image_dir: Path) -> tuple[list[Path], list[str]]:
+    """Render PDF pages to PNG images for Oemer (which expects raster input)."""
     warnings: list[str] = []
     try:
-        pages = convert_from_path(str(pdf_path), dpi=400)
+        # 240 DPI keeps memory lower than 400 while preserving staffline fidelity.
+        pages = convert_from_path(str(pdf_path), dpi=240)
     except Exception as exc:
-        return None, [f"Failed to render PDF for Oemer: {exc}"]
+        return [], [f"Failed to render PDF for Oemer: {exc}"]
 
     if not pages:
-        return None, ["PDF had no renderable pages for Oemer."]
+        return [], ["PDF had no renderable pages for Oemer."]
 
-    if len(pages) > 1:
-        warnings.append(
-            "Oemer currently runs on a single rendered page; using page 1 only."
+    image_paths: list[Path] = []
+    for page_idx, page in enumerate(pages, start=1):
+        image_path = image_dir / f"oemer_input_page{page_idx}.png"
+        page.save(image_path, format="PNG")
+        image_paths.append(image_path)
+    warnings.append(f"Oemer will process {len(image_paths)} rendered page(s).")
+    return image_paths, warnings
+
+
+def _run_oemer_command(input_image: Path, output_dir: Path, cmd: list[str], env: dict[str, str]) -> tuple[str | None, str | None]:
+    cmd_str = " ".join(cmd)
+    logger.info("Running Oemer: %s", cmd_str)
+    try:
+        completed = subprocess.run(
+            cmd,
+            check=False,
+            capture_output=True,
+            text=True,
+            env=env,
         )
+    except FileNotFoundError:
+        return None, f"Oemer command not found: {cmd_str}"
+    except Exception as exc:
+        return None, f"Oemer crashed while launching ({cmd_str}): {exc}"
 
-    image_path = image_dir / "oemer_input_page1.png"
-    pages[0].save(image_path, format="PNG")
-    return image_path, warnings
+    if completed.returncode != 0:
+        stderr = completed.stderr.strip() or completed.stdout.strip()
+        detail = f" ({stderr[:240]})" if stderr else ""
+        return None, f"Oemer exited with code {completed.returncode} using `{cmd_str}`{detail}"
+
+    for pattern in ("*.musicxml", "*.xml", "*.mxl"):
+        candidates = sorted(output_dir.rglob(pattern))
+        if candidates:
+            music_xml = _read_musicxml(candidates[0])
+            if music_xml:
+                logger.info("Oemer produced MusicXML: %s", candidates[0])
+                return music_xml, None
+
+    return None, f"Oemer succeeded but no MusicXML file was found ({cmd_str})"
 
 
-def _candidate_commands(input_image: Path, output_dir: Path) -> list[list[str]]:
-    entrypoint = shutil.which("oemer")
-    commands: list[list[str]] = []
-    if entrypoint is not None:
-        commands.append([entrypoint, str(input_image), "-o", str(output_dir)])
-    commands.append(["python3", "-m", "oemer", str(input_image), "-o", str(output_dir)])
-    return commands
+def _merge_page_xmls(page_xmls: list[str]) -> str:
+    if len(page_xmls) == 1:
+        return page_xmls[0]
+
+    roots = [etree.fromstring(xml.encode("utf-8")) for xml in page_xmls]
+    base = roots[0]
+
+    base_parts = base.findall("part")
+    if not base_parts:
+        return page_xmls[0]
+
+    next_numbers = []
+    for part in base_parts:
+        measures = part.findall("measure")
+        if measures:
+            last_no = int(measures[-1].get("number", len(measures)))
+        else:
+            last_no = 0
+        next_numbers.append(last_no + 1)
+
+    for extra_root in roots[1:]:
+        extra_parts = extra_root.findall("part")
+        for idx, extra_part in enumerate(extra_parts):
+            if idx >= len(base_parts):
+                continue
+            for m in extra_part.findall("measure"):
+                cloned = etree.fromstring(etree.tostring(m))
+                cloned.set("number", str(next_numbers[idx]))
+                next_numbers[idx] += 1
+                base_parts[idx].append(cloned)
+
+    return etree.tostring(base, encoding="unicode")
 
 
 def run_oemer(pdf_path: Path, output_dir: Path) -> OemerRunResult:
     """Run Oemer and return generated MusicXML content when available."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    entrypoint = shutil.which("oemer")
+    if entrypoint is None:
+        return OemerRunResult(
+            music_xml=None,
+            warnings=["Oemer CLI not found on PATH."],
+        )
+
     with tempfile.TemporaryDirectory() as img_root:
-        image_path, pre_warnings = _pdf_to_input_image(pdf_path, Path(img_root))
-        warnings: list[str] = list(pre_warnings)
-        if image_path is None:
+        image_paths, warnings = _render_pdf_pages(pdf_path, Path(img_root))
+        if not image_paths:
             logger.warning("Skipping Oemer: could not prepare input image")
             return OemerRunResult(music_xml=None, warnings=warnings)
 
-        commands = _candidate_commands(image_path, output_dir)
-        # Avoid GPU provider initialization errors in CPU-only containers.
         env = os.environ.copy()
         env["CUDA_VISIBLE_DEVICES"] = ""
 
-        for cmd in commands:
-            cmd_str = " ".join(cmd)
-            logger.info("Running Oemer: %s", cmd_str)
-            try:
-                completed = subprocess.run(
-                    cmd,
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                    env=env,
-                )
-            except FileNotFoundError:
-                warnings.append(f"Oemer command not found: {cmd_str}")
+        page_xmls: list[str] = []
+        for page_idx, image_path in enumerate(image_paths, start=1):
+            page_out = output_dir / f"page_{page_idx:03d}"
+            page_out.mkdir(parents=True, exist_ok=True)
+            cmd = [entrypoint, str(image_path), "-o", str(page_out)]
+            xml_text, error = _run_oemer_command(image_path, page_out, cmd, env)
+            if error is not None:
+                warnings.append(f"Page {page_idx}: {error}")
                 continue
-            except Exception as exc:
-                warnings.append(f"Oemer crashed while launching ({cmd_str}): {exc}")
-                continue
+            if xml_text is not None:
+                page_xmls.append(xml_text)
 
-            if completed.returncode != 0:
-                stderr = completed.stderr.strip() or completed.stdout.strip()
-                detail = f" ({stderr[:240]})" if stderr else ""
-                warnings.append(
-                    f"Oemer exited with code {completed.returncode} using `{cmd_str}`{detail}"
-                )
-                continue
+        if not page_xmls:
+            logger.warning("Skipping Oemer fusion; no usable output was produced")
+            warnings.append("Oemer output unavailable for all pages.")
+            return OemerRunResult(music_xml=None, warnings=warnings, used_command=entrypoint)
 
-            for pattern in ("*.musicxml", "*.xml", "*.mxl"):
-                candidates = sorted(output_dir.rglob(pattern))
-                if candidates:
-                    music_xml = _read_musicxml(candidates[0])
-                    if music_xml:
-                        logger.info("Oemer produced MusicXML: %s", candidates[0])
-                        return OemerRunResult(
-                            music_xml=music_xml,
-                            warnings=warnings,
-                            used_command=cmd_str,
-                        )
+        if len(page_xmls) != len(image_paths):
+            warnings.append(
+                f"Oemer succeeded on {len(page_xmls)}/{len(image_paths)} pages; using partial merged output."
+            )
 
-            warnings.append(f"Oemer succeeded but no MusicXML file was found ({cmd_str})")
-
-    logger.warning("Skipping Oemer fusion; no usable output was produced")
-    return OemerRunResult(music_xml=None, warnings=warnings)
+        merged_xml = _merge_page_xmls(page_xmls)
+        return OemerRunResult(
+            music_xml=merged_xml,
+            warnings=warnings,
+            used_command=entrypoint,
+        )

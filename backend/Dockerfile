@@ -58,7 +58,18 @@ RUN python3 -m pip install --no-cache-dir \
       "oemer>=0.1.5" \
       "music21>=9.1.0" \
       "numpy>=1.26.0" \
-      "pandas>=2.2.0"
+      "pandas>=2.2.0" \
+    && python3 - <<'PY'
+from pathlib import Path
+from PIL import Image
+import subprocess
+
+out = Path('/tmp/oemer-warmup')
+out.mkdir(parents=True, exist_ok=True)
+img = out / 'warmup.png'
+Image.new('RGB', (64, 64), 'white').save(img)
+subprocess.run(['oemer', str(img), '-o', str(out)], check=False)
+PY
 
 COPY app ./app
 COPY pyproject.toml ./
