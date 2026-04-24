@@ -603,28 +603,120 @@ def quality_gate(metrics: StageMetrics, params) -> Literal["pass", "retry", "dro
   かつ voice 内で 1 音だけ極端に短い（duration < `divisions/8`）音は削除
 - 削除は 1 小節 1 音を上限（`max_isolated_removals_per_measure`）
 
-### 3-5. 和音・voice再構築（高優先）
-- 同時刻音の和音化
-- 横ズレ補正
-- voice再構成（右手/左手）
-- ノイズ声部削除
+### 3-5. 和音・voice 再構築（高優先）
+
+> 既存 `accompaniment.py::_part_has_two_staves` の「2 段譜＝ピアノ」判定と連動。
+> ピアノ伴奏 part では staff=1 (右手) / staff=2 (左手) を前提に再構築する。
+
+#### 3-5-a. 和音化（同時刻音の統合）
+- Phase 3-2 で得た onset クラスタに対し、同一 voice 内で複数音があるなら
+  先頭音を `chord-base`、以降を `<chord/>` 付きで統合
+- 統合条件: `duration` が一致 **かつ** `staff` が同一（違う staff は別和音）
+- 異 `duration` の同時発音は **voice 分割** の対象（3-5-c へ）
+
+#### 3-5-b. 横ズレ補正
+- Audiveris は和音構成音の x 座標を数 px ずらして出すことがある
+- `.omr` の x 座標で `|Δx| < staff_space * 0.6` なら同時刻扱い
+- 補正済み onset は metadata に `onset_cluster_id` を付与（以降の再処理で再参照可）
+
+#### 3-5-c. voice 再構成（右手 / 左手）
+- 前提: 2 staff のピアノ part（1 staff や非ピアノは本節を skip）
+- 手順:
+  1. note を (onset, pitch, staff_hint) のベクトルで表現。staff_hint は
+     Audiveris が付けた `<staff>` と `.omr` の y 座標から決定（y 座標優先）
+  2. k=2 クラスタリング（pitch × staff_hint の 2D 特徴）で RH/LH を再割当て
+  3. 割当後、連続音の音域ジャンプが大きい voice を平滑化（median ±12 半音から逸脱で再割当て）
+- 保守: 再割当て率が 30% を超えたら元の割当てに rollback（=誤補正ガード）
+
+#### 3-5-d. ノイズ声部削除
+- voice あたりの総 note 数が全体の 2% 未満、または継続時間が 4 小節未満なら
+  「ノイズ声部」として削除候補
+- ただし単音旋律（ソロ楽器 part 全体）は絶対に削除しない：
+  → 削除は `accompaniment_part_id` に対してのみ許可
 
 ### 3-6. 記号整理
-- タイ整合
-- スラー除去/無視
-- 装飾音・ダイナミクス削除
+
+#### 3-6-a. タイ整合
+- `<tie type="start"/>` と `<tie type="stop"/>` のペアリングを再検査
+- 不整合パターンと処理:
+  | 症状                          | 処理                                                |
+  |------------------------------|-----------------------------------------------------|
+  | start のみ / 次音が別音高    | start を削除                                          |
+  | stop のみ / 前音が別音高     | stop を削除                                           |
+  | start 後の stop が 2 小節以上先 | 中間音を確認、同音継続なら chain、違えば start 削除 |
+  | 和音内 tie の向き不整合       | 和音 base の tie を正とし他は再計算                   |
+
+#### 3-6-b. スラー処理（削除寄り）
+- MIDI 再生には不要 → `params.postprocess.symbols.drop_slurs=true`（既定 true）で削除
+- 視覚表示が要る環境では保持するオプションを残す（将来用）
+
+#### 3-6-c. 装飾音・ダイナミクス
+- `<grace>` 音符: 自動再生では無視されやすいため MIDI レンダリング前に削除
+- `<dynamics>` / `<wedge>`: 保持（Phase 5 の MIDI 生成時に velocity に反映）
+- トリル / モルデント: `<ornaments>` は削除（`grace` と同じ扱い）
+
+#### 3-6-d. 拍子・調号の整合
+- 同一 divisions 内での重複する `<time>` / `<key>` は最初の 1 つのみ残す
+- Audiveris が各 page 先頭に重複挿入することがあるため、連続する同値は除去
 
 ### 3-7. テンポ処理
-- 固定テンポ上書き
-- （オプション）拍構造から推定
+
+> 既存 `ocr/tempo_ocr.py::extract_tempo_from_pdf` が PDF 上段の速度標語を
+> 読み取る実装。これを Phase 3 の一部として呼び出し、
+> `parser.extract_tempo_info` と統合する。
+
+#### 3-7-a. ソース優先順位
+1. MusicXML 内 `<sound tempo=...>` / `<metronome>`（既存抽出）
+2. PDF OCR による速度標語（`extract_tempo_from_pdf`）
+3. 既定値 `params.postprocess.tempo.default_bpm`（既定 72）
+
+#### 3-7-b. 揺らぎ対応（オプション）
+- MusicXML に複数 tempo がある場合は位置情報付きで保持
+- `rit.` / `accel.` などは正規表現で拾い、区間の目安を warnings に記録（補正はしない）
+
+#### 3-7-c. 固定テンポ上書き
+- 運用モード `params.postprocess.tempo.mode="fixed"` のとき、API 引数の `tempo_bpm` を優先
+- そのとき source=`user_override` として metrics に記録
 
 ### 3-8. 構造補正
-- 小節数整合チェック
-- リピート/ダカーポ削除 or 展開
+
+#### 3-8-a. 小節数整合
+- 期待小節数（= 上位 Trial が報告する中央値）と各 Trial の `measure_count` を比較
+- ±5% 以内なら許容、外れたら Phase 4 のスコアリングで減点
+
+#### 3-8-b. 小節差し替え機構（Phase 2-5 と対をなす）
+- 入力: 再 OMR した region の MusicXML + 元スコアの MusicXML
+- 手順:
+  1. 両方を music21 で parse
+  2. 差し替え対象 measure の `number` 範囲で元 Score の measure を除去
+  3. 新 region の measure を挿入、part 対応は `id` 一致 + 既定 part_idx で決定
+  4. `<clef>`, `<key>`, `<time>` が欠落する場合は直前小節からコピー
+- 失敗時（part 対応取れない等）は rollback し `warnings` に残す
+
+#### 3-8-c. リピート / ダカーポ
+- 既定: `repeat_mode="expand"`（自動展開して直線化）
+- `<barline location="left"><repeat direction="forward"/>` と
+  `<barline location="right"><repeat direction="backward"/>` のペアを展開
+- `<ending>` あり（1st/2nd）: 2 回目は 1st を飛ばすルールで展開
+- `da capo`, `dal segno`, `coda`: 未対応 → `drop` モードで記号だけ削除（将来拡張）
+
+#### 3-8-d. part 連動の整合
+- 全 part で小節数が一致していることを最終チェック
+- ずれがあれば短い part の末尾に空小節（全休符）を追加して揃える
+
+### 3-9. Phase 3 の出力物
+- `postprocess_edits.jsonl`（全編集の順序付きログ）
+- `postprocess_metrics.json`（下記の集約指標）
+  - `measure_duration_match_rate`, `rhythm_unfixable_count`, `scale_fix_count`,
+    `out_of_range_fixed`, `voice_rebuild_applied`, `tie_fixed_count`,
+    `ngram_fix_count`, `removed_notes`, `added_rests`
+- `postprocess_output.musicxml`（最終成果物）
 
 ### 完了条件
-- 拍整合率が目標値に到達
-- 演奏不能XMLの発生率が実運用閾値以下
+- 拍整合率（`measure_duration_match_rate`）が全サンプルで ≥ 0.95
+- 編集ログ 1 つから「どの小節でどんな操作が何のために行われたか」が再現できる
+- 既存 `merger.py::merge_layout_with_musicxml` が Phase 3 出力を問題なく受け入れる
+- 既存 `find_accompaniment_part` / `find_solo_part` が Phase 3 後でも正しい part ID を返す
 
 ---
 
