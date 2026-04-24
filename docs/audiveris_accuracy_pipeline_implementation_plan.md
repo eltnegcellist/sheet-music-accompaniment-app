@@ -236,41 +236,141 @@ Job  (1 PDF / 1 /analyze リクエスト)
 
 ## Phase 1: 前処理（五線中心）
 
+> 実装は `backend/app/pipeline/stages/preprocess.py` に集約。
+> 依存: `pdf2image`（PDF→PNG）, `opencv-python`（幾何補正/二値化）,
+> `scikit-image`（Sauvola, regionprops）, `Pillow`（保存・メタ）。
+
 ### 1-1. 入力正規化
-- PDF→PNG変換（グレースケール + コントラスト強調）
-- アンチエイリアス低減レンダリング
-- 余白トリミング
+
+#### 1-1-a. PDF → 画像
+- ツール: `pdf2image.convert_from_path`（poppler）
+- 既定 DPI: 300（小さい楽譜は 400 にブースト、巨大スコアは 250 へフォールバック）
+- 出力: 16bit グレースケール PNG（階調維持）
+- 例外: 埋め込み JPEG のみの PDF は `pdfimages -j` で直接抽出して DPI を再計算
+
+#### 1-1-b. コントラスト正規化
+- 処理順: `dtype→float32/255` → CLAHE (clipLimit=2.0, tileGridSize=8×8) → min-max 正規化
+- アンチエイリアス抑制: `cv2.GaussianBlur(3×3, σ=0.6)` の後に
+  `np.where(img > 0.6, 1, np.where(img < 0.4, 0, img))` で中間トーンを潰す
+  （二値化前のソフトな2段階化、ステム保全のため閾値は広め）
+
+#### 1-1-c. 余白トリミング
+- 水平/垂直投影ヒストグラムで非ゼロ領域の bbox を取得
+- 余白側に **staff_space_estimate × 2** の安全マージンを残す（クロップしすぎると後段の Hough が狂う）
 
 ### 1-2. 五線ベース正規化（重要）
-- staff space推定
-- 20〜25pxへスケーリング
-- 五線Y座標整列（行単位の歪み補正）
-- 五線本数チェック（5本以外をフラグ）
+
+#### 1-2-a. staff space 推定
+1. 水平ライン検出（`cv2.HoughLinesP` or 形態学 + `reduce(axis=1)`）で候補行を抽出
+2. 行間距離のヒストグラム → 最頻ビン × 4 / 5 で **staff_height** と **staff_space** を同時推定
+3. 補強: 縦方向の輝度プロファイルを FFT し基本周波数の逆数から staff space を独立推定。
+   両推定値の乖離が 20% 以上なら **低信頼** フラグ → 品質ゲート対象
+
+#### 1-2-b. スケーリング
+- 目標 staff space: `params.preprocess.staff_norm.target_staff_space_px`（既定 22px）
+- スケール係数 `s = target / estimated`、`s ∉ [0.3, 3.0]` なら異常としてフラグ
+- リサンプリングは `cv2.INTER_AREA`（縮小）/ `INTER_CUBIC`（拡大）の自動選択
+
+#### 1-2-c. 五線 Y 座標整列
+- 各 staff line について中心 Y を多項式フィット（次数 2）で推定
+- 同一 system 内で 5 本の Y が等間隔になるよう「行単位 warp」を適用
+  （OpenCV の `remap` で y 座標のみ微調整、x は不変）
+
+#### 1-2-d. 本数チェック
+- system ごとに staff line 本数をカウント。5 の倍数でない system は
+  `preprocess.staff_norm.line_count_anomaly=true` を metrics に記録。
+- 異常 system のみ二値化前後の画像を `artifacts/…/staff_anomaly/` に保存。
 
 ### 1-3. 幾何補正
-- 傾き補正（Hough）
-- 局所歪み補正（行単位warp）
-- （写真入力時）ページ湾曲補正
+
+#### 1-3-a. 傾き補正（ページ全体）
+- Hough 直線検出で staff lines を抽出 → 角度ヒストグラム → 中央値 θ_page
+- |θ_page| < 0.05° なら skip、それ以外は `cv2.getRotationMatrix2D` で回転
+- 回転後の境界はパディングで保持（黒帯を入れず白で埋める）
+
+#### 1-3-b. 局所歪み補正（行単位）
+- system ごとに θ_system を計算し `|θ_system - θ_page| > 0.3°` なら局所 warp
+- 適用は 1-2-c と同じ `remap` で y のみ補正（二重適用回避のため 1-2 と統合実装）
+
+#### 1-3-c. ページ湾曲補正（写真入力）
+- `params.preprocess.geometry.photo_mode: true` のときのみ有効
+- 方法: staff lines を 2 次多項式フィット → `cv2.remap` で直線化
+- PDF 入力ではデフォルト無効（副作用でスキャン品質が劣化するため）
 
 ### 1-4. 二値化・ノイズ制御
-- Sauvola二値化
-- 背景推定→減算→再二値化
-- 小物体除去（面積 + 円形度）
-- 軽いクロージング（ステム切断防止）
+
+#### 1-4-a. Sauvola 二値化
+- ウィンドウ半径 `w = max(15, round(staff_space * 1.1))`（staff space 連動）
+- `k = params.preprocess.binarize.k`（既定 0.2、範囲 0.15–0.25）
+- 実装: `skimage.filters.threshold_sauvola`（GPU 不要、CPU で数秒/ページ）
+
+#### 1-4-b. 背景推定→減算→再二値化
+- 背景: `cv2.morphologyEx(gray, MORPH_CLOSE, kernel=staff_space*4)`
+- 差分: `gray - background`、負値は 0 にクリップ
+- 再二値化: 上の Sauvola を差分画像に再適用
+- この 2 段階は「日焼け紙」「影」スキャンで効く。スコアが改善しない入力は skip
+
+#### 1-4-c. 小物体除去
+- `skimage.measure.regionprops` で面積と円形度を取得
+- 除去条件: `area < staff_space^2 * 0.1` **かつ** `circularity > 0.8`
+  （記号（符頭・クレフ）の誤消去を避けるため両条件の AND）
+
+#### 1-4-d. 軽いクロージング（ステム保全）
+- 縦方向 1×3 の構造要素で `MORPH_CLOSE` を 1 回のみ
+- 横方向は適用しない（五線の誤融合を防ぐ）
 
 ### 1-5. 品質ゲート（必須）
-- 五線検出成功率スコア
-- ノイズ密度スコア
-- 閾値未満: 再処理（別パラメータ）or 破棄
+
+#### 1-5-a. 計測指標（`stage.metrics.fields` へ記録）
+| 指標                         | 定義                                                      | 既定閾値         |
+|------------------------------|-----------------------------------------------------------|-----------------|
+| staff_detection_rate         | 期待 system 数に対する検出成功 system 数の比              | ≥ 0.85           |
+| staff_space_confidence       | 投影ヒストと FFT の staff_space 乖離率（0=一致, 1=最悪）  | ≤ 0.20           |
+| noise_density                | 小物体除去前の「非五線・非記号」画素比                    | ≤ 0.04           |
+| skew_after_deg               | 補正後の Hough θ 中央値の絶対値                            | ≤ 0.10           |
+| contrast_p5_p95              | 正規化後の 5/95 パーセンタイル差                          | ≥ 0.45           |
+
+#### 1-5-b. ゲート判定ロジック
+```python
+def quality_gate(metrics: StageMetrics, params) -> Literal["pass", "retry", "drop"]:
+    fails = [k for k, th in params.thresholds.items()
+             if not metrics.fields[k] meets th]
+    if not fails:
+        return "pass"
+    if params.on_fail == "retry_alt_params" and metrics.retry_count < 1:
+        return "retry"
+    return "drop"
+```
+- リトライ時は二値化 method を切り替え（sauvola ↔ adaptive_mean）
+- 2 回連続で drop した page は Phase 2 に流さず Phase 4 で `status=skipped` として記録
 
 ### 1-6. 論理分割
-- System単位
-- グランドスタッフ単位
-- （オプション）小節境界推定
+
+#### 1-6-a. System 境界検出
+- 水平投影の谷を staff_space の 3 倍以上の連続ゼロ帯で検出
+- 各 system の上下に `staff_space` の余白を付けて切り出し → `page_{n}_system_{k}.png`
+
+#### 1-6-b. グランドスタッフ検出
+- system 内の 5 本線クラスタ間距離が `staff_space * 1.5 ～ 4.0` なら同一グランド
+- 検出結果は metrics に `grand_staff_groups` として `[(top_y, bottom_y), …]` を記録
+
+#### 1-6-c. 小節境界推定（オプション）
+- 垂直線検出（Hough, 角度 ±1°）で bar line 候補を抽出
+- 両端が staff line と交差する縦線のみ採用
+- 後段（Phase 3 の部分再処理）で活用、本ステージでは metadata に残すだけ
+
+### 1-7. 段階別成果物
+- `preprocess_01_normalized.png`（1-1 後）
+- `preprocess_02_staff_normalized.png`（1-2 後）
+- `preprocess_03_deskewed.png`（1-3 後）
+- `preprocess_04_binary.png`（1-4 後）
+- `preprocess_05_systems/{k}.png`（1-6 後）
+- `preprocess_metrics.json`（上記 1-5-a の全指標）
 
 ### 完了条件
-- 前処理後の失敗率がベースライン比で有意に低下
-- 「明らかに悪い画像」が後段に流れない
+- 前処理後の「Audiveris 0 小節出力」率がベースライン比で 30%以上減
+- 1-5 の全指標が `metrics.fields` として記録されログから参照可能
+- 品質ゲートで drop された page が Phase 4 のレポートに `skipped` として現れる
 
 ---
 
