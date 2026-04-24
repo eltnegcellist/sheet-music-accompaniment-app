@@ -5,6 +5,6 @@ controller can resolve them by name. Stages must be side-effect free at
 import time apart from registration.
 """
 
-from . import omr  # noqa: F401 — import for side-effect registration
+from . import omr, preprocess  # noqa: F401 — import for side-effect registration
 
-__all__ = ["omr"]
+__all__ = ["omr", "preprocess"]
