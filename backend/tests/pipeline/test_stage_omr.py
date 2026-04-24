@@ -36,7 +36,15 @@ def test_ok_path_emits_musicxml_and_metrics(tmp_path):
         assert pdf.exists()
         assert out_dir.exists()
         return OmrResult(
-            music_xml="<score-partwise><part-list/></score-partwise>",
+            music_xml=(
+                "<score-partwise>"
+                "<part-list><score-part id='P1'/></part-list>"
+                "<part id='P1'><measure number='1'>"
+                "<note><pitch><step>C</step><octave>4</octave></pitch>"
+                "<duration>4</duration></note>"
+                "</measure></part>"
+                "</score-partwise>"
+            ),
             measures=[],
             page_sizes=[(595.0, 842.0)],
             warnings=[],
@@ -100,6 +108,25 @@ def test_missing_pdf_artifact_fails(tmp_path):
     assert "input_pdf" in (out.error or "")
 
 
+def test_validator_flags_broken_xml_as_failed(tmp_path):
+    store = _setup_job(tmp_path)
+
+    # Audiveris-style "I returned XML, but it has zero parts" failure.
+    def fake_driver(_p, _o):
+        return OmrResult(music_xml="<score-partwise><part-list/></score-partwise>", measures=[])
+
+    stage = make_test_stage(fake_driver)
+    out = stage(
+        StageInput(job_id="j", image_id="page_0", params={}, artifacts=store, trace={})
+    )
+    assert out.status == "failed"
+    assert "no_parts" in (out.error or "")
+    # Validator's first issue code is recorded for log aggregation.
+    assert out.metrics.fields.get("omr.audiveris.failure_class") == "omr.no_parts"
+    # The metrics still reflect the validator's counts so report.md can show them.
+    assert out.metrics.fields["omr.audiveris.measure_count"] == 0
+
+
 def test_pipeline_runs_stage_end_to_end(tmp_path):
     store = _setup_job(tmp_path)
     reg = StageRegistry()
@@ -107,7 +134,17 @@ def test_pipeline_runs_stage_end_to_end(tmp_path):
         "omr.audiveris",
         make_test_stage(
             lambda _p, _o: OmrResult(
-                music_xml="<score-partwise/>", measures=[], page_sizes=[(1, 1)]
+                music_xml=(
+                    "<score-partwise>"
+                    "<part-list><score-part id='P1'/></part-list>"
+                    "<part id='P1'><measure number='1'>"
+                    "<note><pitch><step>C</step><octave>4</octave></pitch>"
+                    "<duration>4</duration></note>"
+                    "</measure></part>"
+                    "</score-partwise>"
+                ),
+                measures=[],
+                page_sizes=[(1, 1)],
             )
         ),
     )

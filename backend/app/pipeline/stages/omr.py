@@ -28,6 +28,7 @@ from ..contracts import (
     StageOutput,
 )
 from ..registry import register
+from ..validators import validate_musicxml_shape
 
 # Tests inject a fake driver instead of the real Audiveris CLI. Production
 # stays on `run_audiveris`; CI never touches the JVM.
@@ -81,25 +82,48 @@ def _run_with(
         xml_path.write_text(result.music_xml, encoding="utf-8")
         refs.append(inp.artifacts.put(ArtifactRef(kind="musicxml", path=str(xml_path))))
 
-    measure_count = len(result.measures)
+    # Run the broken-XML detector even when the driver returned ok — the
+    # whole point is to catch the cases where Audiveris swallowed a failure
+    # and emitted a structurally-empty document.
+    report = validate_musicxml_shape(result.music_xml)
+
     metrics = StageMetrics(
         fields={
-            "omr.audiveris.valid_xml": bool(result.music_xml),
-            "omr.audiveris.measure_count": measure_count,
+            "omr.audiveris.valid_xml": (not report.is_broken) and bool(result.music_xml),
+            "omr.audiveris.measure_count": report.measure_count or len(result.measures),
+            "omr.audiveris.note_count": report.note_count,
+            "omr.audiveris.avg_notes_per_measure": round(
+                report.avg_notes_per_measure, 3
+            ),
+            "omr.audiveris.part_count": report.part_count,
+            "omr.audiveris.empty_parts": report.empty_parts,
             "omr.audiveris.page_count": len(result.page_sizes),
             "omr.audiveris.warnings": len(result.warnings),
         }
     )
 
-    # We treat "no MusicXML emitted" as failed. This is the same boundary
-    # the legacy code raised AudiverisError for, just translated to the
-    # Pipeline status vocabulary.
+    # Surface the validator's first-issue code for log aggregation. Only
+    # one code is recorded per stage run — additional codes go into warnings.
+    if report.issues:
+        metrics.fields["omr.audiveris.failure_class"] = f"omr.{report.issues[0].code}"
+
     if not result.music_xml:
+        # Same boundary as the legacy code, mapped to Pipeline vocabulary.
         return StageOutput(
             status="failed",
             metrics=metrics,
             warnings=list(result.warnings),
             error="Audiveris produced no MusicXML",
+        )
+
+    if report.is_broken:
+        codes = ", ".join(i.code for i in report.issues)
+        return StageOutput(
+            status="failed",
+            artifact_refs=refs,
+            metrics=metrics,
+            warnings=[*result.warnings, *(i.detail for i in report.issues)],
+            error=f"MusicXML shape invalid: {codes}",
         )
 
     return StageOutput(
