@@ -904,6 +904,9 @@ class AnalyzeResponse(BaseModel):
 
 ### Sprint 1（まず必須）: 基盤 + 認識候補生成
 
+> **実装ステータス: 完了 ✓**（2026-04-24, 18 コミット, テスト 113 件全 green）。
+> 後続スプリントの基盤となる `backend/app/pipeline/` 配下が稼働。
+
 #### S1-01: pipeline スケルトン（4pt）
 - ファイル: `backend/app/pipeline/{__init__.py,contracts.py,controller.py,registry.py,artifacts.py,debug.py}`
 - DoD: `Pipeline().run(job)` が空ステージ列を回し、構造化ログ（0-3-d）を吐ける
@@ -937,6 +940,20 @@ class AnalyzeResponse(BaseModel):
 - DoD: CI で 2 連続実行の結果一致を検証
 
 **Sprint 1 合計 = 23pt（およそ 2 週間 @ 2 名体制）**
+
+#### Sprint 1 実装ログ（2026-04-24 完了）
+| チケット | 状態 | 主要コミット | 主な追加物 |
+|---|---|---|---|
+| S1-01 | ✓ | a07fcde, cf59056, 4dafdec, b9984bc, 2e79c5e, f806793 | `contracts.py`, `registry.py`, `FileArtifactStore`, `EventLogger`, `Pipeline`, e2e test |
+| S1-02 | ✓ | 9cbe9e6, 5995dcf | `stages/omr.py` (`run_audiveris` ラップ), `pipeline/run.py`, `main.py` 切替 |
+| S1-03 | ✓ | 7189bc0, 220382a, 7d69efa | `params/v1_baseline.yaml`, `v2_staff_norm.yaml`, `schema.json`, `params_loader.py` |
+| S1-04 | ✓ | 0cb311d, 5ca7c2b | `stages/preprocess.py` (staff_space 推定 + quality_gate), 合成画像テスト |
+| S1-05 | ✓ | 946e3cf | `pipeline/trials.py` (matrix 展開 + ThreadPool + Semaphore) |
+| S1-06 | ✓ | 1ca47b9, e57af8b | `validators.py::validate_musicxml_shape`, OMR ステージ統合 |
+| S1-07 | ✓ | a36c040, 8c2c781 | `breaker.py` CircuitBreaker, `test_determinism.py` |
+
+依存追加: `pyyaml`, `jsonschema`, `numpy`（OpenCV/scikit-image は導入見送り、画像処理は最小範囲）。
+既知の未実装: マルチ試行と OMR ステージのパラメータマトリクス連動は S1-05 単体では未配線（次スプリントで OMR 側の `params.omr.multi_trial.matrix` 読み取りに統合予定）。
 
 ### Sprint 2（精度を実際に押し上げる）: 後処理 + 自動採択
 
