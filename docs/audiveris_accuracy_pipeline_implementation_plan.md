@@ -846,34 +846,176 @@ Page   ─ best_trial  ──┤
 
 ## Phase 5: 出力
 
-- MusicXML出力
-- MIDI生成
-- （オプション）音源レンダリング
+### 5-1. MusicXML 出力
+- 生成源: Phase 4 で採択された Trial の `postprocess_output.musicxml`
+- 既存 `merge_layout_with_musicxml`（`backend/app/music/merger.py`）を通して
+  measure bbox 情報を埋め込み → フロント連動を維持
+- `AnalyzeResponse.music_xml` にそのまま格納（既存 API スキーマと互換）
+
+### 5-2. API スキーマ拡張（後方互換）
+既存 `AnalyzeResponse`（`backend/app/schemas.py`）はフィールド追加のみで拡張:
+```python
+class AnalyzeResponse(BaseModel):
+    # 既存フィールド（変更なし）
+    music_xml: str
+    score_title: str | None = None
+    accompaniment_part_id: str | None
+    solo_part_id: str | None = None
+    measures: list[MeasureBox]
+    divisions: int
+    tempo_bpm: float
+    tempo_source: str = "default"
+    tempo_matched_word: str | None = None
+    tempo_candidates: list[str] = Field(default_factory=list)
+    time_signature: TimeSignatureModel | None = None
+    page_sizes: list[tuple[float, float]] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+    # 追加（Phase 4 以降で埋まる）
+    job_id: str | None = None                  # artifacts/{job_id} への参照
+    param_set_id: str | None = None
+    pipeline_metrics: dict[str, float] | None = None  # final_score などの主要指標
+    pipeline_report_url: str | None = None     # report.md への相対パス
+```
+- `pipeline_metrics` は最低でも `final_score`, `measure_duration_match`,
+  `in_range`, `edits_penalty` を含める
+- 既存クライアント（フロント）は新フィールドを無視して動くので破壊的変更なし
+
+### 5-3. MIDI 生成（オプション）
+- ツール: `music21.converter.write('midi')` or `pretty_midi`
+- 保存: `artifacts/{job_id}/output.mid`
+- velocity: `<dynamics>` を 20–127 にマッピング（`ppp=20, pp=35, p=50, mp=65, mf=80, f=95, ff=110, fff=125`）
+- `<metronome>` → set_tempo、ない場合は `AnalyzeResponse.tempo_bpm`
+
+### 5-4. 音源レンダリング（オプション、v2+）
+- 既存スコープ外。`fluidsynth` or `timidity` を別サービスに切り出す前提でインタフェースのみ用意
+- API: `GET /analyze/{job_id}/audio.wav?soundfont=xxx`（遅延生成）
+
+### 5-5. デバッグ成果物の公開
+- 開発環境のみ `GET /artifacts/{job_id}/...` を静的配信（本番は直接配信しない）
+- リリース環境では `pipeline_report_url` から Signed URL を返し、期間限定ダウンロード
 
 ---
 
 ## 実装順（2スプリント先までの具体タスク）
 
-### Sprint 1（まず必須）
-1. Phase 0一式（制御/ログ/パラメータ管理/非同期）
-2. Phase 1のうち 1-2, 1-5（五線正規化 + 品質ゲート）
-3. Phase 2のうち 2-2, 2-4（マルチ試行 + 壊れXML除外）
+> 見積もりは「作業者 1 人 1 日 = 1 pt」換算。
+> 各タスクに「完了定義 (DoD)」を明記し、PR テンプレと紐付ける。
 
-### Sprint 2（精度を実際に押し上げる）
-1. Phase 3のうち 3-1（拍数補正）
-2. Phase 3のうち 3-5（和音/voice再構築）
-3. Phase 4のうち 4-1, 4-2（スコアリング + 最適解採択）
+### Sprint 1（まず必須）: 基盤 + 認識候補生成
+
+#### S1-01: pipeline スケルトン（4pt）
+- ファイル: `backend/app/pipeline/{__init__.py,contracts.py,controller.py,registry.py,artifacts.py,debug.py}`
+- DoD: `Pipeline().run(job)` が空ステージ列を回し、構造化ログ（0-3-d）を吐ける
+
+#### S1-02: Stage 抽象と既存 Audiveris 呼び出しの移植（3pt）
+- ファイル: `backend/app/pipeline/stages/omr.py`（既存 `omr/audiveris_runner.py` を `_drive_audiveris` として内部化）
+- `main.py` から直接呼ぶのをやめ、`Pipeline` 経由に差し替え
+- DoD: 既存 `/analyze` のレスポンスが変わらない（既存テスト全緑）
+
+#### S1-03: パラメータ管理（3pt）
+- ファイル: `backend/params/v1_baseline.yaml`, `backend/params/schema.json`, `pipeline/params_loader.py`
+- 継承解決、JSON Schema 検証、`artifacts/{job_id}/resolved_params.yaml` の書き出し
+- DoD: `tests/pipeline/test_params_schema.py` 通過
+
+#### S1-04: 五線正規化 + 品質ゲート（5pt）
+- ファイル: `pipeline/stages/preprocess.py`（1-1, 1-2, 1-5 のみ）
+- 1-3, 1-4 は既定オフ、1-6 は後続スプリントへ
+- DoD: 品質ゲート metrics が出力される / ゲート drop が後段に流れない
+
+#### S1-05: マルチ試行（4pt）
+- `pipeline/stages/omr.py` に Trial 並列、`Semaphore` + キャンセル
+- `good_enough_score` の早期打切りは S1 では省略（Phase 4 実装後）
+- DoD: 2×3 マトリクスが並列で走り、Trial 単位のログが出る
+
+#### S1-06: 壊れ XML フィルタ（2pt）
+- `validate_musicxml_shape` の実装と Phase 2 統合
+- DoD: `measure_count=0` の Trial が `status=failed` で落ちる
+
+#### S1-07: 再現性 CI（2pt）
+- `tests/pipeline/test_determinism.py`, `test_circuit_breaker.py`
+- DoD: CI で 2 連続実行の結果一致を検証
+
+**Sprint 1 合計 = 23pt（およそ 2 週間 @ 2 名体制）**
+
+### Sprint 2（精度を実際に押し上げる）: 後処理 + 自動採択
+
+#### S2-01: music21 導入 + postprocess スケルトン（3pt）
+- `pyproject.toml` に `music21` 追加、`pipeline/stages/postprocess.py` の骨組み
+- DoD: MusicXML → music21 Score → MusicXML の round-trip が無損失
+
+#### S2-02: 拍数補正（6pt）
+- `postprocess/rhythm_fix.py`: 3-1 の全サブ（小節 DP を含む）
+- 編集ログ（`postprocess_edits.jsonl`）
+- DoD: ゴールデン 5 本で `measure_duration_match_rate` ≥ 0.95
+
+#### S2-03: 和音化 + voice 再構築（5pt）
+- `postprocess/voice_rebuild.py`: 3-5 全サブ（rollback ガード込み）
+- DoD: ピアノ譜ゴールデンで voice 数が目視妥当 / rollback が発火しない
+
+#### S2-04: スコアリング + 最適解採択（4pt）
+- `pipeline/stages/evaluate.py`: 4-1, 4-2
+- `chosen.json` とウォームスタート
+- DoD: `final_score` が `pipeline_metrics` に載って API 経由で返る
+
+#### S2-05: 回帰テスト（3pt）
+- `tests/fixtures/golden/` に 5 サンプル追加
+- `tests/pipeline/test_regression.py` を CI に統合
+- DoD: PR で `final_score` 下がる変更がブロックされる
+
+**Sprint 2 合計 = 21pt**
+
+### Sprint 3 以降（参考）: 残りの高度機能
+- 3-2, 3-3, 3-4 の本格実装（タイミング/音高/音域）
+- 2-5 部分再処理
+- 3-8-b 小節差し替え
+- 4-3-c bandit 探索
+- Phase 5-4 音源レンダリング
 
 ---
 
 ## リスクと先回り対策
 
-- リスク: マルチ試行で計算コスト増
-  - 対策: 品質ゲートで低品質入力を早期除外、ページ並列 + 上限同時実行数
-- リスク: 後処理が過補正して原譜を壊す
-  - 対策: 最小変更制約、変更量に上限、変更ログ保存
-- リスク: 指標最適化が局所化
-  - 対策: 複数KPIの加重スコア、楽曲カテゴリ別に評価
+### 技術リスク
+| リスク                                        | 影響                            | 先回り対策                                                           |
+|----------------------------------------------|--------------------------------|---------------------------------------------------------------------|
+| マルチ試行で計算コスト増                      | p95 レイテンシ悪化              | 品質ゲートで低品質入力を早期 drop、`max_concurrent_trials` で上限制御 |
+| 後処理が過補正して原譜を壊す                  | 採択品質の劣化                   | 最小変更制約、編集数 penalty、rollback ガード、編集ログ残し            |
+| 指標最適化が局所化する                        | 特定ジャンルで劣化               | 複数 KPI 加重、楽曲カテゴリ別に回帰テスト、ゴールデンに多様性確保       |
+| Audiveris の NPE（Voices.refineScore等）      | Trial が増えれば頻度も増える      | GRID 監視で早期 kill、heartbeat timeout、`-export` のみ CLI を維持     |
+| music21 の導入で依存が重くなる                 | Docker イメージサイズ増           | `music21` は backend 用に限定、corpus 除外 (`music21.corpus` 不使用)   |
+| 再現性の崩れ（乱択の混入）                    | 自動採択の揺らぎ                 | 乱数は `numpy.random.default_rng(seed)` に統一、seed は `param_set_id` から導出 |
+| JVM のメモリリーク                             | 長時間実行で OOM                 | 1 Trial = 1 JVM プロセスで隔離（warm pool しない）、`Xmx` 上限明示    |
+
+### 運用リスク
+| リスク                                                | 対策                                                                 |
+|------------------------------------------------------|---------------------------------------------------------------------|
+| `artifacts/` が肥大化                                 | `retention_hours` で非同期 GC、`PIPELINE_DEBUG` を本番無効          |
+| ユーザ提供 MusicXML 経路（現行 `main.py`）が回帰しやすい | 既存分岐（`user_xml_looks_valid`）を Phase 0 移植後も厚めにテスト     |
+| 静的配信による情報漏洩                                | 本番は Signed URL 経由のみ、直接パス配信を禁止                        |
+| ログ肥大                                             | JSON Lines + lv (level) フィルタ、本番は WARN 以上だけ永続化            |
+
+---
+
+## 既存コードとの接続点まとめ
+
+| 既存ファイル / シンボル                                    | Phase/節での役割                                                  |
+|-----------------------------------------------------------|----------------------------------------------------------------|
+| `backend/app/main.py` の `/analyze`                        | Pipeline への単一エントリポイント（S1-02 で移植）                  |
+| `backend/app/omr/audiveris_runner.py::run_audiveris`       | Phase 2 の `_drive_audiveris` として内部化、CLI 構成は不変         |
+| `backend/app/omr/layout_parser.py::parse_omr_project`      | Phase 2-3-b の GRID 監視と Phase 2-5-a の region 逆引きに再利用     |
+| `backend/app/music/parser.py::extract_*`                   | Phase 3-1, 3-7, 3-8 の入力ソース                                   |
+| `backend/app/music/accompaniment.py::find_*_part`          | Phase 3-5-c の voice 再構成の対象判定、Phase 3-6-c のノイズ声部削除 |
+| `backend/app/music/merger.py::merge_layout_with_musicxml`  | Phase 5-1 で layout + MusicXML を最終マージ                        |
+| `backend/app/ocr/tempo_ocr.py::extract_tempo_from_pdf`     | Phase 3-7-a のソース優先順 2                                         |
+| `backend/app/schemas.py::AnalyzeResponse`                  | Phase 5-2 で後方互換に拡張                                          |
+
+---
+
+## ドキュメントとしての更新ルール
+- 仕様変更が発生したら **必ず本書を先に更新**（コード先行を禁止）
+- 各 Phase の冒頭に `> 実装は …` として「責任ファイル」を書き続けること
+- `完了条件` は PR レビュー時の受け入れチェックリストとして使う
 
 ---
 
