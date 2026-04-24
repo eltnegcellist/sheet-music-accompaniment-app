@@ -12,6 +12,8 @@ dependencies = [
   "pytesseract>=0.3.10",
   "pdf2image>=1.17.0",
   "pillow>=10.0.0",
+  "pyyaml>=6.0",
+  "jsonschema>=4.0",
 ]
 
 [project.optional-dependencies]

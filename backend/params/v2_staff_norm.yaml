@@ -1,0 +1,14 @@
+# v2: enable staff normalisation + quality gate. Inherits everything else
+# from v1_baseline so we only spell out the differences.
+meta:
+  id: v2_staff_norm
+  version: 2
+  parent: v1_baseline
+  description: "Staff-space normalisation + quality gate"
+
+preprocess:
+  staff_norm:
+    enabled: true
+  quality_gate:
+    enabled: true
+    on_fail: retry_alt_params

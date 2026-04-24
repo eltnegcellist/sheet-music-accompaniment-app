@@ -1,0 +1,54 @@
+# Baseline parameter set: matches the current production behaviour.
+# - No staff normalisation (preprocess.staff_norm.enabled: false)
+# - No multi-trial (omr.multi_trial.enabled: false)
+# Higher-tier param sets inherit from this and turn things on.
+meta:
+  id: v1_baseline
+  version: 1
+  description: "Current production parity (Audiveris -export only)"
+
+preprocess:
+  staff_norm:
+    enabled: false
+    target_staff_space_px: 22
+    tolerance_px: 3
+  binarize:
+    method: sauvola
+    window: 25
+    k: 0.20
+  quality_gate:
+    enabled: false
+    min_staff_detection_rate: 0.85
+    max_noise_density: 0.04
+    on_fail: drop
+
+omr:
+  audiveris:
+    timeout_sec: 1800
+    jvm_xmx: "2g"
+    plugins_disabled: []
+  multi_trial:
+    enabled: false
+    matrix: {}
+
+postprocess:
+  rhythm_fix:
+    enabled: false
+    snap_durations: [1, 2, 4, 8, 16]
+    max_edits_per_measure: 4
+  voice_rebuild:
+    enabled: false
+
+scoring:
+  weights:
+    measure_duration_match: 0.35
+    in_range: 0.15
+    density: 0.10
+    key_consistency: 0.15
+    structure_consistency: 0.25
+  page_threshold: 0.70
+  on_low_score: skip
+
+debug:
+  enabled: false
+  retention_hours: 24

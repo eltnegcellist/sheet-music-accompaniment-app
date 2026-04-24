@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Pipeline parameter set",
+  "type": "object",
+  "required": ["meta", "preprocess", "omr", "postprocess", "scoring", "debug"],
+  "additionalProperties": false,
+  "properties": {
+    "meta": {
+      "type": "object",
+      "required": ["id", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "version": {"type": "integer", "minimum": 1},
+        "parent": {"type": "string"},
+        "description": {"type": "string"}
+      }
+    },
+    "preprocess": {
+      "type": "object",
+      "required": ["staff_norm", "binarize", "quality_gate"],
+      "additionalProperties": false,
+      "properties": {
+        "staff_norm": {
+          "type": "object",
+          "required": ["enabled", "target_staff_space_px", "tolerance_px"],
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "target_staff_space_px": {"type": "integer", "minimum": 8, "maximum": 64},
+            "tolerance_px": {"type": "integer", "minimum": 0}
+          }
+        },
+        "binarize": {
+          "type": "object",
+          "required": ["method", "window", "k"],
+          "additionalProperties": false,
+          "properties": {
+            "method": {"enum": ["sauvola", "otsu", "adaptive_mean"]},
+            "window": {"type": "integer", "minimum": 3},
+            "k": {"type": "number", "minimum": 0, "maximum": 1}
+          }
+        },
+        "quality_gate": {
+          "type": "object",
+          "required": ["enabled", "min_staff_detection_rate", "max_noise_density", "on_fail"],
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "min_staff_detection_rate": {"type": "number", "minimum": 0, "maximum": 1},
+            "max_noise_density": {"type": "number", "minimum": 0, "maximum": 1},
+            "on_fail": {"enum": ["drop", "retry_alt_params"]}
+          }
+        }
+      }
+    },
+    "omr": {
+      "type": "object",
+      "required": ["audiveris", "multi_trial"],
+      "additionalProperties": false,
+      "properties": {
+        "audiveris": {
+          "type": "object",
+          "required": ["timeout_sec", "jvm_xmx"],
+          "additionalProperties": false,
+          "properties": {
+            "timeout_sec": {"type": "integer", "minimum": 1},
+            "jvm_xmx": {"type": "string"},
+            "plugins_disabled": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "multi_trial": {
+          "type": "object",
+          "required": ["enabled"],
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "matrix": {"type": "object"}
+          }
+        }
+      }
+    },
+    "postprocess": {
+      "type": "object",
+      "required": ["rhythm_fix", "voice_rebuild"],
+      "additionalProperties": false,
+      "properties": {
+        "rhythm_fix": {
+          "type": "object",
+          "required": ["enabled"],
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "snap_durations": {"type": "array", "items": {"type": "integer", "minimum": 1}},
+            "max_edits_per_measure": {"type": "integer", "minimum": 0}
+          }
+        },
+        "voice_rebuild": {
+          "type": "object",
+          "required": ["enabled"],
+          "additionalProperties": false,
+          "properties": {"enabled": {"type": "boolean"}}
+        }
+      }
+    },
+    "scoring": {
+      "type": "object",
+      "required": ["weights", "page_threshold", "on_low_score"],
+      "additionalProperties": false,
+      "properties": {
+        "weights": {
+          "type": "object",
+          "required": ["measure_duration_match", "in_range", "density", "key_consistency", "structure_consistency"],
+          "additionalProperties": false,
+          "properties": {
+            "measure_duration_match": {"type": "number", "minimum": 0, "maximum": 1},
+            "in_range": {"type": "number", "minimum": 0, "maximum": 1},
+            "density": {"type": "number", "minimum": 0, "maximum": 1},
+            "key_consistency": {"type": "number", "minimum": 0, "maximum": 1},
+            "structure_consistency": {"type": "number", "minimum": 0, "maximum": 1}
+          }
+        },
+        "page_threshold": {"type": "number", "minimum": 0, "maximum": 1},
+        "on_low_score": {"enum": ["retry", "skip", "fail_job"]}
+      }
+    },
+    "debug": {
+      "type": "object",
+      "required": ["enabled", "retention_hours"],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "retention_hours": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}
