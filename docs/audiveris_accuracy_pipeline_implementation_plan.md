@@ -376,31 +376,107 @@ def quality_gate(metrics: StageMetrics, params) -> Literal["pass", "retry", "dro
 
 ## Phase 2: 認識制御（Audiveris実行戦略）
 
-### 2-1. Audiveris設定最適化
-- OCR（歌詞/コード/指番号）を無効化
-- 装飾記号認識を抑制
-- 不要クラス削減
+> 実装は `backend/app/pipeline/stages/omr.py`。
+> 現行 `backend/app/omr/audiveris_runner.py` の CLI 組立て・Popen 監視・
+> `.mxl` サルベージ・`.omr` 解析は **そのまま再利用**し、以下を追加する。
+
+### 2-1. Audiveris 設定最適化
+
+#### 2-1-a. 現行 CLI の制約を尊重
+- `_audiveris_command` は `-batch -export -output <dir> <pdf>` 固定で、
+  `-transcribe` や `-save` を同居させると `Voices.refineScore` / `Book.reduceScores` で
+  NPE が出るケースがあることを既に確認済み（既存コメント参照）。
+- **Phase 2 でも CLI 構成は変えない**。設定は **プラグイン/オプション XML** 側で制御する。
+
+#### 2-1-b. Audiveris の `config/` 側で抑制
+- `$AUDIVERIS_HOME/config/run.properties`（または `-option key=value`）で以下を切る:
+  - `org.audiveris.omr.text.TextBuilder.useOCR = false`（歌詞・指番号 OCR）
+  - `org.audiveris.omr.sheet.Picture.prefered = bw`（カラー分岐を抑制）
+  - `org.audiveris.omr.score.Score.useChordNames = false`（コード記号）
+- 実装方針: プロファイルごとに `params/audiveris/{profile}.properties` を置き、
+  `-option file:<properties>` で指定するラッパを `omr.py` に追加。
+
+#### 2-1-c. JVM チューニング
+- `AUDIVERIS_OPTS="-Xmx{jvm_xmx} -XX:+UseG1GC -XX:MaxGCPauseMillis=500"` を環境変数で注入
+- 既定 `Xmx=2g`、長大スコア時のみ `4g` に昇格（`params.omr.audiveris.jvm_xmx`）
 
 ### 2-2. マルチ試行
-- 二値化パラメータ違いの複数画像を生成
-- 複数パターンでOMR
-- 並列 or バッチ実行
+
+#### 2-2-a. 生成マトリクス
+- 入力画像バリエーション（Phase 1 成果物を素材に）:
+  - `binarize.method ∈ {sauvola, adaptive_mean}`
+  - `binarize.k ∈ {0.15, 0.20, 0.25}`（Sauvola のみ）
+  - `staff_norm.target_staff_space_px ∈ {20, 22, 25}`
+- 既定マトリクス = 2 × 3 = 6 Trial（画像のみ変え、Audiveris 設定は固定）
+
+#### 2-2-b. 並列実行と資源制御
+- `anyio.Semaphore(max_concurrent_trials=2)` で Trial 並列を制限（JVM 常駐が重い）
+- 1 Trial = 1 Audiveris プロセス、終了後に JVM ごと解放（warm pool は作らない）
+- Trial 単位のタイムアウト = `params.omr.audiveris.timeout_sec`（既定 1800s、現行値を踏襲）
+
+#### 2-2-c. 早期打切り（short-circuit）
+- 先行 Trial のスコア（Phase 4 の粗スコア）が `params.omr.multi_trial.good_enough_score`（既定 0.90）
+  を超えたら残り Trial をキャンセル。
+- cancel は `Process.kill()` + 一時ディレクトリの GC。
 
 ### 2-3. ステップ監視
-- GRID段階の五線本数チェック
-- スタッフ間隔分散チェック
-- 異常時即リトライ
+
+#### 2-3-a. 監視ポイント
+- Audiveris ログ行頭の `[GRID]`, `[HEADERS]`, `[TRANSCRIPTION]` をパースし段階ごとに:
+  - `[GRID]` 完了時: `.omr` 途中成果物が保存されていれば解凍して staff line 数確認
+  - `[HEADERS]` 完了時: ヘッダ検出失敗は `warnings` に残す（NPE の前兆が多いステージ）
+  - `[TRANSCRIPTION]` 開始時: `last_heartbeat` を更新（60s 以上停止で heartbeat 異常）
+
+#### 2-3-b. GRID 段階チェック
+- `.omr` を一時解凍（既存 `layout_parser.parse_omr_project` を流用）し、
+  Phase 1 が期待した system 数と `.omr` 内の staff line 数の比を算出
+- 比が 0.8 未満なら **即時 kill** → retryable で扱う（他 Trial に資源を譲る）
+
+#### 2-3-c. ハートビート
+- Popen の stdout 読み取りループで 1 行受信するたびに `monotonic()` を記録
+- `now - last_line > heartbeat_timeout_sec`（既定 180s）なら強制 kill
 
 ### 2-4. 結果フィルタリング
-- 壊れたXML除外（小節数ゼロ、極端な音符数など）
 
-### 2-5. 部分再処理（高度）
-- 異常小節検出
-- 小節単位で再画像化→再OMR
+#### 2-4-a. 「壊れ XML」判定
+- 以下のいずれかに該当したら Trial を `failed` 扱い:
+  - `<measure>` 要素数 = 0
+  - 全 `<note>` 数 = 0 または 1 小節平均 > 50（明らかな誤検出）
+  - 全 `<part>` が空（`<note>` / `<rest>` を 1 つも含まない）
+  - `<score-partwise>` か `<score-timewise>` のルートが存在しない
+- チェック実装は `stages/omr.py::validate_musicxml_shape(xml) -> IssueList` として
+  Phase 4 のスコアリングからも再利用。
+
+#### 2-4-b. 部分的に壊れたページの扱い
+- `page_no` 単位で `measure_count < expected * 0.5` を `page.status=degraded` に落とし、
+  同 page の他 Trial が `ok` ならそちらを採用、全滅なら `skipped`。
+
+### 2-5. 部分再処理（高度、v2 以降で実装）
+
+#### 2-5-a. 異常小節検出
+- Phase 3 の `rhythm_fix` が出す「拍数不一致」メトリクスを入力として、
+  連続 3 小節以上が不一致なら「異常 region」とみなす。
+- 異常 region の座標は `.omr` の measure bbox から逆引き（`layout_parser.MeasureLayout`）。
+
+#### 2-5-b. 再画像化
+- 対象 region のみ元画像から切り出し、Phase 1 のサブセット（1-2, 1-4）を再実行。
+- 再 OMR は `-batch -export` を region 画像に対して行う。
+- 結果は Phase 3 の「小節差し替え」機構で母スコアに貼り戻す（詳細は Phase 3-8-b）。
+
+#### 2-5-c. 再帰防止
+- 同一 region に対する再処理は最大 2 回まで。3 回目以降は諦めて `warnings` に残す。
+
+### 2-6. Trial 結果の集約
+- 各 Trial の `OmrResult` に加え、以下を `StageOutput.metrics.fields` に格納:
+  - `trial_id`, `valid_xml`, `measure_count`, `note_count`,
+    `avg_notes_per_measure`, `grid_ok`, `heartbeat_ok`, `coarse_score`
+- `page` レベルに集約して返すとき、ok Trial を `coarse_score` 降順でソートし
+  上位 N（既定 3）を Phase 3 に渡す。
 
 ### 完了条件
-- 1入力あたりの有効候補XML数が増える
-- 「全損」案件が減る
+- 1 page あたりの有効 Trial 数 ≥ 1 の割合がベースライン比で +20pt 以上
+- NPE/ハング時でも heartbeat または GRID 監視で 3 分以内に kill できる
+- 壊れ XML はすべて Phase 4 のレポートに `reason` 付きで現れ、無音で消えない
 
 ---
 
