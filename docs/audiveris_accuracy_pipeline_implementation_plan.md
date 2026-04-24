@@ -722,24 +722,125 @@ def quality_gate(metrics: StageMetrics, params) -> Literal["pass", "retry", "dro
 
 ## Phase 4: 評価・選択（自動採択）
 
+> 実装は `backend/app/pipeline/stages/evaluate.py`。
+> Phase 2 の「粗スコア」(coarse) はファスト判定用の簡易実装、
+> Phase 4 のスコア (final) は後処理済み MusicXML に対する厳密評価。
+> 両者は同じ `fields` キー体系を共有し、coarse は一部指標を `NaN` で返す。
+
 ### 4-1. スコアリング
-- 拍整合性
-- 音域妥当性
-- 密度
-- 調性一致
-- 構造一貫性
+
+#### 4-1-a. 部分指標の定義
+| key                          | 定義                                                                         | 範囲        |
+|------------------------------|------------------------------------------------------------------------------|-------------|
+| `measure_duration_match`     | 小節単位で期待拍数と一致する割合（voice 集約後）                              | [0, 1]       |
+| `in_range`                   | 全音高に対する `音域内音 / 全音` の比                                         | [0, 1]       |
+| `density`                    | 小節あたり音数が IQR 内に収まる割合                                           | [0, 1]       |
+| `key_consistency`            | 推定キーのスケール音比率 × K-S 信頼度                                         | [0, 1]       |
+| `structure_consistency`      | part 間の小節数一致度 + tie 整合度 + 空 part 無し（3 要素の重み付き平均）        | [0, 1]       |
+| `edits_penalty`              | Phase 3 編集数 / 全音数（**加点ではなく減点**、多いほど悪い）                  | [0, ∞)       |
+
+#### 4-1-b. 総合スコア
+```
+final_score = Σ_i w_i * metric_i  -  w_edits * edits_penalty
+w_i は params.scoring.weights（既定は 0-2-b の YAML に記載）
+```
+- 重みは **和が 1.0 になる制約**を CI で検証（`tests/pipeline/test_scoring_weights.py`）
+- 既定値（Phase 0 の YAML と同値）:
+  - `measure_duration_match=0.35`, `structure_consistency=0.25`,
+    `in_range=0.15`, `key_consistency=0.15`, `density=0.10`
+  - `edits_penalty` は `w_edits=0.15` を乗じて減算
+
+#### 4-1-c. ハード失格条件（スコア評価前にゼロ化）
+- `measure_count == 0`
+- `Σ note_count == 0`
+- MusicXML パース失敗（XML 破損）
+- 任意 part の全小節が空
+
+→ 該当する Trial は `final_score = 0`, `reason=disqualified_<cause>` で記録。
+
+#### 4-1-d. 正規化・スケーリング
+- 全指標は 0–1 に正規化済みで入ってくる前提
+- `edits_penalty` のみ非有界なので `tanh(x)` でソフトに 0–1 に収める
+- 学習的な重み調整を将来入れる場合は `sklearn.isotonic` 等で後付け可
 
 ### 4-2. 最適解選択
-- 複数OMR結果から最高スコア採択
-- 閾値未満は再試行 or 破棄
+
+#### 4-2-a. 集約階層
+```
+Trial  ─ final_score  ─┐
+                       ├→ Page.best_trial = argmax(final_score)
+Page   ─ best_trial  ──┤
+                       ├→ Job.score = weighted_mean(Page.best_trial.score)
+                                          weight = page の note 数 (長いページほど重い)
+```
+
+#### 4-2-b. 採択ゲート
+- Page 採択: `best_trial.final_score >= params.scoring.page_threshold`（既定 0.70）
+- 閾値未満の Page:
+  - `on_low_score="retry"` なら別 params で 1 回再試行
+  - `on_low_score="skip"` なら `status=skipped` で通過（全体は続行）
+  - `on_low_score="fail_job"` なら Job ごと失敗扱い
+- 既定は `retry`
+
+#### 4-2-c. Tie-break（同点時の優先順位）
+1. `measure_duration_match` が高いもの
+2. `edits_penalty` が低いもの
+3. `param_set_id` の辞書順（再現性のため決定論的に）
+
+#### 4-2-d. 採択結果の persistence
+- 採択された Trial の `param_set_id` を `artifacts/{job_id}/chosen.json` に記録
+- 次回同一入力（`input_sha256` 一致）では採択 param_set を既定候補の先頭に置く
+  （= ウォームスタート、探索の収束加速）
 
 ### 4-3. フィードバックループ
-- スコア悪化原因を記録（前処理/OMR/後処理どこで崩れたか）
-- 次回パラメータ探索に反映
+
+#### 4-3-a. 失敗分類体系
+- `failure_class` を次のラベルで記録:
+  - `preprocess.quality_gate_drop`
+  - `omr.npe_in_transcription`
+  - `omr.heartbeat_timeout`
+  - `omr.invalid_xml`
+  - `postprocess.rhythm_unfixable`
+  - `postprocess.voice_rebuild_rollback`
+  - `evaluate.low_score_below_threshold`
+- ラベル付与は各ステージが `metrics.fields["failure_class"]` に書き込む
+
+#### 4-3-b. 崩れた工程の特定
+- `final_score < 0.7` かつ Trial が `ok` の場合、ステージ別に以下を評価:
+  - 前処理: `staff_detection_rate < 0.85` → `blame=preprocess`
+  - OMR: `valid_xml=false` or `grid_ok=false` → `blame=omr`
+  - 後処理: `rhythm_unfixable_count > 2` or `scale_fix_count > avg*3` → `blame=postprocess`
+- `blame` は最も早く該当したステージ 1 つに絞る
+
+#### 4-3-c. パラメータ探索の自動化
+- `param_set=auto` 指定時の探索戦略:
+  - 1 回目: `v1_baseline`, `v2_staff_norm`, `v3_multi_trial` を並列
+  - 2 回目以降: 前回採択 params をシード、`blame` に応じて関連キーを bandit で摂動
+- 摂動対象マップ（抜粋）:
+  - `blame=preprocess` → `binarize.k ∈ {0.15, 0.2, 0.25}`, `target_staff_space_px ∈ {20, 22, 25}`
+  - `blame=omr` → `jvm_xmx`, `audiveris.plugins_disabled` 組合せ
+  - `blame=postprocess` → `rhythm_fix.max_edits_per_measure ∈ {3, 4, 5}`
+- 探索記録は `artifacts/{job_id}/search_history.jsonl`
+
+#### 4-3-d. レポート出力
+- ジョブ終了時に `artifacts/{job_id}/report.md` を生成:
+  - 全 page × Trial のスコア表
+  - 採択結果と理由
+  - `failure_class` ヒストグラム
+  - Phase 3 編集数トップ 10 小節
+- HTML 版（`report.html`）もオプションで生成（CI で人が見る用）
+
+### 4-4. オフライン評価（回帰検知）
+- サンプル 20 本程度を `tests/fixtures/golden/` に配置（PDF + 期待 MusicXML）
+- `tests/pipeline/test_regression.py` で:
+  - 全サンプルの `final_score` 平均が main ブランチ値より下がっていないこと
+  - `measure_duration_match` の 95 パーセンタイルが閾値以上であること
+- PR で閾値割れしたら fail。ベースライン更新は明示 commit (`fixtures: refresh baseline`) でのみ
 
 ### 完了条件
-- 「最良候補の自動選択」が手動選択と同等以上
-- 失敗パターンがログ分類できる
+- 同一入力に対して自動採択結果が手動ラベル（5 本のゴールデン PDF）と一致率 ≥ 0.8
+- `blame` ラベルが失敗ケースの 90% 以上に付与される
+- 再実行時に `chosen.json` によるウォームスタートが効いて総実行時間が短縮される
 
 ---
 
