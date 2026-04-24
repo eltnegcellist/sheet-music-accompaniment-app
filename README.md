@@ -11,7 +11,7 @@ IMSLP などのパブリックドメイン PDF 楽譜から **伴奏パート（
 | 譜面表示 | PDF.js（オーバーレイ Canvas で現在小節をハイライト） |
 | 音声再生 | Tone.js + Salamander Grand Piano (SoundFont) |
 | バックエンド | Python + FastAPI |
-| OMR | Audiveris (CLI, Docker 同梱) |
+| OMR | Audiveris (CLI, Docker 同梱 / **単独運用**) |
 
 ## 主な機能（MVP）
 
@@ -20,6 +20,12 @@ IMSLP などのパブリックドメイン PDF 楽譜から **伴奏パート（
 - ピアノ音源で伴奏を再生（テンポ調整 / 区間ループ / カウントイン / メトロノーム）
 - 再生中の小節を元 PDF 上にハイライト
 - 任意で同じ曲の MusicXML を一緒にアップロードすると、音符データはそちらを優先（OMR は座標取得のみ）
+
+## OMR エンジン方針（2026-04 更新）
+
+- 本リポジトリの OMR は **Audiveris のみ**を使用します。
+- 過去に検証していた Oemer 連携は、実行負荷・運用コストの観点から削除済みです。
+- そのため、バックエンドの解析フローは「PDF -> Audiveris -> MusicXML + レイアウト情報」に一本化されています。
 
 ## 開発環境
 
@@ -52,6 +58,7 @@ cd frontend && npm install && npm test
 
 ## 既知の制限
 
+- Audiveris 単独運用のため、機械学習ベース OMR との自動融合は行いません。
 - Audiveris の OMR 精度は印刷品質に強く依存。スキャン汚れの多い古い譜面では音符の取りこぼし／誤認が発生します。
 - 反復記号（D.C., D.S., volta）は MVP では展開せず、楽譜を上から順に1回だけ演奏します。
 - ピアノ音源は CDN（tonejs.github.io）から取得。オフライン運用には自前ホストへ差し替えてください。
@@ -67,7 +74,7 @@ sandbox/
 │       ├── audio/           Tone.js エンジン / スケジューラ / メトロノーム
 │       ├── components/      PdfUploader / PdfViewer / PlaybackControls
 │       └── music/           MusicXML パーサ
-└── backend/                 FastAPI + Audiveris
+└── backend/                 FastAPI + Audiveris（OMR単独）
     └── app/
         ├── main.py          /analyze エンドポイント
         ├── omr/             Audiveris CLI ラッパ + .omr レイアウト解析
