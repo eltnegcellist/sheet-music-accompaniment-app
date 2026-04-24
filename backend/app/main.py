@@ -17,7 +17,8 @@ from .music.parser import (
     list_measures_with_bbox,
 )
 from .ocr.tempo_ocr import extract_tempo_from_pdf, extract_title_from_pdf
-from .omr.audiveris_runner import AudiverisError, OmrResult, run_audiveris
+from .omr.audiveris_runner import AudiverisError, OmrResult
+from .pipeline.run import run_omr_via_pipeline
 from .schemas import AnalyzeResponse, MeasureBox, TimeSignatureModel
 
 logger = logging.getLogger("accompanist")
@@ -96,9 +97,12 @@ async def analyze(
                     "music_xml is invalid. Please upload a valid MusicXML or add a PDF.",
                 )
             try:
-                omr_result = run_audiveris(pdf_path, tmp / "out")
+                omr_result = run_omr_via_pipeline(pdf_path, tmp / "out")
             except AudiverisError as exc:
                 logger.exception("Audiveris failed")
+                raise HTTPException(500, f"OMR failed: {exc}") from exc
+            except RuntimeError as exc:
+                logger.exception("Pipeline aborted")
                 raise HTTPException(500, f"OMR failed: {exc}") from exc
             warnings.extend(omr_result.warnings)
 
