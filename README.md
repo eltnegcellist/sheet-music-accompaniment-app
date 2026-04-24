@@ -30,6 +30,12 @@ docker compose up --build
 - フロント: <http://localhost:5173>
 - バックエンド: <http://localhost:8000>（`GET /health` で疎通確認）
 
+疎通確認の例:
+
+```bash
+curl -s http://localhost:8000/health
+```
+
 初回ビルドは Audiveris（〜500MB）の取得に時間がかかります。
 
 ## エンドツーエンド動作確認
