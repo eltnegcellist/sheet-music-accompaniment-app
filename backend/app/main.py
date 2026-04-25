@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import tempfile
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from .music.parser import (
 )
 from .ocr.tempo_ocr import extract_tempo_from_pdf, extract_title_from_pdf
 from .omr.audiveris_runner import AudiverisError, OmrResult
+from .pipeline.params_loader import ParamsError, load_params
 from .pipeline.run import run_omr_via_pipeline
 from .pipeline.scoring_facade import evaluate_musicxml_metrics
 from .schemas import AnalyzeResponse, MeasureBox, TimeSignatureModel
@@ -26,6 +28,33 @@ logger = logging.getLogger("accompanist")
 logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(title="IMSLP Accompanist")
+
+
+# Active param set for /analyze. Configurable so tests / staging can pin
+# the legacy v1_baseline (no postprocess) while production runs v3.
+_PARAM_SET_ID = os.environ.get("PIPELINE_PARAM_SET", "v3_with_postprocess")
+_PARAMS_DIR = Path(__file__).resolve().parents[1] / "params"
+
+
+def _load_active_params() -> tuple[str, dict | None]:
+    """Resolve the active param set; degrade to None on any loader failure.
+
+    Returning None preserves the pre-W-01 behaviour (no postprocess) so a
+    broken YAML never takes the API down.
+    """
+    try:
+        resolved = load_params(
+            _PARAM_SET_ID,
+            _PARAMS_DIR,
+            schema_path=_PARAMS_DIR / "schema.json",
+        )
+    except (ParamsError, FileNotFoundError) as exc:
+        logger.warning(
+            "Falling back to no-params: failed to load %s — %s",
+            _PARAM_SET_ID, exc,
+        )
+        return _PARAM_SET_ID, None
+    return resolved.param_set_id(), resolved.data
 
 app.add_middleware(
     CORSMiddleware,
@@ -64,6 +93,10 @@ async def analyze(
             user_xml = (await music_xml.read()).decode("utf-8", errors="replace")
 
         warnings: list[str] = []
+        # When OMR is bypassed (user uploaded MusicXML) we still want the
+        # response to record which param set the server is configured for —
+        # set early so every branch lands on the same value.
+        active_param_set_id: str | None = _PARAM_SET_ID
         # When the caller supplies a valid MusicXML we can skip Audiveris
         # entirely. That's ~20x faster on long scores and sidesteps Audiveris
         # bugs (NullPointerExceptions in reduceScores/Voices occur on some
@@ -97,8 +130,15 @@ async def analyze(
                     400,
                     "music_xml is invalid. Please upload a valid MusicXML or add a PDF.",
                 )
+            param_set_id, params = _load_active_params()
+            active_param_set_id = param_set_id
             try:
-                omr_result = run_omr_via_pipeline(pdf_path, tmp / "out")
+                omr_result = run_omr_via_pipeline(
+                    pdf_path,
+                    tmp / "out",
+                    param_set_id=param_set_id,
+                    params=params,
+                )
             except AudiverisError as exc:
                 logger.exception("Audiveris failed")
                 raise HTTPException(500, f"OMR failed: {exc}") from exc
@@ -170,4 +210,5 @@ async def analyze(
             page_sizes=omr_result.page_sizes,
             warnings=warnings,
             pipeline_metrics=pipeline_metrics,
+            param_set_id=active_param_set_id,
         )

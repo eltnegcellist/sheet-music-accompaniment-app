@@ -1,0 +1,16 @@
+# v3: enable postprocess (rhythm_fix + voice_rebuild). Inherits from v1.
+# This is the production default after W-02 — it raises measure-duration
+# match on broken Audiveris output without changing the OMR call itself.
+meta:
+  id: v3_with_postprocess
+  version: 3
+  parent: v1_baseline
+  description: "Production default: rhythm_fix + voice_rebuild on top of baseline OMR"
+
+postprocess:
+  rhythm_fix:
+    enabled: true
+    snap_durations: [1, 2, 4, 8, 16]
+    max_edits_per_measure: 4
+  voice_rebuild:
+    enabled: true
