@@ -957,6 +957,10 @@ class AnalyzeResponse(BaseModel):
 
 ### Sprint 2（精度を実際に押し上げる）: 後処理 + 自動採択
 
+> **実装ステータス: 完了 ✓**（2026-04-25, 16 コミット, テスト 234 件全 green）。
+> postprocess + evaluate がパイプラインに常駐し、`AnalyzeResponse.pipeline_metrics`
+> が API から返るようになった。
+
 #### S2-01: music21 導入 + postprocess スケルトン（3pt）
 - `pyproject.toml` に `music21` 追加、`pipeline/stages/postprocess.py` の骨組み
 - DoD: MusicXML → music21 Score → MusicXML の round-trip が無損失
@@ -981,6 +985,21 @@ class AnalyzeResponse(BaseModel):
 - DoD: PR で `final_score` 下がる変更がブロックされる
 
 **Sprint 2 合計 = 21pt**
+
+#### Sprint 2 実装ログ（2026-04-25 完了）
+| チケット | 状態 | 主要コミット | 主な追加物 |
+|---|---|---|---|
+| S2-01 | ✓ | 2cf14bd, eff795a | `music21` 依存追加, `postprocess.skeleton` round-trip |
+| S2-02 | ✓ | 7df3663, e987393, 12f2764, 49d77f1, 6b01703 | `EditLog` (jsonl), `analyse_measures`, `propose_snap`, `plan_measure_fix` (DP), `postprocess.rhythm_fix` |
+| S2-03 | ✓ | f8309b3, 5164d7c, b979713 | onset クラスタ + 和音判定, RH/LH 再割当て + rollback guard, `postprocess.voice_rebuild` |
+| S2-04 | ✓ | 05120ea, 78bfe01, d9c3a76, 5b689be | 6 指標 ScoreCard, `final_score` (tanh squash), `evaluate` ステージ + `chosen.json`, `AnalyzeResponse.pipeline_metrics` |
+| S2-05 | ✓ | 3b46fd1, b66c14d | golden 5 件 + `baseline.json` + `refresh_golden_baseline.py`, `test_regression.py` |
+
+依存追加: `music21>=9.0`（テスト時 import コストが ~3 秒 → スイート全体は依然 1 秒台で完走）。
+既知の未実装:
+- 部分再処理 (Phase 2-5) は trials.py の枠組みは Sprint 1 で揃ったが、OMR ステージとの配線が未実施（次スプリント候補）。
+- 編集ログの位置情報 (`location.beat`) は voice_rebuild 由来の編集にのみ充填、rhythm_fix 側は measure 番号までで停止。
+- `chosen.json` のウォームスタート読み出しは未実装。書き出しのみ。
 
 ### Sprint 3 以降（参考）: 残りの高度機能
 - 3-2, 3-3, 3-4 の本格実装（タイミング/音高/音域）
