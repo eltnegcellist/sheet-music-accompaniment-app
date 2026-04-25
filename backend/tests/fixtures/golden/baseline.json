@@ -3,49 +3,76 @@
   "_version": 1,
   "samples": {
     "01_clean_4_4_C_major.musicxml": {
-      "final_score": 0.9767,
-      "measure_duration_match": 1.0,
-      "in_range": 1.0,
       "density": 1.0,
+      "edits_penalty": 0.0,
+      "final_score": 0.9767,
+      "in_range": 1.0,
       "key_consistency": 0.8446,
-      "structure_consistency": 1.0,
-      "edits_penalty": 0.0
+      "measure_duration_match": 1.0,
+      "structure_consistency": 1.0
     },
     "02_short_measure_one_beat_missing.musicxml": {
-      "final_score": 0.7885,
-      "measure_duration_match": 0.5,
-      "in_range": 1.0,
       "density": 1.0,
+      "edits_penalty": 0.0,
+      "final_score": 0.7885,
+      "in_range": 1.0,
       "key_consistency": 0.7564,
-      "structure_consistency": 1.0,
-      "edits_penalty": 0.0
+      "measure_duration_match": 0.5,
+      "structure_consistency": 1.0
     },
     "03_long_measure_one_beat_extra.musicxml": {
-      "final_score": 0.7918,
-      "measure_duration_match": 0.5,
-      "in_range": 1.0,
       "density": 1.0,
+      "edits_penalty": 0.0,
+      "final_score": 0.7918,
+      "in_range": 1.0,
       "key_consistency": 0.7786,
-      "structure_consistency": 1.0,
-      "edits_penalty": 0.0
+      "measure_duration_match": 0.5,
+      "structure_consistency": 1.0
     },
     "04_drifted_durations.musicxml": {
-      "final_score": 0.9428,
-      "measure_duration_match": 1.0,
-      "in_range": 1.0,
       "density": 1.0,
+      "edits_penalty": 0.0,
+      "final_score": 0.9428,
+      "in_range": 1.0,
       "key_consistency": 0.6185,
-      "structure_consistency": 1.0,
-      "edits_penalty": 0.0
+      "measure_duration_match": 1.0,
+      "structure_consistency": 1.0
     },
     "05_piano_two_staves.musicxml": {
-      "final_score": 0.9787,
-      "measure_duration_match": 1.0,
-      "in_range": 1.0,
       "density": 1.0,
+      "edits_penalty": 0.0,
+      "final_score": 0.9787,
+      "in_range": 1.0,
       "key_consistency": 0.8582,
-      "structure_consistency": 1.0,
-      "edits_penalty": 0.0
+      "measure_duration_match": 1.0,
+      "structure_consistency": 1.0
+    },
+    "06_audiveris_dropped_two_beats.musicxml": {
+      "density": 1.0,
+      "edits_penalty": 0.0,
+      "final_score": 0.8499,
+      "in_range": 1.0,
+      "key_consistency": 0.7771,
+      "measure_duration_match": 0.6667,
+      "structure_consistency": 1.0
+    },
+    "07_audiveris_split_chord.musicxml": {
+      "density": 1.0,
+      "edits_penalty": 0.0,
+      "final_score": 0.6204,
+      "in_range": 1.0,
+      "key_consistency": 0.8027,
+      "measure_duration_match": 0.0,
+      "structure_consistency": 1.0
+    },
+    "08_audiveris_drift_and_short.musicxml": {
+      "density": 1.0,
+      "edits_penalty": 0.0,
+      "final_score": 0.5899,
+      "in_range": 1.0,
+      "key_consistency": 0.5995,
+      "measure_duration_match": 0.0,
+      "structure_consistency": 1.0
     }
   }
 }

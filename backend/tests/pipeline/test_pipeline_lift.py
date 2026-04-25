@@ -33,6 +33,9 @@ EXPECTATIONS: dict[str, tuple[float, bool]] = {
     "03_long_measure_one_beat_extra.musicxml": (0.10, False),
     "04_drifted_durations.musicxml": (0.0, True),     # totals already match
     "05_piano_two_staves.musicxml": (0.0, True),
+    "06_audiveris_dropped_two_beats.musicxml": (0.08, False),
+    "07_audiveris_split_chord.musicxml": (0.25, False),
+    "08_audiveris_drift_and_short.musicxml": (0.20, False),
 }
 
 # Tolerance for "no change" — music21 round-trip can introduce
