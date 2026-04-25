@@ -1001,6 +1001,35 @@ class AnalyzeResponse(BaseModel):
 - 編集ログの位置情報 (`location.beat`) は voice_rebuild 由来の編集にのみ充填、rhythm_fix 側は measure 番号までで停止。
 - `chosen.json` のウォームスタート読み出しは未実装。書き出しのみ。
 
+### W (配線): /analyze から postprocess を実利用可能にする
+> **実装ステータス: 完了 ✓**（2026-04-25, 6 コミット, テスト 258 件全 green）。
+> Sprint 1-2 の成果物が初めて API 経路で稼働するようになった。
+
+| ID | 内容 | 主要コミット |
+|---|---|---|
+| W-05a | `run_postprocess_and_evaluate` ヘルパ (XML→補正XML+ScoreCard) | 791b954 |
+| W-05b | postprocess lift 回帰テスト (broken は +0.10 以上、clean は不変) | 81b2752 |
+| W-05c | Audiveris 失敗パターン fixture 3 件追加 (06/07/08) | 09d3e55 |
+| W-01 | `run_omr_via_pipeline` に `params` 引数 + postprocess opt-in 配線 | 01794c4 |
+| W-02 | `v3_with_postprocess.yaml` を /analyze 既定にし `param_set_id` を API 応答に | e623e5e |
+| W-05d | v1 vs v3 シミュレーション + lift ドキュメント化 | (本コミット) |
+
+#### v1_baseline vs v3_with_postprocess（同一入力に対する `final_score`）
+| fixture | v1 (旧既定) | v3 (新既定) | lift |
+|---|---:|---:|---:|
+| 01_clean_4_4_C_major | 0.9767 | 0.9767 | +0.0000 |
+| 02_short_measure_one_beat_missing | 0.7885 | 0.9635 | **+0.1750** |
+| 03_long_measure_one_beat_extra | 0.7918 | 0.9477 | **+0.1559** |
+| 04_drifted_durations | 0.9428 | 0.9428 | +0.0000 |
+| 05_piano_two_staves | 0.9787 | 0.9787 | +0.0000 |
+| 06_audiveris_dropped_two_beats | 0.8499 | 0.9666 | **+0.1167** |
+| 07_audiveris_split_chord | 0.6204 | 0.9823 | **+0.3619** |
+| 08_audiveris_drift_and_short | 0.5899 | 0.9399 | **+0.3500** |
+| **平均 (全 8 件)** | 0.8173 | 0.9623 | **+0.1449** |
+| **平均 (broken 5 件のみ)** | 0.7281 | 0.9600 | **+0.2319** |
+
+クリーン入力は 0 編集で score 不変（偽陽性なし）、崩れた入力では Audiveris 出力に +0.12〜+0.36 の改善を与えることを W-05d の自動テスト (`test_v1_vs_v3_lift.py`) が保証する。実 PDF 経由の計測は Audiveris JVM が CI に乗らないため未実施。
+
 ### Sprint 3 以降（参考）: 残りの高度機能
 - 3-2, 3-3, 3-4 の本格実装（タイミング/音高/音域）
 - 2-5 部分再処理
