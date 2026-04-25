@@ -26,6 +26,7 @@ from ..contracts import (
 from ..postprocess.edits import EditLog
 from ..postprocess.rhythm import analyse_measures, measure_duration_match_rate
 from ..postprocess.rhythm_fix import fix_rhythm
+from ..postprocess.voice_rebuild import rebuild_voices
 from ..registry import register
 
 
@@ -211,4 +212,80 @@ def postprocess_rhythm_fix(inp: StageInput) -> StageOutput:
     for kind, count in report.actions_by_kind.items():
         metrics.fields[f"postprocess.rhythm_fix.op.{kind}"] = count
 
+    return StageOutput(status="ok", artifact_refs=refs, metrics=metrics)
+
+
+@register("postprocess.voice_rebuild")
+def postprocess_voice_rebuild(inp: StageInput) -> StageOutput:
+    """Phase 3-5 RH/LH voice rebuild with rollback guard.
+
+    Disabled by default. Reads the upstream MusicXML, proposes voice
+    assignments, and either applies them or records a rollback edit.
+    The on-disk MusicXML is rewritten either way so downstream stages
+    (evaluator, merger) consume a consistent artifact.
+    """
+    cfg = inp.params.get("postprocess", {}).get("voice_rebuild", {}) or {}
+    if not cfg.get("enabled", False):
+        return StageOutput(
+            status="skipped",
+            metrics=StageMetrics(
+                fields={"postprocess.voice_rebuild.enabled": False}
+            ),
+        )
+
+    xml = _resolve_input_xml(inp)
+    if xml is None:
+        return StageOutput(
+            status="failed",
+            error="postprocess.voice_rebuild: no MusicXML upstream",
+        )
+
+    try:
+        score = parse_musicxml(xml)
+    except Exception as exc:  # noqa: BLE001
+        return StageOutput(
+            status="failed",
+            error=f"music21 parse failed: {type(exc).__name__}: {exc}",
+        )
+
+    log_path = inp.artifacts.path_for("postprocess", "voice_edits.jsonl")
+    log = EditLog(path=log_path)
+    report = rebuild_voices(
+        score,
+        log=log,
+        rollback_rate_threshold=float(cfg.get("rollback_rate_threshold", 0.30)),
+        split_pitch_midi=int(cfg.get("split_pitch_midi", 60)),
+    )
+    log.flush()
+
+    try:
+        out_xml = write_musicxml(score)
+    except Exception as exc:  # noqa: BLE001
+        return StageOutput(
+            status="failed",
+            error=f"music21 write failed after voice rebuild: {type(exc).__name__}: {exc}",
+        )
+
+    out_path = inp.artifacts.path_for("postprocess", "voice_rebuild.musicxml")
+    out_path.write_text(out_xml, encoding="utf-8")
+    refs = [
+        inp.artifacts.put(
+            ArtifactRef(kind="postprocess_musicxml", path=str(out_path))
+        ),
+        inp.artifacts.put(
+            ArtifactRef(kind="postprocess_voice_edits", path=str(log_path))
+        ),
+    ]
+    metrics = StageMetrics(
+        fields={
+            "postprocess.voice_rebuild.enabled": True,
+            "postprocess.voice_rebuild.notes_total": report.notes_total,
+            "postprocess.voice_rebuild.notes_reassigned": report.notes_reassigned,
+            "postprocess.voice_rebuild.reassignment_rate": round(
+                report.reassignment_rate, 4
+            ),
+            "postprocess.voice_rebuild.rollback": report.rollback,
+            "postprocess.voice_rebuild.parts_processed": len(report.parts_processed),
+        }
+    )
     return StageOutput(status="ok", artifact_refs=refs, metrics=metrics)
