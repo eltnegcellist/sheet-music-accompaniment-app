@@ -125,26 +125,35 @@ def assign_voices_piano(
     events: list[OnsetEvent],
     *,
     split_pitch_midi: int = 60,  # middle C
+    pitch_override_band_semitones: int = 18,
 ) -> list[VoiceAssignment]:
     """Classify each (non-rest) event into RH (1) or LH (2).
 
-    First-cut policy (Phase 3-5-c lite):
-      * staff hint wins if the event already has staff=2 (LH) or staff=1 (RH).
-      * else fall back to a pitch threshold: pitch >= split → RH, else LH.
+    Policy (Phase 3-5-c lite):
+      * Trust the staff hint by default — Audiveris labelling is usually
+        right. This also matches the plan's "y 座標優先" rule.
+      * Override the staff hint with the pitch threshold only when the
+        disagreement is large (≥ `pitch_override_band_semitones` from the
+        split). E.g. a C2 mis-tagged as staff=1 (RH) gets caught here.
+      * When no staff hint exists (staff not in {1,2}), the pitch
+        threshold decides directly.
 
-    Real implementation will use k=2 clustering on (pitch, staff_hint),
-    but the plan calls out that we should rollback when the reassignment
-    rate exceeds 30%, so the simple policy is enough to wire the rollback
-    guard for now.
+    The rollback guard above this function catches degenerate proposals
+    (huge swathes of notes flipping voices) and reverts them.
     """
     out: list[VoiceAssignment] = []
     for ev in events:
         if ev.is_rest or ev.pitch_midi is None:
             continue
+        pitch_says = 1 if ev.pitch_midi >= split_pitch_midi else 2
         if ev.staff in (1, 2):
-            out.append(VoiceAssignment(note_index=ev.index, voice=ev.staff))
-            continue
-        voice = 1 if ev.pitch_midi >= split_pitch_midi else 2
+            far = abs(ev.pitch_midi - split_pitch_midi) >= pitch_override_band_semitones
+            if far and ev.staff != pitch_says:
+                voice = pitch_says
+            else:
+                voice = ev.staff
+        else:
+            voice = pitch_says
         out.append(VoiceAssignment(note_index=ev.index, voice=voice))
     return out
 
