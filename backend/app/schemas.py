@@ -40,3 +40,20 @@ class AnalyzeResponse(BaseModel):
         description="Width/height in PDF points per page",
     )
     warnings: list[str] = Field(default_factory=list)
+
+    # --- Phase 4 surface (additive — older clients can ignore these) ---
+    job_id: str | None = Field(
+        default=None,
+        description="UUID identifying this run; matches artifacts/{job_id}/.",
+    )
+    param_set_id: str | None = Field(
+        default=None,
+        description="Resolved param set with sha8 suffix, e.g. v1_baseline@deadbeef.",
+    )
+    pipeline_metrics: dict[str, float] | None = Field(
+        default=None,
+        description=(
+            "Phase 4 evaluator outputs: final_score, measure_duration_match, "
+            "in_range, density, key_consistency, structure_consistency, edits_penalty."
+        ),
+    )

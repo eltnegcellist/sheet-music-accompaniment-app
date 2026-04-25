@@ -19,6 +19,7 @@ from .music.parser import (
 from .ocr.tempo_ocr import extract_tempo_from_pdf, extract_title_from_pdf
 from .omr.audiveris_runner import AudiverisError, OmrResult
 from .pipeline.run import run_omr_via_pipeline
+from .pipeline.scoring_facade import evaluate_musicxml_metrics
 from .schemas import AnalyzeResponse, MeasureBox, TimeSignatureModel
 
 logger = logging.getLogger("accompanist")
@@ -142,6 +143,11 @@ async def analyze(
             for m in list_measures_with_bbox(omr_result, accompaniment_part_id)
         ]
 
+        # Phase 4: best-effort scoring on the merged MusicXML. None when
+        # the score is unparseable — the response still carries the OMR
+        # data so the player can run.
+        pipeline_metrics = evaluate_musicxml_metrics(merged_xml)
+
         return AnalyzeResponse(
             music_xml=merged_xml,
             score_title=score_title,
@@ -163,4 +169,5 @@ async def analyze(
             ),
             page_sizes=omr_result.page_sizes,
             warnings=warnings,
+            pipeline_metrics=pipeline_metrics,
         )
