@@ -23,6 +23,9 @@ from ..contracts import (
     StageMetrics,
     StageOutput,
 )
+from ..postprocess.edits import EditLog
+from ..postprocess.rhythm import analyse_measures, measure_duration_match_rate
+from ..postprocess.rhythm_fix import fix_rhythm
 from ..registry import register
 
 
@@ -123,3 +126,89 @@ def postprocess_skeleton(inp: StageInput) -> StageOutput:
 
 def _count_pitched_notes(score: stream.Score) -> int:
     return sum(1 for n in score.flatten().notes if not n.isRest)
+
+
+@register("postprocess.rhythm_fix")
+def postprocess_rhythm_fix(inp: StageInput) -> StageOutput:
+    """Phase 3-1 rhythm fix.
+
+    Reads MusicXML upstream, applies the minimum-edit DP per measure,
+    writes the corrected MusicXML + the edit log to the artifact store.
+    Disabled by default (`params.postprocess.rhythm_fix.enabled: false`)
+    so the v1_baseline params keep current behaviour.
+    """
+    cfg = inp.params.get("postprocess", {}).get("rhythm_fix", {}) or {}
+    if not cfg.get("enabled", False):
+        return StageOutput(
+            status="skipped",
+            metrics=StageMetrics(
+                fields={"postprocess.rhythm_fix.enabled": False}
+            ),
+        )
+
+    xml = _resolve_input_xml(inp)
+    if xml is None:
+        return StageOutput(
+            status="failed",
+            error="postprocess.rhythm_fix: no MusicXML upstream",
+        )
+
+    try:
+        score = parse_musicxml(xml)
+    except Exception as exc:  # noqa: BLE001
+        return StageOutput(
+            status="failed",
+            error=f"music21 parse failed: {type(exc).__name__}: {exc}",
+        )
+
+    pre_records = analyse_measures(score)
+    pre_match = measure_duration_match_rate(pre_records)
+
+    log_path = inp.artifacts.path_for("postprocess", "edits.jsonl")
+    log = EditLog(path=log_path)
+
+    report = fix_rhythm(
+        score,
+        snap_durations=cfg.get("snap_durations", [1, 2, 4, 8, 16]),
+        max_edits_per_measure=int(cfg.get("max_edits_per_measure", 4)),
+        log=log,
+    )
+    log.flush()
+
+    post_records = analyse_measures(score)
+    post_match = measure_duration_match_rate(post_records)
+
+    try:
+        out_xml = write_musicxml(score)
+    except Exception as exc:  # noqa: BLE001
+        return StageOutput(
+            status="failed",
+            error=f"music21 write failed after fix: {type(exc).__name__}: {exc}",
+        )
+
+    out_path = inp.artifacts.path_for("postprocess", "rhythm_fix.musicxml")
+    out_path.write_text(out_xml, encoding="utf-8")
+    refs = [
+        inp.artifacts.put(
+            ArtifactRef(kind="postprocess_musicxml", path=str(out_path))
+        ),
+        inp.artifacts.put(
+            ArtifactRef(kind="postprocess_edits", path=str(log_path))
+        ),
+    ]
+
+    metrics = StageMetrics(
+        fields={
+            "postprocess.rhythm_fix.enabled": True,
+            "postprocess.rhythm_fix.measures_total": report.measures_total,
+            "postprocess.rhythm_fix.measures_fixed": report.measures_fixed,
+            "postprocess.rhythm_fix.measures_unfixable": report.measures_unfixable,
+            "postprocess.rhythm_fix.edits_total": sum(report.actions_by_kind.values()),
+            "postprocess.rhythm_fix.match_rate_before": round(pre_match, 4),
+            "postprocess.rhythm_fix.match_rate_after": round(post_match, 4),
+        }
+    )
+    for kind, count in report.actions_by_kind.items():
+        metrics.fields[f"postprocess.rhythm_fix.op.{kind}"] = count
+
+    return StageOutput(status="ok", artifact_refs=refs, metrics=metrics)
