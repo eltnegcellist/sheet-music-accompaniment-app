@@ -59,7 +59,8 @@ def _is_piano_part(part: stream.Part) -> bool:
     skipped via params when no piano is involved, so a simple check
     avoids cross-package coupling.
     """
-    name = (getattr(part, "partName", None) or part.id or "").lower()
+    raw = getattr(part, "partName", None) or part.id or ""
+    name = str(raw).lower()
     return any(tok in name for tok in ("piano", "klavier", "pianoforte", "ピアノ"))
 
 
