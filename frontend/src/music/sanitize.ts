@@ -196,7 +196,6 @@ function alignKeySignaturesToReference(referencePart: Element, parts: Element[])
       const refKey = keyByMeasure.get(measureNumber);
       if (!refKey) continue;
       writeMeasureKeyState(measure, refKey);
-      dropNaturalAccidentalsContradictingKey(measure, refKey);
     }
   }
 }
@@ -249,70 +248,6 @@ function writeMeasureKeyState(measure: Element, keyState: KeyState): void {
   } else if (existingMode) {
     keyEl.removeChild(existingMode);
   }
-}
-
-function dropNaturalAccidentalsContradictingKey(measure: Element, keyState: KeyState): void {
-  const fifths = Number.parseInt(keyState.fifths, 10);
-  if (!Number.isFinite(fifths)) return;
-
-  for (const note of Array.from(measure.getElementsByTagName("note"))) {
-    if (note.getElementsByTagName("rest").length > 0) continue;
-    const pitch = note.getElementsByTagName("pitch")[0];
-    if (!pitch) continue;
-    const stepEl = pitch.getElementsByTagName("step")[0];
-    if (!stepEl) continue;
-    const step = (stepEl.textContent ?? "").trim().toUpperCase();
-    if (!step) continue;
-
-    const impliedAlter = keyAlterForStep(fifths, step);
-    if (impliedAlter === 0) continue;
-
-    const accidentalEl = note.getElementsByTagName("accidental")[0];
-    const accidentalText = accidentalEl?.textContent?.trim().toLowerCase() ?? "";
-    const alterEl = pitch.getElementsByTagName("alter")[0];
-    const alterValue = alterEl ? Number.parseFloat(alterEl.textContent ?? "") : null;
-    const isCurrentlyNatural =
-      accidentalText === "natural" || alterValue === 0 || alterValue === null;
-    const hasExplicitChromaticAlter =
-      alterValue !== null &&
-      Number.isFinite(alterValue) &&
-      alterValue !== 0 &&
-      alterValue !== impliedAlter;
-
-    if (isCurrentlyNatural && !hasExplicitChromaticAlter) {
-      if (accidentalText === "natural" && accidentalEl?.parentNode) {
-        accidentalEl.parentNode.removeChild(accidentalEl);
-      }
-
-      const doc = measure.ownerDocument;
-      if (!doc) continue;
-      if (alterEl) {
-        alterEl.textContent = String(impliedAlter);
-      } else {
-        const newAlter = doc.createElement("alter");
-        newAlter.textContent = String(impliedAlter);
-        if (stepEl.nextSibling) {
-          pitch.insertBefore(newAlter, stepEl.nextSibling);
-        } else {
-          pitch.appendChild(newAlter);
-        }
-      }
-    }
-  }
-}
-
-function keyAlterForStep(fifths: number, step: string): number {
-  const sharpOrder = ["F", "C", "G", "D", "A", "E", "B"];
-  const flatOrder = ["B", "E", "A", "D", "G", "C", "F"];
-  if (fifths > 0) {
-    const affected = new Set(sharpOrder.slice(0, Math.min(7, fifths)));
-    return affected.has(step) ? 1 : 0;
-  }
-  if (fifths < 0) {
-    const affected = new Set(flatOrder.slice(0, Math.min(7, Math.abs(fifths))));
-    return affected.has(step) ? -1 : 0;
-  }
-  return 0;
 }
 
 function scorePartQuality(part: Element): number {

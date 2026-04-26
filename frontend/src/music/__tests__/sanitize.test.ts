@@ -188,7 +188,7 @@ describe("sanitizeForOsmd", () => {
     expect(fifths).toEqual(["2", "2", "2"]);
   });
 
-  it("drops natural accidentals introduced by missing key signatures after key alignment", () => {
+  it("preserves explicit natural accidentals after key alignment", () => {
     const xml = `<?xml version="1.0"?>
 <score-partwise>
   <part-list><score-part id="P1"/><score-part id="P2"/></part-list>
@@ -227,11 +227,11 @@ describe("sanitizeForOsmd", () => {
       .getElementsByTagName("fifths")[0]?.textContent;
 
     expect(keyFifths).toBe("2");
-    expect(accidental).toBeUndefined();
-    expect(alter?.textContent).toBe("1");
+    expect(accidental?.textContent).toBe("natural");
+    expect(alter?.textContent).toBe("0");
   });
 
-  it("drops contradictory naturals even when key signature is unchanged in later measures", () => {
+  it("keeps naturals in later measures when key signature is unchanged", () => {
     const xml = `<?xml version="1.0"?>
 <score-partwise>
   <part-list><score-part id="P1"/><score-part id="P2"/></part-list>
@@ -271,8 +271,8 @@ describe("sanitizeForOsmd", () => {
     const accidental = note.getElementsByTagName("accidental")[0];
     const alter = note.getElementsByTagName("alter")[0];
 
-    expect(accidental).toBeUndefined();
-    expect(alter?.textContent).toBe("1");
+    expect(accidental?.textContent).toBe("natural");
+    expect(alter?.textContent).toBe("0");
   });
 
   it("prefers the part with stronger key metadata as alignment reference", () => {
