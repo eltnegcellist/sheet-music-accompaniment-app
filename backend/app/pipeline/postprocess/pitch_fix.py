@@ -244,15 +244,20 @@ def fix_ngram_outliers(
     max_ratio: float = 0.02,
     quantile: float = 0.99,
     correction_window_semitones: int = 1,
+    min_cost_semitones: int = 6,
 ) -> NgramFixReport:
     """Phase 3-3-c: smooth out unusual 3-gram melodic jumps.
 
     Compute the distribution of |interval_in| + |interval_out| triplets
-    across the whole score; flag the worst `quantile` fraction as
-    candidates for nudging the middle note ±1 semitone toward the
-    linear interpolation of its neighbours.
+    across the whole score; flag the worst `quantile` fraction whose
+    cost is also at least `min_cost_semitones` (a tritone by default,
+    so smooth scales never count as candidates regardless of how short
+    the score is).
 
-    Limited to `max_ratio` of total notes per the plan.
+    Each candidate's middle note is nudged ±1 semitone (within
+    `correction_window_semitones`) toward the linear interpolation of
+    its neighbours. Total corrections are capped at `max_ratio` of all
+    notes.
     """
     report = NgramFixReport()
     triples: list[tuple[stream.base.Music21Object, int, int, int]] = []
@@ -270,7 +275,7 @@ def fix_ngram_outliers(
 
     costs = sorted(t[-1] for t in triples)
     cutoff_idx = max(0, int(quantile * (len(costs) - 1)))
-    cutoff = costs[cutoff_idx]
+    cutoff = max(costs[cutoff_idx], min_cost_semitones)
     candidates = [t for t in triples if t[-1] >= cutoff]
     report.candidates = len(candidates)
 
