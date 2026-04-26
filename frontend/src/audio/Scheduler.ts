@@ -16,6 +16,8 @@ export interface ScheduleOptions {
   /** 1-based measure to end on (inclusive). */
   endMeasure?: number;
   loop?: boolean;
+  /** Called once when non-loop playback reaches the scheduled end. */
+  onPlaybackComplete?: () => void;
 }
 
 export interface ScheduledHandle {
@@ -62,6 +64,7 @@ export function scheduleScore(opts: ScheduleOptions): ScheduledHandle {
     startMeasure,
     endMeasure,
     loop,
+    onPlaybackComplete,
   } = opts;
   const ids: number[] = [];
   const transport = Tone.getTransport();
@@ -122,6 +125,14 @@ export function scheduleScore(opts: ScheduleOptions): ScheduledHandle {
     }, beatsToBarsBeats(m.startBeat - offset));
     ids.push(id);
   }
+
+  if (!loop && onPlaybackComplete && endBeat > startBeat) {
+    const doneId = transport.schedule((t) => {
+      Tone.getDraw().schedule(() => onPlaybackComplete(), t);
+    }, beatsToBarsBeats(endBeat - offset));
+    ids.push(doneId);
+  }
+
   if (debugEnabled) {
     console.debug("[scheduleScore]", {
       totalNotes: notes.length,

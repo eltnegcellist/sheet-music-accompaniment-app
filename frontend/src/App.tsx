@@ -195,6 +195,14 @@ export default function App() {
       startMeasure: playback.startMeasure,
       endMeasure: playback.endMeasure,
       loop: playback.loop,
+      onPlaybackComplete: () => {
+        metronomeRef.current?.stop();
+        handleRef.current = null;
+        setIsPlaying(false);
+        setCurrentMeasure(null);
+        setCurrentMeasureOrdinal(null);
+        setStatus("再生完了");
+      },
     });
 
     const startAt = await metronomeRef.current.countIn(
