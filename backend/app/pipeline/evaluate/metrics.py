@@ -15,6 +15,12 @@ from typing import Iterable
 
 from music21 import note, stream
 
+from ..postprocess.key_estimation import (
+    KS_MAJOR,
+    KS_MINOR,
+    correlation as _correlation,
+    pitch_class_histogram as _pitch_class_histogram,
+)
 from ..postprocess.rhythm import analyse_measures, measure_duration_match_rate
 
 
@@ -92,37 +98,6 @@ def compute_density(score: stream.Score) -> float:
 # --- 4-1-a: key_consistency ---------------------------------------------
 
 
-# Krumhansl-Schmuckler key profiles (major / minor) — values from the
-# original 1990 paper, normalised so the min term doesn't dominate.
-_KS_MAJOR = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88]
-_KS_MINOR = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17]
-
-
-def _pitch_class_histogram(score: stream.Score) -> list[float]:
-    bins = [0.0] * 12
-    for n in score.flatten().notes:
-        ql = float(n.duration.quarterLength)
-        if isinstance(n, note.Note):
-            bins[n.pitch.pitchClass] += ql
-        else:
-            for p in n.pitches:
-                bins[p.pitchClass] += ql
-    return bins
-
-
-def _correlation(a: list[float], b: list[float]) -> float:
-    if len(a) != len(b) or not a:
-        return 0.0
-    mean_a = sum(a) / len(a)
-    mean_b = sum(b) / len(b)
-    num = sum((x - mean_a) * (y - mean_b) for x, y in zip(a, b))
-    da = sum((x - mean_a) ** 2 for x in a) ** 0.5
-    db = sum((y - mean_b) ** 2 for y in b) ** 0.5
-    if da == 0 or db == 0:
-        return 0.0
-    return num / (da * db)
-
-
 def compute_key_consistency(score: stream.Score) -> float:
     """Best K-S correlation across all 24 keys, clipped to [0, 1].
 
@@ -135,7 +110,7 @@ def compute_key_consistency(score: stream.Score) -> float:
     best = 0.0
     for offset in range(12):
         rotated = hist[offset:] + hist[:offset]
-        for profile in (_KS_MAJOR, _KS_MINOR):
+        for profile in (KS_MAJOR, KS_MINOR):
             c = _correlation(rotated, profile)
             if c > best:
                 best = c
