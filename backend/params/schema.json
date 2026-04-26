@@ -101,6 +101,15 @@
           "additionalProperties": false,
           "properties": {"enabled": {"type": "boolean"}}
         },
+        "fill_measures": {
+          "type": "object",
+          "required": ["enabled"],
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "max_gap_size": {"type": "integer", "minimum": 1}
+          }
+        },
         "pitch_fix": {
           "type": "object",
           "required": ["enabled"],

@@ -107,10 +107,11 @@ def _apply_postprocess(
     postprocess didn't fire.
     """
     pp = (params.get("postprocess") or {}) if isinstance(params, Mapping) else {}
+    fill = bool((pp.get("fill_measures") or {}).get("enabled"))
     rhythm = bool((pp.get("rhythm_fix") or {}).get("enabled"))
     voice = bool((pp.get("voice_rebuild") or {}).get("enabled"))
     pitch = bool((pp.get("pitch_fix") or {}).get("enabled"))
-    if not (rhythm or voice or pitch):
+    if not (fill or rhythm or voice or pitch):
         return omr_result
     if not omr_result.music_xml:
         return omr_result
@@ -121,6 +122,7 @@ def _apply_postprocess(
 
     run = run_postprocess_and_evaluate(
         omr_result.music_xml,
+        fill_measures_enabled=fill,
         rhythm_fix_enabled=rhythm,
         voice_rebuild_enabled=voice,
         pitch_fix_enabled=pitch,

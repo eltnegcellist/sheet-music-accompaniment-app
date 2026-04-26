@@ -25,6 +25,7 @@ from ..contracts import (
 )
 from ..postprocess.edits import EditLog
 from ..postprocess.key_estimation import estimate_key
+from ..postprocess.missing_measures import fill_missing_measures
 from ..postprocess.pitch_fix import (
     fix_ngram_outliers,
     fix_octave_errors,
@@ -424,3 +425,75 @@ def postprocess_pitch_fix(inp: StageInput) -> StageOutput:
         artifact_refs=refs,
         metrics=StageMetrics(fields=metrics_fields),
     )
+
+
+@register("postprocess.fill_measures")
+def postprocess_fill_measures(inp: StageInput) -> StageOutput:
+    """Phase 3-8: insert empty placeholder measures for number-sequence gaps.
+
+    Disabled by default. When enabled it should run BEFORE rhythm_fix so
+    the inserted (full-bar rest) measures don't trip the duration-match
+    metric on subsequent passes.
+    """
+    cfg = inp.params.get("postprocess", {}).get("fill_measures", {}) or {}
+    if not cfg.get("enabled", False):
+        return StageOutput(
+            status="skipped",
+            metrics=StageMetrics(
+                fields={"postprocess.fill_measures.enabled": False}
+            ),
+        )
+
+    xml = _resolve_input_xml(inp)
+    if xml is None:
+        return StageOutput(
+            status="failed",
+            error="postprocess.fill_measures: no MusicXML upstream",
+        )
+
+    try:
+        score = parse_musicxml(xml)
+    except Exception as exc:  # noqa: BLE001
+        return StageOutput(
+            status="failed",
+            error=f"music21 parse failed: {type(exc).__name__}: {exc}",
+        )
+
+    log_path = inp.artifacts.path_for("postprocess", "missing_measure_edits.jsonl")
+    log = EditLog(path=log_path)
+
+    report = fill_missing_measures(
+        score,
+        log=log,
+        max_gap_size=int(cfg.get("max_gap_size", 8)),
+    )
+    log.flush()
+
+    try:
+        out_xml = write_musicxml(score)
+    except Exception as exc:  # noqa: BLE001
+        return StageOutput(
+            status="failed",
+            error=f"music21 write failed after fill_measures: {type(exc).__name__}: {exc}",
+        )
+
+    out_path = inp.artifacts.path_for("postprocess", "fill_measures.musicxml")
+    out_path.write_text(out_xml, encoding="utf-8")
+    refs = [
+        inp.artifacts.put(
+            ArtifactRef(kind="postprocess_musicxml", path=str(out_path))
+        ),
+        inp.artifacts.put(
+            ArtifactRef(kind="postprocess_missing_measure_edits", path=str(log_path))
+        ),
+    ]
+
+    metrics = StageMetrics(
+        fields={
+            "postprocess.fill_measures.enabled": True,
+            "postprocess.fill_measures.gaps_found": report.gaps_found,
+            "postprocess.fill_measures.measures_inserted": report.measures_inserted,
+            "postprocess.fill_measures.parts_processed": report.parts_processed,
+        }
+    )
+    return StageOutput(status="ok", artifact_refs=refs, metrics=metrics)

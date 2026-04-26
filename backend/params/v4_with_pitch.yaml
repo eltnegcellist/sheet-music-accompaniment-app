@@ -8,6 +8,9 @@ meta:
   description: "v3 + Phase 3-3 pitch corrections (scale + octave + n-gram)"
 
 postprocess:
+  fill_measures:
+    enabled: true
+    max_gap_size: 8
   pitch_fix:
     enabled: true
     scale_outliers:

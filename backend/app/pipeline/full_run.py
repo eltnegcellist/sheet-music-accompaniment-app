@@ -20,6 +20,7 @@ from ..pipeline.evaluate import (
 )
 from ..pipeline.postprocess.edits import EditLog
 from ..pipeline.postprocess.key_estimation import estimate_key
+from ..pipeline.postprocess.missing_measures import fill_missing_measures
 from ..pipeline.postprocess.pitch_fix import (
     fix_ngram_outliers,
     fix_octave_errors,
@@ -46,6 +47,7 @@ class PipelineRun:
 def run_postprocess_and_evaluate(
     music_xml: str,
     *,
+    fill_measures_enabled: bool = False,
     rhythm_fix_enabled: bool = True,
     voice_rebuild_enabled: bool = True,
     pitch_fix_enabled: bool = False,
@@ -53,11 +55,16 @@ def run_postprocess_and_evaluate(
     max_edits_per_measure: int = 4,
     weights: Mapping[str, float] = _DEFAULT_WEIGHTS,
 ) -> PipelineRun | None:
-    """Apply rhythm_fix + voice_rebuild + pitch_fix, then score the result.
+    """Apply postprocess passes (in canonical order) and score the result.
 
-    `pitch_fix_enabled` opts in the Phase 3-3 sub-passes (scale-outlier,
-    octave-error, n-gram). Defaults to False so existing call sites get
-    the same behaviour as before this knob existed.
+    Pass order is fixed:
+      1. fill_measures  — insert placeholders for missing-measure gaps
+      2. rhythm_fix     — minimum-edit DP per measure
+      3. voice_rebuild  — RH/LH reassign with rollback
+      4. pitch_fix      — octave / scale-outlier / n-gram
+
+    Each is independently togglable; defaults preserve the behaviour
+    that existed before each knob was added.
 
     Returns None when the input is unparseable so the caller can fall
     back to raw scoring.
@@ -74,6 +81,8 @@ def run_postprocess_and_evaluate(
         return None
 
     log = EditLog()
+    if fill_measures_enabled:
+        fill_missing_measures(score, log=log)
     if rhythm_fix_enabled:
         fix_rhythm(
             score,
