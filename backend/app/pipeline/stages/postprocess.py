@@ -25,6 +25,7 @@ from ..contracts import (
 )
 from ..postprocess.edits import EditLog
 from ..postprocess.key_estimation import estimate_key
+from ..postprocess.key_signature import fix_dropped_key_accidentals
 from ..postprocess.missing_measures import fill_missing_measures
 from ..postprocess.pitch_fix import (
     fix_ngram_outliers,
@@ -494,6 +495,79 @@ def postprocess_fill_measures(inp: StageInput) -> StageOutput:
             "postprocess.fill_measures.gaps_found": report.gaps_found,
             "postprocess.fill_measures.measures_inserted": report.measures_inserted,
             "postprocess.fill_measures.parts_processed": report.parts_processed,
+        }
+    )
+    return StageOutput(status="ok", artifact_refs=refs, metrics=metrics)
+
+
+@register("postprocess.fix_key_accidentals")
+def postprocess_fix_key_accidentals(inp: StageInput) -> StageOutput:
+    """Restore accidentals implied by the key signature but dropped by OMR.
+
+    Targets the pattern Audiveris hits most often on real PDFs: a piece
+    in G major where Audiveris emits `<step>F</step>` (no `<alter>`)
+    despite the F being part of the key signature.
+
+    Disabled by default. Should run AFTER fill_measures (so newly
+    inserted measures inherit the right key context) but BEFORE rhythm_fix
+    (so duration changes don't shift offsets while we re-walk).
+    """
+    cfg = inp.params.get("postprocess", {}).get("fix_key_accidentals", {}) or {}
+    if not cfg.get("enabled", False):
+        return StageOutput(
+            status="skipped",
+            metrics=StageMetrics(
+                fields={"postprocess.fix_key_accidentals.enabled": False}
+            ),
+        )
+
+    xml = _resolve_input_xml(inp)
+    if xml is None:
+        return StageOutput(
+            status="failed",
+            error="postprocess.fix_key_accidentals: no MusicXML upstream",
+        )
+
+    try:
+        score = parse_musicxml(xml)
+    except Exception as exc:  # noqa: BLE001
+        return StageOutput(
+            status="failed",
+            error=f"music21 parse failed: {type(exc).__name__}: {exc}",
+        )
+
+    log_path = inp.artifacts.path_for("postprocess", "key_accidental_edits.jsonl")
+    log = EditLog(path=log_path)
+    report = fix_dropped_key_accidentals(score, log=log)
+    log.flush()
+
+    try:
+        out_xml = write_musicxml(score)
+    except Exception as exc:  # noqa: BLE001
+        return StageOutput(
+            status="failed",
+            error=f"music21 write failed after fix_key_accidentals: {type(exc).__name__}: {exc}",
+        )
+
+    out_path = inp.artifacts.path_for("postprocess", "key_accidentals.musicxml")
+    out_path.write_text(out_xml, encoding="utf-8")
+    refs = [
+        inp.artifacts.put(
+            ArtifactRef(kind="postprocess_musicxml", path=str(out_path))
+        ),
+        inp.artifacts.put(
+            ArtifactRef(kind="postprocess_key_accidental_edits", path=str(log_path))
+        ),
+    ]
+
+    metrics = StageMetrics(
+        fields={
+            "postprocess.fix_key_accidentals.enabled": True,
+            "postprocess.fix_key_accidentals.candidates_checked": report.candidates_checked,
+            "postprocess.fix_key_accidentals.accidentals_restored": (
+                report.accidentals_restored
+            ),
+            "postprocess.fix_key_accidentals.parts_processed": report.parts_processed,
         }
     )
     return StageOutput(status="ok", artifact_refs=refs, metrics=metrics)

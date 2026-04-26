@@ -1,0 +1,13 @@
+# v5: extend v4 with the real-PDF-targeted fixes the user reported pain
+# on (key-signature accidental drops + missing-measure gaps).
+#
+# This is the new production default once W-02 promotes it.
+meta:
+  id: v5_real_pdf
+  version: 5
+  parent: v4_with_pitch
+  description: "v4 + dropped-accidental and missing-measure recovery for real PDFs"
+
+postprocess:
+  fix_key_accidentals:
+    enabled: true

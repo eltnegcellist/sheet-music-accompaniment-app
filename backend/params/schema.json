@@ -110,6 +110,14 @@
             "max_gap_size": {"type": "integer", "minimum": 1}
           }
         },
+        "fix_key_accidentals": {
+          "type": "object",
+          "required": ["enabled"],
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {"type": "boolean"}
+          }
+        },
         "pitch_fix": {
           "type": "object",
           "required": ["enabled"],

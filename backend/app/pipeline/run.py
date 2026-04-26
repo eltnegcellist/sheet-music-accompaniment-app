@@ -108,10 +108,11 @@ def _apply_postprocess(
     """
     pp = (params.get("postprocess") or {}) if isinstance(params, Mapping) else {}
     fill = bool((pp.get("fill_measures") or {}).get("enabled"))
+    keyacc = bool((pp.get("fix_key_accidentals") or {}).get("enabled"))
     rhythm = bool((pp.get("rhythm_fix") or {}).get("enabled"))
     voice = bool((pp.get("voice_rebuild") or {}).get("enabled"))
     pitch = bool((pp.get("pitch_fix") or {}).get("enabled"))
-    if not (fill or rhythm or voice or pitch):
+    if not (fill or keyacc or rhythm or voice or pitch):
         return omr_result
     if not omr_result.music_xml:
         return omr_result
@@ -123,6 +124,7 @@ def _apply_postprocess(
     run = run_postprocess_and_evaluate(
         omr_result.music_xml,
         fill_measures_enabled=fill,
+        fix_key_accidentals_enabled=keyacc,
         rhythm_fix_enabled=rhythm,
         voice_rebuild_enabled=voice,
         pitch_fix_enabled=pitch,

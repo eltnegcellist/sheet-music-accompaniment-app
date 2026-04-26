@@ -20,6 +20,7 @@ from ..pipeline.evaluate import (
 )
 from ..pipeline.postprocess.edits import EditLog
 from ..pipeline.postprocess.key_estimation import estimate_key
+from ..pipeline.postprocess.key_signature import fix_dropped_key_accidentals
 from ..pipeline.postprocess.missing_measures import fill_missing_measures
 from ..pipeline.postprocess.pitch_fix import (
     fix_ngram_outliers,
@@ -48,6 +49,7 @@ def run_postprocess_and_evaluate(
     music_xml: str,
     *,
     fill_measures_enabled: bool = False,
+    fix_key_accidentals_enabled: bool = False,
     rhythm_fix_enabled: bool = True,
     voice_rebuild_enabled: bool = True,
     pitch_fix_enabled: bool = False,
@@ -58,10 +60,11 @@ def run_postprocess_and_evaluate(
     """Apply postprocess passes (in canonical order) and score the result.
 
     Pass order is fixed:
-      1. fill_measures  — insert placeholders for missing-measure gaps
-      2. rhythm_fix     — minimum-edit DP per measure
-      3. voice_rebuild  — RH/LH reassign with rollback
-      4. pitch_fix      — octave / scale-outlier / n-gram
+      1. fill_measures        — insert placeholders for measure-number gaps
+      2. fix_key_accidentals  — restore # / b dropped by OMR (key-signature aware)
+      3. rhythm_fix           — minimum-edit DP per measure
+      4. voice_rebuild        — RH/LH reassign with rollback
+      5. pitch_fix            — octave / scale-outlier / n-gram
 
     Each is independently togglable; defaults preserve the behaviour
     that existed before each knob was added.
@@ -83,6 +86,8 @@ def run_postprocess_and_evaluate(
     log = EditLog()
     if fill_measures_enabled:
         fill_missing_measures(score, log=log)
+    if fix_key_accidentals_enabled:
+        fix_dropped_key_accidentals(score, log=log)
     if rhythm_fix_enabled:
         fix_rhythm(
             score,
