@@ -1059,6 +1059,42 @@ class AnalyzeResponse(BaseModel):
 
 09 のような diatonic 単発エラーで v3→v4 の差が出る (+0.0053)。リズム破綻系ほど派手な改善ではないが、音高ノイズが視覚的に目立つケースを抑える効果。clean fixture (01/04/05) は v3→v4 で完全不変、過補正なし。
 
+### S3-02 / S3-03 / S3-04: 実 PDF 失敗パターンへの対応
+> **実装ステータス: 完了 ✓**（2026-04-26, 8 コミット, テスト 312 件全 green）。
+> ユーザ報告の「臨時記号が読めない」「小節が丸ごと欠ける」を狙い撃ちし、
+> v5_real_pdf を /analyze の新既定に。実 PDF を投入して計測できる E2E
+> ハーネスも opt-in で追加。
+
+#### 追加されたパス
+
+| 関数 | 役割 | 失敗パターン |
+|---|---|---|
+| `fill_missing_measures` | 番号欠落小節に全休符 placeholder を挿入 | 1, 2, 4, 5… の "3" 欠落 |
+| `fix_dropped_key_accidentals` | 調号で暗黙の # / b を音に書き戻す | G major の F が F-natural として出力 |
+
+#### v1 / v4 / v5 比較（10 fixture）
+| fixture | v1 | v4 | v5 | Δ(v5-v1) |
+|---|---:|---:|---:|---:|
+| 01_clean_4_4_C_major | 0.9767 | 0.9767 | 0.9767 | +0.0000 |
+| 02_short_one_beat_missing | 0.7885 | 0.9635 | 0.9635 | +0.1750 |
+| 03_long_one_beat_extra | 0.7918 | 0.9477 | 0.9477 | +0.1559 |
+| 04_drifted_durations | 0.9428 | 0.9428 | 0.9428 | +0.0000 |
+| 05_piano_two_staves | 0.9787 | 0.9787 | 0.9787 | +0.0000 |
+| 06_dropped_two_beats | 0.8499 | 0.9666 | 0.9666 | +0.1167 |
+| 07_split_chord | 0.6204 | 0.9823 | 0.9823 | +0.3619 |
+| 08_drift_and_short | 0.5899 | 0.9399 | 0.9399 | +0.3500 |
+| 09_offscale_outlier | 0.9790 | 0.9843 | 0.9843 | +0.0053 |
+| 10_dropped_key_accidentals | 0.9269 | 0.9269 | **0.9403** | **+0.0134** |
+| **平均 (10 件)** | 0.8444 | 0.9609 | **0.9623** | **+0.1179** |
+
+#### 実 PDF E2E ハーネス（S3-04）
+- `backend/tests/fixtures/real_pdf/` にユーザが PDF を投入（gitignore 済み）
+- `RUN_REAL_PDF_E2E=1 pytest -s tests/pipeline/test_real_pdf_e2e.py` で
+  Audiveris→postprocess→採点を実行、結果を `final_score` 表として stdout に出力
+- 2 回目以降は `RUN_REAL_PDF_E2E=cached` で sha256 keyed キャッシュを再利用
+  （ポストプロセスの試行錯誤に分単位ではなく秒単位で回せる）
+- README 同梱: `backend/tests/fixtures/real_pdf/README.md`
+
 ### Sprint 3 以降（参考）: 残りの高度機能
 - 3-2, 3-3, 3-4 の本格実装（タイミング/音高/音域）
 - 2-5 部分再処理

@@ -22,6 +22,11 @@ backend/tmp/
 backend/.audiveris/
 backend/output/
 
+# Real-PDF E2E fixtures (user-supplied, may be copyrighted; cached
+# Audiveris output likewise — both stay out of source control).
+backend/tests/fixtures/real_pdf/*.pdf
+backend/tests/fixtures/real_pdf/.cache/
+
 # Editor
 .idea/
 .vscode/
