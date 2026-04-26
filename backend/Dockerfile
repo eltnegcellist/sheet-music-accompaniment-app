@@ -53,7 +53,11 @@ RUN python3 -m pip install --no-cache-dir \
       "pydantic>=2.9.0" \
       "pytesseract>=0.3.10" \
       "pdf2image>=1.17.0" \
-      "pillow>=10.0.0"
+      "pillow>=10.0.0" \
+      "pyyaml>=6.0" \
+      "jsonschema>=4.0" \
+      "numpy>=1.26" \
+      "music21>=9.0"
 
 COPY app ./app
 COPY pyproject.toml ./
