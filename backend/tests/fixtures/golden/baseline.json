@@ -73,6 +73,15 @@
       "key_consistency": 0.5995,
       "measure_duration_match": 0.0,
       "structure_consistency": 1.0
+    },
+    "09_audiveris_offscale_outlier.musicxml": {
+      "density": 1.0,
+      "edits_penalty": 0.0,
+      "final_score": 0.979,
+      "in_range": 1.0,
+      "key_consistency": 0.86,
+      "measure_duration_match": 1.0,
+      "structure_consistency": 1.0
     }
   }
 }

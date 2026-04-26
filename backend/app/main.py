@@ -32,7 +32,7 @@ app = FastAPI(title="IMSLP Accompanist")
 
 # Active param set for /analyze. Configurable so tests / staging can pin
 # the legacy v1_baseline (no postprocess) while production runs v3.
-_PARAM_SET_ID = os.environ.get("PIPELINE_PARAM_SET", "v3_with_postprocess")
+_PARAM_SET_ID = os.environ.get("PIPELINE_PARAM_SET", "v4_with_pitch")
 _PARAMS_DIR = Path(__file__).resolve().parents[1] / "params"
 
 

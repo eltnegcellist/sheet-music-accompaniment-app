@@ -1,0 +1,25 @@
+# v4: extend v3 (rhythm_fix + voice_rebuild) with pitch_fix on.
+# Defaults conservatively (key confidence floor 0.6, max 1 scale fix
+# per measure) so a chromatic piece doesn't get rewritten.
+meta:
+  id: v4_with_pitch
+  version: 4
+  parent: v3_with_postprocess
+  description: "v3 + Phase 3-3 pitch corrections (scale + octave + n-gram)"
+
+postprocess:
+  pitch_fix:
+    enabled: true
+    scale_outliers:
+      enabled: true
+      confidence_floor: 0.6
+      max_per_measure: 1
+    octave_errors:
+      enabled: true
+      jump_threshold_semitones: 18
+    ngram:
+      enabled: true
+      max_ratio: 0.02
+      quantile: 0.99
+      correction_window_semitones: 1
+      min_cost_semitones: 6

@@ -100,6 +100,42 @@
           "required": ["enabled"],
           "additionalProperties": false,
           "properties": {"enabled": {"type": "boolean"}}
+        },
+        "pitch_fix": {
+          "type": "object",
+          "required": ["enabled"],
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "scale_outliers": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {"type": "boolean"},
+                "confidence_floor": {"type": "number", "minimum": 0, "maximum": 1},
+                "max_per_measure": {"type": "integer", "minimum": 0}
+              }
+            },
+            "octave_errors": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {"type": "boolean"},
+                "jump_threshold_semitones": {"type": "integer", "minimum": 1}
+              }
+            },
+            "ngram": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {"type": "boolean"},
+                "max_ratio": {"type": "number", "minimum": 0, "maximum": 1},
+                "quantile": {"type": "number", "minimum": 0, "maximum": 1},
+                "correction_window_semitones": {"type": "integer", "minimum": 0},
+                "min_cost_semitones": {"type": "integer", "minimum": 0}
+              }
+            }
+          }
         }
       }
     },

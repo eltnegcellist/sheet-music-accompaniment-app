@@ -109,7 +109,8 @@ def _apply_postprocess(
     pp = (params.get("postprocess") or {}) if isinstance(params, Mapping) else {}
     rhythm = bool((pp.get("rhythm_fix") or {}).get("enabled"))
     voice = bool((pp.get("voice_rebuild") or {}).get("enabled"))
-    if not (rhythm or voice):
+    pitch = bool((pp.get("pitch_fix") or {}).get("enabled"))
+    if not (rhythm or voice or pitch):
         return omr_result
     if not omr_result.music_xml:
         return omr_result
@@ -122,6 +123,7 @@ def _apply_postprocess(
         omr_result.music_xml,
         rhythm_fix_enabled=rhythm,
         voice_rebuild_enabled=voice,
+        pitch_fix_enabled=pitch,
         snap_durations=list(snap),
         max_edits_per_measure=max_edits,
     )

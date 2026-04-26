@@ -63,10 +63,10 @@ def test_analyze_user_xml_records_active_param_set():
     }
     resp = client.post("/analyze", files=files)
     body = resp.json()
-    # The default points at v3 (postprocess on); the env var or YAML
-    # contents may decorate the id with a sha — check the prefix only.
+    # The default points at v4 (postprocess + pitch_fix on); the env var
+    # or YAML contents may decorate the id with a sha — check the prefix only.
     assert body["param_set_id"] is not None
-    assert body["param_set_id"].startswith("v3")
+    assert body["param_set_id"].startswith("v4")
 
 
 def test_analyze_no_inputs_400s():

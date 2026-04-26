@@ -1030,6 +1030,35 @@ class AnalyzeResponse(BaseModel):
 
 クリーン入力は 0 編集で score 不変（偽陽性なし）、崩れた入力では Audiveris 出力に +0.12〜+0.36 の改善を与えることを W-05d の自動テスト (`test_v1_vs_v3_lift.py`) が保証する。実 PDF 経由の計測は Audiveris JVM が CI に乗らないため未実施。
 
+### S3-01: 調性ベース音高補正 (Phase 3-3)
+> **実装ステータス: 完了 ✓**（2026-04-26, 6 コミット, テスト 288 件全 green）。
+> v4_with_pitch を /analyze の新既定とし、scale-outlier / octave / n-gram の 3 サブパスを追加。
+
+| ID | 内容 | 主要コミット |
+|---|---|---|
+| S3-01-a | `postprocess/key_estimation.py` (K-S, KeyEstimate) | 2914b9f |
+| S3-01-b | `pitch_fix.fix_scale_outliers` (3-3-b) | 060cc3f |
+| S3-01-c | `pitch_fix.fix_ngram_outliers` (3-3-c) + min_cost_semitones | 9b6c81d |
+| S3-01-d | `pitch_fix.fix_octave_errors` (3-3-d) のテスト | 232edcc |
+| S3-01-e | `postprocess.pitch_fix` ステージ登録 | 44d9c3a |
+| S3-01-f | v4_with_pitch.yaml + main.py 既定切替 + 計測 | (本コミット) |
+
+#### v1 vs v3 vs v4 final_score 比較
+| fixture | v1 | v3 | v4 | Δ(v4-v1) |
+|---|---:|---:|---:|---:|
+| 01_clean_4_4_C_major | 0.9767 | 0.9767 | 0.9767 | +0.0000 |
+| 02_short_one_beat_missing | 0.7885 | 0.9635 | 0.9635 | +0.1750 |
+| 03_long_one_beat_extra | 0.7918 | 0.9477 | 0.9477 | +0.1559 |
+| 04_drifted_durations | 0.9428 | 0.9428 | 0.9428 | +0.0000 |
+| 05_piano_two_staves | 0.9787 | 0.9787 | 0.9787 | +0.0000 |
+| 06_dropped_two_beats | 0.8499 | 0.9666 | 0.9666 | +0.1167 |
+| 07_split_chord | 0.6204 | 0.9823 | 0.9823 | +0.3619 |
+| 08_drift_and_short | 0.5899 | 0.9399 | 0.9399 | +0.3500 |
+| 09_offscale_outlier | 0.9790 | 0.9790 | **0.9843** | **+0.0053** |
+| **平均 (全 9 件)** | 0.8353 | 0.9641 | **0.9647** | **+0.1294** |
+
+09 のような diatonic 単発エラーで v3→v4 の差が出る (+0.0053)。リズム破綻系ほど派手な改善ではないが、音高ノイズが視覚的に目立つケースを抑える効果。clean fixture (01/04/05) は v3→v4 で完全不変、過補正なし。
+
 ### Sprint 3 以降（参考）: 残りの高度機能
 - 3-2, 3-3, 3-4 の本格実装（タイミング/音高/音域）
 - 2-5 部分再処理
