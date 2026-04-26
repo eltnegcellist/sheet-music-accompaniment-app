@@ -24,6 +24,12 @@ from ..contracts import (
     StageOutput,
 )
 from ..postprocess.edits import EditLog
+from ..postprocess.key_estimation import estimate_key
+from ..postprocess.pitch_fix import (
+    fix_ngram_outliers,
+    fix_octave_errors,
+    fix_scale_outliers,
+)
 from ..postprocess.rhythm import analyse_measures, measure_duration_match_rate
 from ..postprocess.rhythm_fix import fix_rhythm
 from ..postprocess.voice_rebuild import rebuild_voices
@@ -289,3 +295,132 @@ def postprocess_voice_rebuild(inp: StageInput) -> StageOutput:
         }
     )
     return StageOutput(status="ok", artifact_refs=refs, metrics=metrics)
+
+
+@register("postprocess.pitch_fix")
+def postprocess_pitch_fix(inp: StageInput) -> StageOutput:
+    """Phase 3-3 pitch correction: scale-outlier + n-gram + octave passes.
+
+    Each sub-pass is independently togglable via params; all default to
+    off so v1_baseline keeps shipping unchanged. The stage emits a
+    single MusicXML artifact (`postprocess_musicxml`) plus its own
+    edit log (`postprocess_pitch_edits`).
+    """
+    cfg = inp.params.get("postprocess", {}).get("pitch_fix", {}) or {}
+    if not cfg.get("enabled", False):
+        return StageOutput(
+            status="skipped",
+            metrics=StageMetrics(
+                fields={"postprocess.pitch_fix.enabled": False}
+            ),
+        )
+
+    xml = _resolve_input_xml(inp)
+    if xml is None:
+        return StageOutput(
+            status="failed",
+            error="postprocess.pitch_fix: no MusicXML upstream",
+        )
+
+    try:
+        score = parse_musicxml(xml)
+    except Exception as exc:  # noqa: BLE001
+        return StageOutput(
+            status="failed",
+            error=f"music21 parse failed: {type(exc).__name__}: {exc}",
+        )
+
+    log_path = inp.artifacts.path_for("postprocess", "pitch_edits.jsonl")
+    log = EditLog(path=log_path)
+
+    # Phase 3-3-a: estimate key once. Sub-passes that need it gate on confidence.
+    key = estimate_key(score)
+    metrics_fields: dict[str, float | int | str | bool] = {
+        "postprocess.pitch_fix.enabled": True,
+        "postprocess.pitch_fix.key_tonic_pc": key.tonic_pc if key else -1,
+        "postprocess.pitch_fix.key_mode": key.mode if key else "none",
+        "postprocess.pitch_fix.key_confidence": (
+            round(key.confidence, 4) if key else 0.0
+        ),
+    }
+
+    if cfg.get("scale_outliers", {}).get("enabled", True) and key is not None:
+        scale_cfg = cfg.get("scale_outliers", {}) or {}
+        scale_report = fix_scale_outliers(
+            score,
+            key,
+            log=log,
+            confidence_floor=float(scale_cfg.get("confidence_floor", 0.6)),
+            max_per_measure=int(scale_cfg.get("max_per_measure", 1)),
+        )
+        metrics_fields.update(
+            {
+                "postprocess.pitch_fix.scale.candidates": scale_report.candidates,
+                "postprocess.pitch_fix.scale.corrected": scale_report.corrected,
+                "postprocess.pitch_fix.scale.skipped_by_cap": (
+                    scale_report.skipped_by_per_measure_cap
+                ),
+            }
+        )
+
+    if cfg.get("octave_errors", {}).get("enabled", True):
+        oct_cfg = cfg.get("octave_errors", {}) or {}
+        oct_report = fix_octave_errors(
+            score,
+            log=log,
+            jump_threshold_semitones=int(oct_cfg.get("jump_threshold_semitones", 18)),
+        )
+        metrics_fields.update(
+            {
+                "postprocess.pitch_fix.octave.candidates": oct_report.candidates,
+                "postprocess.pitch_fix.octave.corrected": oct_report.corrected,
+            }
+        )
+
+    if cfg.get("ngram", {}).get("enabled", True):
+        ng_cfg = cfg.get("ngram", {}) or {}
+        ng_report = fix_ngram_outliers(
+            score,
+            log=log,
+            max_ratio=float(ng_cfg.get("max_ratio", 0.02)),
+            quantile=float(ng_cfg.get("quantile", 0.99)),
+            correction_window_semitones=int(
+                ng_cfg.get("correction_window_semitones", 1)
+            ),
+            min_cost_semitones=int(ng_cfg.get("min_cost_semitones", 6)),
+        )
+        metrics_fields.update(
+            {
+                "postprocess.pitch_fix.ngram.candidates": ng_report.candidates,
+                "postprocess.pitch_fix.ngram.corrected": ng_report.corrected,
+                "postprocess.pitch_fix.ngram.capped": ng_report.capped_by_max_ratio,
+            }
+        )
+
+    log.flush()
+
+    try:
+        out_xml = write_musicxml(score)
+    except Exception as exc:  # noqa: BLE001
+        return StageOutput(
+            status="failed",
+            error=f"music21 write failed after pitch fix: {type(exc).__name__}: {exc}",
+        )
+
+    out_path = inp.artifacts.path_for("postprocess", "pitch_fix.musicxml")
+    out_path.write_text(out_xml, encoding="utf-8")
+    refs = [
+        inp.artifacts.put(
+            ArtifactRef(kind="postprocess_musicxml", path=str(out_path))
+        ),
+        inp.artifacts.put(
+            ArtifactRef(kind="postprocess_pitch_edits", path=str(log_path))
+        ),
+    ]
+    metrics_fields["postprocess.pitch_fix.edits_total"] = len(log)
+
+    return StageOutput(
+        status="ok",
+        artifact_refs=refs,
+        metrics=StageMetrics(fields=metrics_fields),
+    )
