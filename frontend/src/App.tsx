@@ -109,7 +109,7 @@ export default function App() {
     setCurrentMeasureOrdinal(null);
     setStatus(
       pdf
-        ? "解析中… (OMR には数十秒かかる場合があります)"
+        ? "解析中… (楽譜の解析には数分かかる場合があります)"
         : "MusicXML を読み込み中…",
     );
     try {
