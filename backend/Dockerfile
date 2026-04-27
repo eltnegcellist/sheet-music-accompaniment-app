@@ -57,7 +57,9 @@ RUN python3 -m pip install --no-cache-dir \
       "pyyaml>=6.0" \
       "jsonschema>=4.0" \
       "numpy>=1.26" \
-      "music21>=9.0"
+      "music21>=9.0" \
+      "pytest>=8.3.0" \
+      "httpx>=0.27.0"
 
 COPY app ./app
 # params/ holds the YAML param sets that `/analyze` selects via
