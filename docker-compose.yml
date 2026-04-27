@@ -6,6 +6,11 @@ services:
       - "8000:8000"
     volumes:
       - ./backend/app:/app/app
+      # Mount tests + params so the real-PDF E2E harness can read them
+      # from the container. The cache directory under tests/fixtures/
+      # persists on the host for fast iteration across container restarts.
+      - ./backend/tests:/app/tests
+      - ./backend/params:/app/params
       - audiveris_cache:/root/.audiveris
     environment:
       AUDIVERIS_HOME: /opt/audiveris

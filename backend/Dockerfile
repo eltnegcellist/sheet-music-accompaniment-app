@@ -60,6 +60,11 @@ RUN python3 -m pip install --no-cache-dir \
       "music21>=9.0"
 
 COPY app ./app
+# params/ holds the YAML param sets that `/analyze` selects via
+# PIPELINE_PARAM_SET (v5_real_pdf by default). main.py degrades to
+# no-postprocess if these are missing, but the production image must
+# carry them so the default behaviour matches what the tests measure.
+COPY params ./params
 COPY pyproject.toml ./
 
 EXPOSE 8000
