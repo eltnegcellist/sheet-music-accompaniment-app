@@ -70,8 +70,8 @@ Acceptance checks are:
 2. Worst-case gate: each A/B variant (6, 8) must not exceed the allowed
    worst-case per-PDF regression vs `v5_real_pdf`.
 
-To keep comparisons on identical OMR output, run with
-`RUN_REAL_PDF_E2E=cached`.
+For strict same-cache reruns, use `RUN_REAL_PDF_E2E=cached`.
+If cache is missing, run once with `RUN_REAL_PDF_E2E=1` to generate it.
 
 ## What goes in this directory
 

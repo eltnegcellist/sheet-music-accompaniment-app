@@ -172,9 +172,10 @@ def test_real_pdf_lift_under_each_paramset(capfd):
             "RUN_REAL_PDF_E2E=cached to score cached output only."
         )
     if mode != "cached":
-        pytest.skip(
-            "Use RUN_REAL_PDF_E2E=cached for same-cache A/B comparisons "
-            "across v5_real_pdf max_edits_per_measure variants (4→6→8)."
+        print(
+            "[note] RUN_REAL_PDF_E2E=1 will refresh missing cache entries before "
+            "running 4→6→8 A/B scoring. For strict same-cache reruns, use "
+            "RUN_REAL_PDF_E2E=cached."
         )
     REAL_PDF_DIR.mkdir(parents=True, exist_ok=True)
     pdfs = sorted(REAL_PDF_DIR.glob("*.pdf"))
