@@ -149,7 +149,12 @@
                 "max_ratio": {"type": "number", "minimum": 0, "maximum": 1},
                 "quantile": {"type": "number", "minimum": 0, "maximum": 1},
                 "correction_window_semitones": {"type": "integer", "minimum": 0},
-                "min_cost_semitones": {"type": "integer", "minimum": 0}
+                "min_cost_semitones": {"type": "integer", "minimum": 0},
+                "robust_method": {"enum": ["iqr", "mad"]},
+                "robust_iqr_multiplier": {"type": "number", "minimum": 0},
+                "robust_mad_multiplier": {"type": "number", "minimum": 0},
+                "max_ratio_reference_notes": {"type": "integer", "minimum": 1},
+                "max_ratio_min_scale": {"type": "number", "minimum": 0, "maximum": 1}
               }
             }
           }

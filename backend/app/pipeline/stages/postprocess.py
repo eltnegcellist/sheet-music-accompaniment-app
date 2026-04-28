@@ -393,12 +393,18 @@ def postprocess_pitch_fix(inp: StageInput) -> StageOutput:
                 ng_cfg.get("correction_window_semitones", 1)
             ),
             min_cost_semitones=int(ng_cfg.get("min_cost_semitones", 6)),
+            robust_method=str(ng_cfg.get("robust_method", "mad")),
+            robust_iqr_multiplier=float(ng_cfg.get("robust_iqr_multiplier", 3.5)),
+            robust_mad_multiplier=float(ng_cfg.get("robust_mad_multiplier", 6.0)),
+            max_ratio_reference_notes=int(ng_cfg.get("max_ratio_reference_notes", 128)),
+            max_ratio_min_scale=float(ng_cfg.get("max_ratio_min_scale", 0.25)),
         )
         metrics_fields.update(
             {
                 "postprocess.pitch_fix.ngram.candidates": ng_report.candidates,
                 "postprocess.pitch_fix.ngram.corrected": ng_report.corrected,
                 "postprocess.pitch_fix.ngram.capped": ng_report.capped_by_max_ratio,
+                "postprocess.pitch_fix.ngram.gated": ng_report.gated_by_adaptive_threshold,
             }
         )
 
