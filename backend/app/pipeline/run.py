@@ -128,6 +128,9 @@ def _apply_postprocess(
         rhythm_fix_enabled=rhythm,
         voice_rebuild_enabled=voice,
         pitch_fix_enabled=pitch,
+        pitch_fix_regression_threshold=float(
+            (pp.get("pitch_fix") or {}).get("rollback_regression_threshold", 0.0)
+        ),
         snap_durations=list(snap),
         max_edits_per_measure=max_edits,
     )
@@ -150,6 +153,7 @@ def _apply_postprocess(
             f"postprocess applied {run.edits_count} edit(s); "
             f"final_score={run.final_score:.3f}."
         )
+    extra_warnings.extend(run.warnings)
     return OmrResult(
         music_xml=run.music_xml,
         measures=omr_result.measures,
