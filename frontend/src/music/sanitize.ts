@@ -164,9 +164,12 @@ function createEmptyMeasure(doc: Document, number: number): Element {
   const note = doc.createElement("note");
   const rest = doc.createElement("rest");
   const duration = doc.createElement("duration");
+  const type = doc.createElement("type");
   duration.textContent = "1";
+  type.textContent = "whole";
   note.appendChild(rest);
   note.appendChild(duration);
+  note.appendChild(type);
   emptyMeasure.appendChild(note);
 
   return emptyMeasure;

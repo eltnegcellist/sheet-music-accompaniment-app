@@ -106,6 +106,8 @@ describe("sanitizeForOsmd", () => {
     expect(part2Measure4?.getElementsByTagName("rest").length).toBe(1);
     expect(part2Measure3?.getElementsByTagName("duration")[0]?.textContent).toBe("1");
     expect(part2Measure4?.getElementsByTagName("duration")[0]?.textContent).toBe("1");
+    expect(part2Measure3?.getElementsByTagName("type")[0]?.textContent).toBe("whole");
+    expect(part2Measure4?.getElementsByTagName("type")[0]?.textContent).toBe("whole");
   });
 
   it("preserves measure numbers and inserts missing rests before later measures", () => {
@@ -143,6 +145,8 @@ describe("sanitizeForOsmd", () => {
     );
     expect(part2Measure13?.getElementsByTagName("rest").length).toBe(1);
     expect(part2Measure14?.getElementsByTagName("rest").length).toBe(1);
+    expect(part2Measure13?.getElementsByTagName("type")[0]?.textContent).toBe("whole");
+    expect(part2Measure14?.getElementsByTagName("type")[0]?.textContent).toBe("whole");
   });
 
   it("aligns non-reference part key signatures to the reference part", () => {
