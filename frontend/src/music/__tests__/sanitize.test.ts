@@ -31,6 +31,38 @@ describe("sanitizeForOsmd", () => {
     expect(cleaned).not.toContain("octave-shift");
   });
 
+  it("removes malformed wedge starts that never receive a stop", () => {
+    const xml = `<?xml version="1.0"?>
+<score-partwise><part-list><score-part id="P1"/></part-list><part id="P1">
+  <measure number="1">
+    <direction><direction-type><wedge type="crescendo"/></direction-type></direction>
+    <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>
+  </measure>
+  <measure number="2">
+    <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration></note>
+  </measure>
+</part></score-partwise>`;
+    const cleaned = sanitizeForOsmd(xml);
+    expect(cleaned).not.toContain('<wedge type="crescendo"');
+  });
+
+  it("keeps well-formed wedge start/stop pairs", () => {
+    const xml = `<?xml version="1.0"?>
+<score-partwise><part-list><score-part id="P1"/></part-list><part id="P1">
+  <measure number="1">
+    <direction><direction-type><wedge type="crescendo"/></direction-type></direction>
+    <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>
+  </measure>
+  <measure number="2">
+    <direction><direction-type><wedge type="stop"/></direction-type></direction>
+    <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration></note>
+  </measure>
+</part></score-partwise>`;
+    const cleaned = sanitizeForOsmd(xml);
+    expect(cleaned).toContain('<wedge type="crescendo"');
+    expect(cleaned).toContain('<wedge type="stop"');
+  });
+
   it("repairs zero <divisions> to 1 rather than dropping the element", () => {
     const xml = `<?xml version="1.0"?>
 <score-partwise><part-list><score-part id="P1"/></part-list><part id="P1">
