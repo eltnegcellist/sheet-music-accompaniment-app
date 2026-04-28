@@ -1,3 +1,4 @@
+import { expandRepeats, type MeasureRepeatMeta } from "./repeatExpander";
 import type { FermataWindow, MeasureTiming, NoteEvent } from "../types";
 
 export function parseScore(
@@ -20,6 +21,14 @@ export function parseScore(
   const accMeasures = accPart ? collectRawMeasures(accPart) : [];
   const soloMeasures = soloPart ? collectRawMeasures(soloPart) : [];
   const canonicalBeats = computeCanonicalBeats([...accMeasures, ...soloMeasures]);
+  // Repeat metadata is taken from the accompaniment part when available — that
+  // part normally carries the canonical repeat structure (the solo part may
+  // omit barlines on rests). When no accompaniment part is detected we fall
+  // back to the solo part so monophonic uploads still pick up repeats.
+  const repeatSourcePart = accPart ?? soloPart;
+  const repeatMeta = repeatSourcePart
+    ? collectRepeatMeta(repeatSourcePart)
+    : [];
 
   const accNotes: NoteEvent[] = [];
   const soloNotes: NoteEvent[] = [];
@@ -51,14 +60,43 @@ export function parseScore(
     }
   }
 
-  const accByIndex = toIndexedQueues(accMeasures);
-  const soloByIndex = toIndexedQueues(soloMeasures);
+  // When repeat constructs are present we drive the traversal from the
+  // expanded playback order; otherwise we keep the original queue-based
+  // logic so duplicated measure numbers (Audiveris occasionally emits these)
+  // still produce two distinct playback measures.
+  const hasRepeatStructure = repeatMeta.some(
+    (m) =>
+      m.forwardRepeat ||
+      m.backwardRepeat !== null ||
+      m.endingStarts.length > 0 ||
+      m.endingStops.length > 0 ||
+      m.fine ||
+      m.toCoda ||
+      m.hasSegno ||
+      m.hasCoda ||
+      m.jump !== null,
+  );
 
-  for (let i = 0; i < targetIndices.length; i++) {
-    const index = targetIndices[i];
-    const accM = takeQueuedMeasure(accByIndex, index);
-    const soloM = takeQueuedMeasure(soloByIndex, index);
+  const accByIndex = hasRepeatStructure ? mapByIndex(accMeasures) : null;
+  const soloByIndex = hasRepeatStructure ? mapByIndex(soloMeasures) : null;
+  const accQueues = hasRepeatStructure ? null : toIndexedQueues(accMeasures);
+  const soloQueues = hasRepeatStructure ? null : toIndexedQueues(soloMeasures);
 
+  const playbackOrder: { measureIndex: number }[] = hasRepeatStructure
+    ? expandPlaybackOrder(repeatMeta, targetIndices)
+    : targetIndices.map((measureIndex) => ({ measureIndex }));
+
+  for (const slot of playbackOrder) {
+    const index = slot.measureIndex;
+    let accM: RawMeasure | null;
+    let soloM: RawMeasure | null;
+    if (hasRepeatStructure) {
+      accM = accByIndex?.get(index) ?? null;
+      soloM = soloByIndex?.get(index) ?? null;
+    } else {
+      accM = accQueues ? takeQueuedMeasure(accQueues, index) : null;
+      soloM = soloQueues ? takeQueuedMeasure(soloQueues, index) : null;
+    }
     if (!accM && !soloM) continue;
 
     const mForLength = accM ?? soloM;
@@ -118,6 +156,59 @@ export function parseScore(
   return { accNotes, soloNotes, measures, fermataWindows };
 }
 
+/**
+ * Project the repeat metadata onto the actual list of distinct measure
+ * indices we have notes for. We need to align the two: parts may omit pickup
+ * measures or skip a number, so the index-list and the metadata list aren't
+ * guaranteed to be 1:1.
+ */
+function expandPlaybackOrder(
+  repeatMeta: MeasureRepeatMeta[],
+  measureIndices: number[],
+): { measureIndex: number }[] {
+  if (repeatMeta.length === 0 || measureIndices.length === 0) {
+    return measureIndices.map((measureIndex) => ({ measureIndex }));
+  }
+  // Re-key the metadata by 1-based measure number so we can look it up from
+  // the part's actual indices regardless of part-specific gaps.
+  const metaByIndex = new Map<number, MeasureRepeatMeta>();
+  for (const m of repeatMeta) metaByIndex.set(m.index, m);
+  // Build the metadata list aligned with the union measureIndices order so
+  // expandRepeats() walks them in score order even if the part skipped some.
+  const aligned: MeasureRepeatMeta[] = measureIndices.map((index) => {
+    const found = metaByIndex.get(index);
+    if (found) return found;
+    return {
+      index,
+      forwardRepeat: false,
+      backwardRepeat: null,
+      endingStarts: [],
+      endingStops: [],
+      hasSegno: false,
+      hasCoda: false,
+      fine: false,
+      toCoda: false,
+      jump: null,
+    };
+  });
+  const slots = expandRepeats(aligned);
+  if (slots.length === 0) {
+    return measureIndices.map((measureIndex) => ({ measureIndex }));
+  }
+  return slots.map((s) => ({ measureIndex: s.measureIndex }));
+}
+
+function mapByIndex(measures: RawMeasure[]): Map<number, RawMeasure> {
+  // When the same measure number appears multiple times (rare; happens with
+  // alternate endings encoded as duplicated `<measure number>`), keep the
+  // first one — repeat expansion handles iteration ordering.
+  const out = new Map<number, RawMeasure>();
+  for (const m of measures) {
+    if (!out.has(m.index)) out.set(m.index, m);
+  }
+  return out;
+}
+
 function toIndexedQueues(
   measures: RawMeasure[],
 ): Map<number, RawMeasure[]> {
@@ -139,6 +230,102 @@ function takeQueuedMeasure(
   const next = q.shift() ?? null;
   if (q.length === 0) queues.delete(index);
   return next;
+}
+
+function collectRepeatMeta(part: Element): MeasureRepeatMeta[] {
+  const out: MeasureRepeatMeta[] = [];
+  for (const measureEl of Array.from(part.getElementsByTagName("measure"))) {
+    const measureIndex = Number(measureEl.getAttribute("number") ?? "0") || 0;
+    const meta: MeasureRepeatMeta = {
+      index: measureIndex,
+      forwardRepeat: false,
+      backwardRepeat: null,
+      endingStarts: [],
+      endingStops: [],
+      hasSegno: false,
+      hasCoda: false,
+      fine: false,
+      toCoda: false,
+      jump: null,
+    };
+    for (const barline of Array.from(measureEl.getElementsByTagName("barline"))) {
+      const repeat = barline.getElementsByTagName("repeat")[0];
+      if (repeat) {
+        const direction = repeat.getAttribute("direction");
+        if (direction === "forward") meta.forwardRepeat = true;
+        else if (direction === "backward") {
+          const times = Number.parseInt(repeat.getAttribute("times") ?? "", 10);
+          meta.backwardRepeat = Number.isFinite(times) && times > 0 ? times : 2;
+        }
+      }
+      const ending = barline.getElementsByTagName("ending")[0];
+      if (ending) {
+        const numbers = parseEndingNumbers(ending.getAttribute("number"));
+        const type = ending.getAttribute("type");
+        if (type === "start") {
+          meta.endingStarts.push(...numbers);
+        } else if (type === "stop" || type === "discontinue") {
+          meta.endingStops.push(...numbers);
+        }
+      }
+    }
+    for (const direction of Array.from(measureEl.getElementsByTagName("direction"))) {
+      // Sound element drives playback semantics in MusicXML 3+.
+      const sound = direction.getElementsByTagName("sound")[0];
+      if (sound) {
+        if (sound.getAttribute("segno")) meta.hasSegno = true;
+        if (sound.getAttribute("coda")) meta.hasCoda = true;
+        if (sound.hasAttribute("fine")) meta.fine = true;
+        if (sound.hasAttribute("tocoda")) meta.toCoda = true;
+        if (sound.hasAttribute("dacapo")) meta.jump = "da-capo";
+        const dalsegno = sound.getAttribute("dalsegno");
+        if (dalsegno) meta.jump = "dal-segno";
+      }
+      // Word-level fallback for older MusicXML emitters that don't fill
+      // sound[@dacapo|dalsegno] on the direction.
+      const text = collectDirectionText(direction).toLowerCase();
+      if (text) {
+        if (/d\.?\s*c\.?\s*al\s*fine/.test(text))
+          meta.jump = "da-capo-al-fine";
+        else if (/d\.?\s*c\.?\s*al\s*coda/.test(text))
+          meta.jump = "da-capo-al-coda";
+        else if (/d\.?\s*c\.?\s*$/.test(text.trim()) || text.includes("da capo"))
+          meta.jump = meta.jump ?? "da-capo";
+        if (/d\.?\s*s\.?\s*al\s*fine/.test(text))
+          meta.jump = "dal-segno-al-fine";
+        else if (/d\.?\s*s\.?\s*al\s*coda/.test(text))
+          meta.jump = "dal-segno-al-coda";
+        else if (/d\.?\s*s\.?\s*$/.test(text.trim()) || text.includes("dal segno"))
+          meta.jump = meta.jump ?? "dal-segno";
+        if (/\bfine\b/.test(text)) meta.fine = true;
+        if (/to\s*coda/.test(text)) meta.toCoda = true;
+        if (/segno/.test(text)) meta.hasSegno = true;
+        if (/coda/.test(text) && !/to\s*coda/.test(text)) meta.hasCoda = true;
+      }
+    }
+    out.push(meta);
+  }
+  return out;
+}
+
+function parseEndingNumbers(raw: string | null): number[] {
+  if (!raw) return [];
+  // MusicXML allows e.g. "1, 2" or "1.,2." for combined volta brackets.
+  return raw
+    .split(/[,\s.]+/)
+    .map((s) => Number.parseInt(s, 10))
+    .filter((n) => Number.isFinite(n) && n > 0);
+}
+
+function collectDirectionText(direction: Element): string {
+  const fragments: string[] = [];
+  for (const tag of ["words", "rehearsal"]) {
+    for (const el of Array.from(direction.getElementsByTagName(tag))) {
+      const text = (el.textContent ?? "").trim();
+      if (text) fragments.push(text);
+    }
+  }
+  return fragments.join(" ");
 }
 
 export function parseMusicXml(
