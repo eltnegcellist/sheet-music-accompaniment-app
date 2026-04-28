@@ -17,6 +17,9 @@ export interface AnalyzeResponse {
   score_title?: string | null;
   accompaniment_part_id: string | null;
   solo_part_id: string | null;
+  /** Engraved instrument name of the solo part — used by the player to pick
+   *  a sampled instrument timbre. */
+  solo_part_name?: string | null;
   measures: MeasureBox[];
   divisions: number;
   tempo_bpm: number;

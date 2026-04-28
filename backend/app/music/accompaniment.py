@@ -73,6 +73,26 @@ def find_solo_part(music_xml: str, accompaniment_part_id: str | None) -> str | N
     return candidates[0][3]
 
 
+def get_part_name(music_xml: str, part_id: str | None) -> str | None:
+    """Return the human-readable name for `part_id`.
+
+    Walks the standard places Audiveris / engravers stash an instrument name
+    and falls back through them in order: <part-name>, <part-abbreviation>,
+    <instrument-name>. Returns None if `part_id` is missing or unmatched.
+    """
+    if not part_id:
+        return None
+    root = etree.fromstring(music_xml.encode("utf-8"))
+    for part_el in root.findall(".//score-part"):
+        if part_el.get("id") != part_id:
+            continue
+        for tag in ("part-name", "part-abbreviation", "instrument-name"):
+            name_el = part_el.find(f".//{tag}")
+            if name_el is not None and name_el.text and name_el.text.strip():
+                return name_el.text.strip()
+    return None
+
+
 def _part_has_two_staves(root: etree._Element, part_id: str) -> bool:
     part = root.find(f".//part[@id='{part_id}']")
     if part is None:

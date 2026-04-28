@@ -11,9 +11,11 @@ import {
 import {
   ensureAudioRunning,
   getPianoSampler,
-  getViolinSynth,
+  getSoloSampler,
+  inferSoloInstrument,
   soloVolumeToDb,
   type SoloBus,
+  type SoloInstrumentName,
 } from "./audio/ToneEngine";
 import { PdfUploader } from "./components/PdfUploader";
 import { PdfViewer } from "./components/PdfViewer";
@@ -179,8 +181,17 @@ export default function App() {
       samplerRef.current.disconnect();
       samplerRef.current.connect(pianoVolumeRef.current);
     }
-    if (soloScore && !soloBusRef.current) {
-      soloBusRef.current = await getViolinSynth();
+    if (soloScore) {
+      const wantedInstrument: SoloInstrumentName = inferSoloInstrument(
+        analysis?.solo_part_name ?? null,
+      );
+      if (
+        !soloBusRef.current ||
+        soloBusRef.current.instrument !== wantedInstrument
+      ) {
+        setStatus(`ソロ音源 (${wantedInstrument}) を読み込み中…`);
+        soloBusRef.current = await getSoloSampler(wantedInstrument);
+      }
     }
     if (!metronomeRef.current) {
       metronomeRef.current = new Metronome();

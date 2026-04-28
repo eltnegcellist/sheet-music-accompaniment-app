@@ -19,6 +19,10 @@ class AnalyzeResponse(BaseModel):
     score_title: str | None = None
     accompaniment_part_id: str | None
     solo_part_id: str | None = None
+    solo_part_name: str | None = Field(
+        default=None,
+        description="Human-readable instrument label of the solo part (e.g. 'Violin'). Used by the player to pick a sampled instrument.",
+    )
     measures: list[MeasureBox]
     divisions: int
     tempo_bpm: float

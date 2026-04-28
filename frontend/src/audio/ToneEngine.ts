@@ -61,40 +61,247 @@ export function getPianoSampler(): Promise<Tone.Sampler> {
   return samplerPromise;
 }
 
-/** Volume node for the solo/violin bus. The caller is expected to reuse the
- *  same instance across the application so volume changes propagate. */
-export interface SoloBus {
-  synth: Tone.PolySynth;
-  volume: Tone.Volume;
+/** Anything we can use as the solo instrument. Both Tone.Sampler and
+ *  Tone.PolySynth satisfy this — keep the surface narrow so the scheduler
+ *  doesn't accidentally rely on Sampler-only methods. */
+export interface SoloInstrument {
+  triggerAttackRelease(
+    notes: string | string[],
+    duration: Tone.Unit.Time,
+    time?: Tone.Unit.Time,
+    velocity?: number,
+  ): unknown;
+  disconnect(): unknown;
+  connect(node: Tone.ToneAudioNode | Tone.Volume): unknown;
 }
 
-let soloBusPromise: Promise<SoloBus> | null = null;
+/** Solo bus: instrument + a volume node so the UI can mute / boost cleanly. */
+export interface SoloBus {
+  synth: SoloInstrument;
+  volume: Tone.Volume;
+  /** Identifier of the loaded instrument so callers can re-use the bus when
+   *  the same instrument is requested again. */
+  instrument: SoloInstrumentName;
+}
 
-export function getViolinSynth(): Promise<SoloBus> {
-  if (soloBusPromise) return soloBusPromise;
+/**
+ * Catalogue of sampled instruments hosted by `nbrosowsky/tonejs-instruments`.
+ *
+ * The repository ships free, license-friendly recordings sampled at the
+ * notes listed below. We use an MP3 baseUrl (CDN-friendly), which trades a
+ * little CPU for ~5x smaller downloads compared to WAV. When the chosen
+ * instrument fails to load we fall back to the legacy synth so playback
+ * still works offline.
+ */
+const SOLO_SAMPLE_BASE =
+  "https://nbrosowsky.github.io/tonejs-instruments/samples";
 
-  soloBusPromise = new Promise((resolve) => {
+type SamplerSpec = {
+  baseUrl: string;
+  urls: Record<string, string>;
+  /** Release tail in seconds. Strings ring out longer than winds. */
+  release: number;
+};
+
+const SOLO_INSTRUMENT_SPECS: Record<string, SamplerSpec> = {
+  violin: {
+    baseUrl: `${SOLO_SAMPLE_BASE}/violin/`,
+    urls: {
+      A3: "A3.mp3",
+      A4: "A4.mp3",
+      A5: "A5.mp3",
+      C4: "C4.mp3",
+      C5: "C5.mp3",
+      C6: "C6.mp3",
+      E4: "E4.mp3",
+      E5: "E5.mp3",
+      E6: "E6.mp3",
+      G4: "G4.mp3",
+      G5: "G5.mp3",
+      G6: "G6.mp3",
+    },
+    release: 1.4,
+  },
+  cello: {
+    baseUrl: `${SOLO_SAMPLE_BASE}/cello/`,
+    urls: {
+      A2: "A2.mp3",
+      A3: "A3.mp3",
+      A4: "A4.mp3",
+      C2: "C2.mp3",
+      C3: "C3.mp3",
+      C4: "C4.mp3",
+      E2: "E2.mp3",
+      E3: "E3.mp3",
+      E4: "E4.mp3",
+      G2: "G2.mp3",
+      G3: "G3.mp3",
+      G4: "G4.mp3",
+    },
+    release: 1.6,
+  },
+  flute: {
+    baseUrl: `${SOLO_SAMPLE_BASE}/flute/`,
+    urls: {
+      A4: "A4.mp3",
+      A5: "A5.mp3",
+      A6: "A6.mp3",
+      C4: "C4.mp3",
+      C5: "C5.mp3",
+      C6: "C6.mp3",
+      E4: "E4.mp3",
+      E5: "E5.mp3",
+      E6: "E6.mp3",
+      G4: "G4.mp3",
+      G5: "G5.mp3",
+      G6: "G6.mp3",
+    },
+    release: 0.6,
+  },
+  clarinet: {
+    baseUrl: `${SOLO_SAMPLE_BASE}/clarinet/`,
+    urls: {
+      D3: "D3.mp3",
+      D4: "D4.mp3",
+      D5: "D5.mp3",
+      F3: "F3.mp3",
+      F4: "F4.mp3",
+      F5: "F5.mp3",
+      A3: "A3.mp3",
+      A4: "A4.mp3",
+      A5: "A5.mp3",
+    },
+    release: 0.5,
+  },
+  trumpet: {
+    baseUrl: `${SOLO_SAMPLE_BASE}/trumpet/`,
+    urls: {
+      C4: "C4.mp3",
+      D4: "D4.mp3",
+      F4: "F4.mp3",
+      G4: "G4.mp3",
+      A4: "A4.mp3",
+      C5: "C5.mp3",
+      D5: "D5.mp3",
+    },
+    release: 0.4,
+  },
+  saxophone: {
+    baseUrl: `${SOLO_SAMPLE_BASE}/saxophone/`,
+    urls: {
+      A4: "A4.mp3",
+      C4: "C4.mp3",
+      C5: "C5.mp3",
+      E4: "E4.mp3",
+      E5: "E5.mp3",
+      G4: "G4.mp3",
+      G5: "G5.mp3",
+    },
+    release: 0.5,
+  },
+  guitar: {
+    baseUrl: `${SOLO_SAMPLE_BASE}/guitar-acoustic/`,
+    urls: {
+      A2: "A2.mp3",
+      A3: "A3.mp3",
+      A4: "A4.mp3",
+      C3: "C3.mp3",
+      C4: "C4.mp3",
+      D3: "D3.mp3",
+      D4: "D4.mp3",
+      E2: "E2.mp3",
+      E3: "E3.mp3",
+      E4: "E4.mp3",
+      G3: "G3.mp3",
+      G4: "G4.mp3",
+    },
+    release: 1.0,
+  },
+};
+
+export type SoloInstrumentName = keyof typeof SOLO_INSTRUMENT_SPECS;
+
+/** Heuristic: read the part-name printed in the score (`<part-name>` /
+ *  `<instrument-name>`) and pick the closest sampled instrument. Defaults to
+ *  violin since that's the most common for this app's repertoire. */
+export function inferSoloInstrument(
+  partName: string | null | undefined,
+): SoloInstrumentName {
+  if (!partName) return "violin";
+  const text = partName.toLowerCase();
+  if (/cello|violoncello|チェロ/.test(text)) return "cello";
+  if (/flute|flauto|フルート/.test(text)) return "flute";
+  if (/clarinet|clarinetto|クラリネット/.test(text)) return "clarinet";
+  if (/trumpet|tromba|トランペット/.test(text)) return "trumpet";
+  if (/sax|saxophone|サックス|サクソフォン/.test(text))
+    return "saxophone";
+  if (/guitar|ギター/.test(text)) return "guitar";
+  return "violin";
+}
+
+const soloBusPromises: Map<SoloInstrumentName, Promise<SoloBus>> = new Map();
+
+export function getSoloSampler(
+  instrument: SoloInstrumentName = "violin",
+): Promise<SoloBus> {
+  const cached = soloBusPromises.get(instrument);
+  if (cached) return cached;
+
+  const spec = SOLO_INSTRUMENT_SPECS[instrument];
+  const promise = new Promise<SoloBus>((resolve) => {
     const volume = new Tone.Volume(0).toDestination();
-    const synth = new Tone.PolySynth(Tone.AMSynth, {
-      // A saw-based carrier with a slight amplitude modulation reads as a
-      // bowed string more than a piano, which is what we need so the user
-      // can pick the solo voice out from the accompaniment by ear.
-      harmonicity: 1.5,
-      oscillator: { type: "sawtooth" },
-      envelope: { attack: 0.08, decay: 0.1, sustain: 0.7, release: 0.4 },
-      modulation: { type: "sine" },
-      modulationEnvelope: {
-        attack: 0.2,
-        decay: 0.2,
-        sustain: 0.5,
-        release: 0.3,
+    let resolved = false;
+    let sampler: Tone.Sampler | null = null;
+    sampler = new Tone.Sampler({
+      urls: spec.urls,
+      release: spec.release,
+      baseUrl: spec.baseUrl,
+      onload: () => {
+        if (resolved) return;
+        resolved = true;
+        sampler!.disconnect();
+        sampler!.connect(volume);
+        resolve({ synth: sampler!, volume, instrument });
+      },
+      onerror: (err) => {
+        if (resolved) return;
+        resolved = true;
+        // Fall back to the legacy synth so the user still hears the solo
+        // line; a CDN outage shouldn't kill playback.
+        // eslint-disable-next-line no-console
+        console.warn(
+          `Solo sampler load failed for ${instrument}; using fallback synth`,
+          err,
+        );
+        const fallback = createFallbackSynth();
+        fallback.connect(volume);
+        resolve({ synth: fallback, volume, instrument });
       },
     });
-    synth.connect(volume);
-    resolve({ synth, volume });
   });
 
-  return soloBusPromise;
+  soloBusPromises.set(instrument, promise);
+  return promise;
+}
+
+/** Backwards-compat alias used by callers that just want "the solo voice". */
+export function getViolinSynth(): Promise<SoloBus> {
+  return getSoloSampler("violin");
+}
+
+function createFallbackSynth(): Tone.PolySynth {
+  return new Tone.PolySynth(Tone.AMSynth, {
+    harmonicity: 1.5,
+    oscillator: { type: "sawtooth" },
+    envelope: { attack: 0.08, decay: 0.1, sustain: 0.7, release: 0.4 },
+    modulation: { type: "sine" },
+    modulationEnvelope: {
+      attack: 0.2,
+      decay: 0.2,
+      sustain: 0.5,
+      release: 0.3,
+    },
+  });
 }
 
 /** Convert a "normal" | "karaoke" | "off" selection to a dB value. */

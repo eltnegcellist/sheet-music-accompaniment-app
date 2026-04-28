@@ -1,5 +1,6 @@
 import * as Tone from "tone";
 
+import type { SoloInstrument } from "./ToneEngine";
 import type { MeasureTiming, NoteEvent } from "../types";
 
 export interface ScheduleOptions {
@@ -8,7 +9,7 @@ export interface ScheduleOptions {
   sampler: Tone.Sampler;
   /** Optional solo voice played on a separate synth/sampler. */
   soloNotes?: NoteEvent[];
-  soloSynth?: { triggerAttackRelease: Tone.PolySynth["triggerAttackRelease"] };
+  soloSynth?: SoloInstrument;
   /** Called whenever the playhead enters a new measure ordinal (1-based). */
   onMeasureChange: (measureIndex: number) => void;
   /** 1-based measure to start from (inclusive). */

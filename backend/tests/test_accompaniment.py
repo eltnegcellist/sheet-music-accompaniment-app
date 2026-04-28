@@ -1,4 +1,8 @@
-from app.music.accompaniment import find_accompaniment_part, find_solo_part
+from app.music.accompaniment import (
+    find_accompaniment_part,
+    find_solo_part,
+    get_part_name,
+)
 
 
 SOLO_PIANO_DUET = """<?xml version="1.0" encoding="UTF-8"?>
@@ -112,3 +116,13 @@ def test_find_solo_prefers_note_dense_single_staff_part():
 </score-partwise>
 """
     assert find_solo_part(xml, "P2") == "P3"
+
+
+def test_get_part_name_returns_human_readable_label():
+    assert get_part_name(SOLO_PIANO_DUET, "P1") == "Violin"
+    assert get_part_name(SOLO_PIANO_DUET, "P2") == "Piano"
+
+
+def test_get_part_name_returns_none_for_unknown_id():
+    assert get_part_name(SOLO_PIANO_DUET, "P9999") is None
+    assert get_part_name(SOLO_PIANO_DUET, None) is None

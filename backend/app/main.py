@@ -9,7 +9,11 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from .cache import AnalyzeCache, hash_pdf_bytes
-from .music.accompaniment import find_accompaniment_part, find_solo_part
+from .music.accompaniment import (
+    find_accompaniment_part,
+    find_solo_part,
+    get_part_name,
+)
 from .music.merger import merge_layout_with_musicxml
 from .music.solo_merger import merge_solo_into_full
 from .pdf import count_pages, detect_solo_split, slice_pdf
@@ -290,6 +294,7 @@ async def analyze(
                 "falling back to last part."
             )
         solo_part_id = find_solo_part(merged_xml, accompaniment_part_id)
+        solo_part_name = get_part_name(merged_xml, solo_part_id)
 
         divisions, _ = extract_divisions_and_tempo(merged_xml)
         tempo_info = extract_tempo_info(merged_xml)
@@ -323,6 +328,7 @@ async def analyze(
             score_title=score_title,
             accompaniment_part_id=accompaniment_part_id,
             solo_part_id=solo_part_id,
+            solo_part_name=solo_part_name,
             measures=measures,
             divisions=divisions,
             tempo_bpm=tempo_info.bpm,
