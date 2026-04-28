@@ -196,10 +196,18 @@ export default function App() {
     const beatsPerBar = analysis.time_signature?.beats ?? 4;
     metronomeRef.current.setBeatsPerBar(beatsPerBar);
     metronomeRef.current.setEnabled(playback.metronome);
-    const allFermataBeats = parsedScore.fermataWindows.map((w) => w.start);
-    metronomeRef.current.setFermataWindows(
-      allFermataBeats.map((b) => ({ start: Math.max(0, b - 1), end: b })),
+    // Pass through the parser's fermata windows verbatim — they cover the
+    // exact range where the held note is sustained, so the metronome falls
+    // silent over the fermata and resumes cleanly on the next downbeat.
+    metronomeRef.current.setFermataWindows(parsedScore.fermataWindows);
+    // Restrict the click track to the playback range so the user gets clicks
+    // on the very first beat of the chosen start measure even when fermatas
+    // earlier in the score have shifted everything by a fractional beat.
+    const playRangeMeasures = accompanimentScore.measures.filter(
+      (m) => m.index >= playback.startMeasure && m.index <= playback.endMeasure,
     );
+    const offsetBeats = playRangeMeasures[0]?.startBeat ?? 0;
+    metronomeRef.current.setMeasures(playRangeMeasures, offsetBeats);
     metronomeRef.current.start();
 
     if (soloBusRef.current) {
