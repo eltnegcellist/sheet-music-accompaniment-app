@@ -110,12 +110,14 @@ def run_postprocess_and_evaluate(
         rebuild_voices(score, log=log)
     if pitch_fix_enabled:
         can_rollback = True
-        pre_pitch_score_obj = None
+        flat_notes = []
+        pre_pitch_state: list[int] = []
         try:
-            pre_pitch_score_obj = copy.deepcopy(score)
+            flat_notes = [n for n in score.flatten().notes if n.isNote]
+            pre_pitch_state = [int(n.pitch.midi) for n in flat_notes]
         except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "pitch_fix deepcopy failed: %s: %s (rollback disabled)",
+                "pitch_fix state save failed: %s: %s (rollback disabled)",
                 type(exc).__name__, exc,
             )
             can_rollback = False
@@ -146,17 +148,19 @@ def run_postprocess_and_evaluate(
             }
         )
         if can_rollback and regression >= pitch_fix_regression_threshold and regression > 0:
-            if pre_pitch_score_obj is None:
+            if len(flat_notes) != len(pre_pitch_state):
                 logger.warning(
-                    "pitch_fix rollback requested but snapshot missing; "
-                    "keeping post-pitch state"
+                    "pitch_fix rollback unavailable: snapshot size mismatch "
+                    "(notes=%d state=%d)",
+                    len(flat_notes), len(pre_pitch_state),
                 )
                 metrics["postprocess.pitch_fix.rollback"] = False
                 card = post_pitch_card
                 fscore = post_pitch_score
                 edits = len(log)
             else:
-                score = pre_pitch_score_obj
+                for n, original_midi in zip(flat_notes, pre_pitch_state):
+                    n.pitch.midi = original_midi
                 metrics["postprocess.pitch_fix.rollback"] = True
                 reason = (
                     "pitch_fix rollback: final_score regressed by "
@@ -175,7 +179,7 @@ def run_postprocess_and_evaluate(
             ):
                 logger.warning(
                     "pitch_fix regression detected, but rollback unavailable "
-                    "due to write failure"
+                    "due to save failure"
                 )
             metrics["postprocess.pitch_fix.rollback"] = False
             card = post_pitch_card
