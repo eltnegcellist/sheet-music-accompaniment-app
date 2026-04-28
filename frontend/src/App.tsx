@@ -41,6 +41,8 @@ type ViewMode = "pdf" | "sheet";
 
 export default function App() {
   const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [musicXmlFile, setMusicXmlFile] = useState<File | null>(null);
+  const [soloPdfFile, setSoloPdfFile] = useState<File | null>(null);
   const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
   const [status, setStatus] = useState<string>("PDFを読み込んでください。");
   const [busy, setBusy] = useState(false);
@@ -101,19 +103,28 @@ export default function App() {
     }
   }, [accompanimentScore, analysis]);
 
-  const handleSelect = async (pdf?: File, musicXml?: File) => {
-    setPdfFile(pdf ?? null);
+  const runAnalyze = async (
+    pdf: File | undefined,
+    musicXml: File | undefined,
+    soloPdf: File | undefined,
+    force: boolean,
+  ) => {
     setBusy(true);
     setAnalysis(null);
     setCurrentMeasure(null);
     setCurrentMeasureOrdinal(null);
     setStatus(
-      pdf
-        ? "解析中… (楽譜の解析には数分かかる場合があります)"
-        : "MusicXML を読み込み中…",
+      force
+        ? "再解析中… (キャッシュを無視します)"
+        : pdf
+          ? "解析中… (楽譜の解析には数分かかる場合があります)"
+          : "MusicXML を読み込み中…",
     );
     try {
-      const result = await analyzePdf(pdf, musicXml);
+      const result = await analyzePdf(pdf, musicXml, {
+        soloPdf,
+        force,
+      });
       result.music_xml = sanitizeForOsmd(result.music_xml);
       setAnalysis(result);
       const parsed = parseScore(
@@ -133,6 +144,27 @@ export default function App() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const handleSelect = async (
+    pdf?: File,
+    musicXml?: File,
+    soloPdf?: File,
+  ) => {
+    setPdfFile(pdf ?? null);
+    setMusicXmlFile(musicXml ?? null);
+    setSoloPdfFile(soloPdf ?? null);
+    await runAnalyze(pdf, musicXml, soloPdf, false);
+  };
+
+  const handleReanalyze = async () => {
+    if (!pdfFile && !musicXmlFile) return;
+    await runAnalyze(
+      pdfFile ?? undefined,
+      musicXmlFile ?? undefined,
+      soloPdfFile ?? undefined,
+      true,
+    );
   };
 
   const handlePlay = async () => {
@@ -272,6 +304,15 @@ export default function App() {
         <div className="app__header-main">
           <strong>IMSLP Accompanist</strong>
           <PdfUploader disabled={busy} onSelect={handleSelect} />
+          <button
+            type="button"
+            className="reanalyze"
+            onClick={handleReanalyze}
+            disabled={busy || (!pdfFile && !musicXmlFile)}
+            title="キャッシュを破棄してAudiverisを再起動します"
+          >
+            再解析
+          </button>
           <span className="status">{status}</span>
         </div>
         <div className="view-tabs">

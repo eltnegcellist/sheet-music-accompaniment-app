@@ -216,3 +216,23 @@ body {
   font-size: 13px;
   color: #aaa;
 }
+
+.reanalyze {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid #555;
+  background: #2a2a30;
+  color: #ddd;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.reanalyze:hover:not(:disabled) {
+  border-color: #6cf;
+  color: #6cf;
+}
+
+.reanalyze:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

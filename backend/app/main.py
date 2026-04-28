@@ -5,9 +5,10 @@ import os
 import tempfile
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
+from .cache import AnalyzeCache, hash_pdf_bytes
 from .music.accompaniment import find_accompaniment_part, find_solo_part
 from .music.merger import merge_layout_with_musicxml
 from .music.parser import (
@@ -34,6 +35,10 @@ app = FastAPI(title="IMSLP Accompanist")
 # the legacy v1_baseline (no postprocess) while production runs v3.
 _PARAM_SET_ID = os.environ.get("PIPELINE_PARAM_SET", "v5_real_pdf")
 _PARAMS_DIR = Path(__file__).resolve().parents[1] / "params"
+
+# Disk-backed cache so repeat uploads of the same PDF don't re-run Audiveris.
+# `ANALYZE_CACHE_DIR` overrides the location for tests / production.
+_analyze_cache = AnalyzeCache()
 
 
 def _load_active_params() -> tuple[str, dict | None]:
@@ -69,10 +74,18 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+def _truthy(value: str | None) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @app.post("/analyze", response_model=AnalyzeResponse)
 async def analyze(
     pdf: UploadFile | None = File(default=None),
     music_xml: UploadFile | None = File(default=None),
+    solo_pdf: UploadFile | None = File(default=None),
+    force: str | None = Form(default=None),
 ) -> AnalyzeResponse:
     if pdf is None and music_xml is None:
         raise HTTPException(400, "Either pdf or music_xml must be provided.")
@@ -81,16 +94,54 @@ async def analyze(
         "application/octet-stream",
     }:
         raise HTTPException(400, f"Unexpected content-type: {pdf.content_type}")
+    force_reanalyze = _truthy(force)
 
     with tempfile.TemporaryDirectory() as tmp_root:
         tmp = Path(tmp_root)
         pdf_path = tmp / "input.pdf"
+        pdf_bytes: bytes = b""
         if pdf is not None:
-            pdf_path.write_bytes(await pdf.read())
+            pdf_bytes = await pdf.read()
+            pdf_path.write_bytes(pdf_bytes)
 
         user_xml: str | None = None
+        user_xml_bytes: bytes = b""
         if music_xml is not None:
-            user_xml = (await music_xml.read()).decode("utf-8", errors="replace")
+            user_xml_bytes = await music_xml.read()
+            user_xml = user_xml_bytes.decode("utf-8", errors="replace")
+
+        solo_pdf_path: Path | None = None
+        solo_pdf_bytes: bytes = b""
+        if solo_pdf is not None:
+            solo_pdf_bytes = await solo_pdf.read()
+            if solo_pdf_bytes:
+                solo_pdf_path = tmp / "solo.pdf"
+                solo_pdf_path.write_bytes(solo_pdf_bytes)
+
+        # Cache key combines all caller-provided inputs so different solo /
+        # user-XML mixes get distinct entries. Empty inputs hash to a known
+        # constant; we also fold `_PARAM_SET_ID` in via the file-name suffix.
+        cache_key: str | None = None
+        if pdf_bytes:
+            cache_key = hash_pdf_bytes(
+                pdf_bytes,
+                b"|solo|",
+                solo_pdf_bytes,
+                b"|xml|",
+                user_xml_bytes,
+            )
+        if cache_key is not None and not force_reanalyze:
+            cached = _analyze_cache.get(cache_key, _PARAM_SET_ID)
+            if cached is not None:
+                logger.info("Cache hit for %s", cache_key[:12])
+                cached_warnings = list(cached.get("warnings") or [])
+                if "（キャッシュから復元しました）" not in cached_warnings:
+                    cached_warnings.append("（キャッシュから復元しました）")
+                cached["warnings"] = cached_warnings
+                return AnalyzeResponse.model_validate(cached)
+        if cache_key is not None and force_reanalyze:
+            logger.info("Force re-analyze: invalidating cache for %s", cache_key[:12])
+            _analyze_cache.invalidate(cache_key)
 
         warnings: list[str] = []
         # When OMR is bypassed (user uploaded MusicXML) we still want the
@@ -188,7 +239,7 @@ async def analyze(
         # data so the player can run.
         pipeline_metrics = evaluate_musicxml_metrics(merged_xml)
 
-        return AnalyzeResponse(
+        response = AnalyzeResponse(
             music_xml=merged_xml,
             score_title=score_title,
             accompaniment_part_id=accompaniment_part_id,
@@ -212,3 +263,12 @@ async def analyze(
             pipeline_metrics=pipeline_metrics,
             param_set_id=active_param_set_id,
         )
+
+        if cache_key is not None:
+            _analyze_cache.put(
+                cache_key,
+                _PARAM_SET_ID,
+                response.model_dump(mode="json"),
+            )
+
+        return response
