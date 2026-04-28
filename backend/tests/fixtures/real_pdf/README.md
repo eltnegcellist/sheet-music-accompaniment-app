@@ -61,9 +61,17 @@ The `-s` flag is required to see the lift table that the test prints.
 
 For each PDF, the test runs the cached Audiveris MusicXML through every
 shipped param-set version (v1_baseline, v3_with_postprocess, v4_with_pitch,
-v5_real_pdf) and prints `final_score` per fixture × param set. The
-soft assertion only fires when v5 regresses below v1 on average — it's
-deliberately conservative so a single oddball PDF can't block CI.
+v5_real_pdf) plus v5-derived A/B variants for
+`postprocess.rhythm_fix.max_edits_per_measure` (4 → 6 → 8).
+
+Acceptance checks are:
+
+1. Average gate: `v5_real_pdf` must not regress vs `v1_baseline` on average.
+2. Worst-case gate: each A/B variant (6, 8) must not exceed the allowed
+   worst-case per-PDF regression vs `v5_real_pdf`.
+
+For strict same-cache reruns, use `RUN_REAL_PDF_E2E=cached`.
+If cache is missing, run once with `RUN_REAL_PDF_E2E=1` to generate it.
 
 ## What goes in this directory
 

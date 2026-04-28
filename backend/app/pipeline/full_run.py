@@ -108,7 +108,16 @@ def run_postprocess_and_evaluate(
     if voice_rebuild_enabled:
         rebuild_voices(score, log=log)
     if pitch_fix_enabled:
-        pre_pitch_xml = write_musicxml(score)
+        can_rollback = True
+        try:
+            pre_pitch_xml = write_musicxml(score)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "pitch_fix pre-write failed: %s: %s (rollback disabled)",
+                type(exc).__name__, exc,
+            )
+            pre_pitch_xml = ""
+            can_rollback = False
         pre_pitch_edits = len(log)
         pre_pitch_card = score_musicxml(score, edits_count=pre_pitch_edits)
         pre_pitch_score = final_score(pre_pitch_card, weights)
@@ -135,7 +144,7 @@ def run_postprocess_and_evaluate(
                 ),
             }
         )
-        if regression >= pitch_fix_regression_threshold and regression > 0:
+        if can_rollback and regression >= pitch_fix_regression_threshold and regression > 0:
             score = parse_musicxml(pre_pitch_xml)
             metrics["postprocess.pitch_fix.rollback"] = True
             reason = (
@@ -148,6 +157,15 @@ def run_postprocess_and_evaluate(
             fscore = pre_pitch_score
             edits = pre_pitch_edits
         else:
+            if (
+                not can_rollback
+                and regression >= pitch_fix_regression_threshold
+                and regression > 0
+            ):
+                logger.warning(
+                    "pitch_fix regression detected, but rollback unavailable "
+                    "due to write failure"
+                )
             metrics["postprocess.pitch_fix.rollback"] = False
             card = post_pitch_card
             fscore = post_pitch_score
