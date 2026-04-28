@@ -362,6 +362,9 @@ def postprocess_pitch_fix(inp: StageInput) -> StageOutput:
                 "postprocess.pitch_fix.scale.skipped_by_cap": (
                     scale_report.skipped_by_per_measure_cap
                 ),
+                "postprocess.pitch_fix.scale.skipped_explicit_accidental": (
+                    scale_report.skipped_explicit_accidental
+                ),
             }
         )
 
