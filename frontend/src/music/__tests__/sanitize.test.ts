@@ -63,6 +63,46 @@ describe("sanitizeForOsmd", () => {
     expect(cleaned).toContain('<wedge type="stop"');
   });
 
+  it("tracks wedges by number so independent spans do not collide", () => {
+    const xml = `<?xml version="1.0"?>
+<score-partwise><part-list><score-part id="P1"/></part-list><part id="P1">
+  <measure number="1">
+    <direction><direction-type><wedge type="crescendo" number="1"/></direction-type></direction>
+    <direction><direction-type><wedge type="diminuendo" number="2"/></direction-type></direction>
+    <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>
+  </measure>
+  <measure number="2">
+    <direction><direction-type><wedge type="stop" number="2"/></direction-type></direction>
+    <direction><direction-type><wedge type="stop" number="1"/></direction-type></direction>
+    <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration></note>
+  </measure>
+</part></score-partwise>`;
+    const cleaned = sanitizeForOsmd(xml);
+    expect(cleaned).toContain('<wedge type="crescendo" number="1"');
+    expect(cleaned).toContain('<wedge type="diminuendo" number="2"');
+    expect(cleaned).toContain('<wedge type="stop" number="1"');
+    expect(cleaned).toContain('<wedge type="stop" number="2"');
+  });
+
+  it("removes wedges whose start-stop span is implausibly long", () => {
+    const xml = `<?xml version="1.0"?>
+<score-partwise><part-list><score-part id="P1"/></part-list><part id="P1">
+  <measure number="1">
+    <direction><direction-type><wedge type="crescendo" number="1"/></direction-type></direction>
+    <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>
+  </measure>
+  <measure number="2"><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration></note></measure>
+  <measure number="3"><note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration></note></measure>
+  <measure number="4">
+    <direction><direction-type><wedge type="stop" number="1"/></direction-type></direction>
+    <note><pitch><step>F</step><octave>4</octave></pitch><duration>1</duration></note>
+  </measure>
+</part></score-partwise>`;
+    const cleaned = sanitizeForOsmd(xml);
+    expect(cleaned).not.toContain('<wedge type="crescendo" number="1"');
+    expect(cleaned).not.toContain('<wedge type="stop" number="1"');
+  });
+
   it("repairs zero <divisions> to 1 rather than dropping the element", () => {
     const xml = `<?xml version="1.0"?>
 <score-partwise><part-list><score-part id="P1"/></part-list><part id="P1">

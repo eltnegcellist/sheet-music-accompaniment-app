@@ -122,22 +122,44 @@ export function sanitizeForOsmd(xml: string): string {
 
   // Remove malformed wedges that never close (or isolated stop markers),
   // while preserving well-formed crescendo/diminuendo spans.
+  // Also drop wedges that span implausibly far measures: these are often
+  // OMR + music21 artifacts where a stop gets auto-appended at the end.
+  const MAX_WEDGE_MEASURES = 2;
   for (const part of parts) {
+    const measures = getDirectMeasureChildren(part);
+    const measureIndex = new Map<Element, number>();
+    for (const [idx, m] of measures.entries()) {
+      measureIndex.set(m, idx);
+    }
     const wedges = Array.from(part.getElementsByTagName("wedge"));
-    let activeWedge: Element | null = null;
+    const activeWedges = new Map<string, { el: Element; measureIdx: number }>();
 
     for (const w of wedges) {
       const type = w.getAttribute("type");
+      const num = w.getAttribute("number") || "default";
+      const ownerMeasure = findAncestorMeasure(w);
+      const mIdx = ownerMeasure ? (measureIndex.get(ownerMeasure) ?? -1) : -1;
+
       if (type === "crescendo" || type === "diminuendo") {
-        // If a new start appears before the previous one was closed,
-        // the previous wedge is malformed.
-        if (activeWedge) {
-          activeWedge.parentNode?.removeChild(activeWedge);
+        // If a new start appears before the previous one (same number)
+        // was closed, the previous wedge is malformed.
+        const existing = activeWedges.get(num);
+        if (existing) {
+          existing.el.parentNode?.removeChild(existing.el);
         }
-        activeWedge = w;
+        activeWedges.set(num, { el: w, measureIdx: mIdx });
       } else if (type === "stop") {
-        if (activeWedge) {
-          activeWedge = null; // well-formed closure
+        const active = activeWedges.get(num);
+        if (active) {
+          if (
+            active.measureIdx >= 0
+            && mIdx >= 0
+            && mIdx - active.measureIdx > MAX_WEDGE_MEASURES
+          ) {
+            active.el.parentNode?.removeChild(active.el);
+            w.parentNode?.removeChild(w);
+          }
+          activeWedges.delete(num); // well-formed closure
         } else {
           // Isolated stop with no active wedge start.
           w.parentNode?.removeChild(w);
@@ -145,9 +167,9 @@ export function sanitizeForOsmd(xml: string): string {
       }
     }
 
-    // Any remaining active wedge reached EOF without a stop.
-    if (activeWedge) {
-      activeWedge.parentNode?.removeChild(activeWedge);
+    // Any remaining active wedges reached EOF without a stop.
+    for (const active of activeWedges.values()) {
+      active.el.parentNode?.removeChild(active.el);
     }
   }
 
@@ -174,6 +196,20 @@ function getDirectMeasureChildren(part: Element): Element[] {
   return Array.from(part.children).filter(
     (el) => el.tagName.toLowerCase() === "measure",
   );
+}
+
+function findAncestorMeasure(el: Element): Element | null {
+  let cur: Node | null = el;
+  while (cur) {
+    if (
+      cur.nodeType === Node.ELEMENT_NODE
+      && (cur as Element).tagName.toLowerCase() === "measure"
+    ) {
+      return cur as Element;
+    }
+    cur = cur.parentNode;
+  }
+  return null;
 }
 
 function pickReferencePart(parts: Element[]): Element {
