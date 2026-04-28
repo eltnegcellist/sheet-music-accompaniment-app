@@ -109,14 +109,16 @@ def run_postprocess_and_evaluate(
         rebuild_voices(score, log=log)
     if pitch_fix_enabled:
         can_rollback = True
+        flat_notes = []
+        pre_pitch_state: list[int] = []
         try:
-            pre_pitch_xml = write_musicxml(score)
+            flat_notes = [n for n in score.flatten().notes if n.isNote]
+            pre_pitch_state = [int(n.pitch.midi) for n in flat_notes]
         except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "pitch_fix pre-write failed: %s: %s (rollback disabled)",
+                "pitch_fix state save failed: %s: %s (rollback disabled)",
                 type(exc).__name__, exc,
             )
-            pre_pitch_xml = ""
             can_rollback = False
         pre_pitch_edits = len(log)
         pre_pitch_card = score_musicxml(score, edits_count=pre_pitch_edits)
@@ -145,17 +147,29 @@ def run_postprocess_and_evaluate(
             }
         )
         if can_rollback and regression >= pitch_fix_regression_threshold and regression > 0:
-            score = parse_musicxml(pre_pitch_xml)
-            metrics["postprocess.pitch_fix.rollback"] = True
-            reason = (
-                "pitch_fix rollback: final_score regressed by "
-                f"{regression:.4f} (threshold={pitch_fix_regression_threshold:.4f})"
-            )
-            warnings.append(reason)
-            logger.warning(reason)
-            card = pre_pitch_card
-            fscore = pre_pitch_score
-            edits = pre_pitch_edits
+            if len(flat_notes) != len(pre_pitch_state):
+                logger.warning(
+                    "pitch_fix rollback unavailable: snapshot size mismatch "
+                    "(notes=%d state=%d)",
+                    len(flat_notes), len(pre_pitch_state),
+                )
+                metrics["postprocess.pitch_fix.rollback"] = False
+                card = post_pitch_card
+                fscore = post_pitch_score
+                edits = len(log)
+            else:
+                for n, original_midi in zip(flat_notes, pre_pitch_state):
+                    n.pitch.midi = original_midi
+                metrics["postprocess.pitch_fix.rollback"] = True
+                reason = (
+                    "pitch_fix rollback: final_score regressed by "
+                    f"{regression:.4f} (threshold={pitch_fix_regression_threshold:.4f})"
+                )
+                warnings.append(reason)
+                logger.warning(reason)
+                card = pre_pitch_card
+                fscore = pre_pitch_score
+                edits = pre_pitch_edits
         else:
             if (
                 not can_rollback
@@ -164,7 +178,7 @@ def run_postprocess_and_evaluate(
             ):
                 logger.warning(
                     "pitch_fix regression detected, but rollback unavailable "
-                    "due to write failure"
+                    "due to save failure"
                 )
             metrics["postprocess.pitch_fix.rollback"] = False
             card = post_pitch_card

@@ -120,6 +120,37 @@ export function sanitizeForOsmd(xml: string): string {
     s.parentNode?.removeChild(s);
   }
 
+  // Remove malformed wedges that never close (or isolated stop markers),
+  // while preserving well-formed crescendo/diminuendo spans.
+  for (const part of parts) {
+    const wedges = Array.from(part.getElementsByTagName("wedge"));
+    let activeWedge: Element | null = null;
+
+    for (const w of wedges) {
+      const type = w.getAttribute("type");
+      if (type === "crescendo" || type === "diminuendo") {
+        // If a new start appears before the previous one was closed,
+        // the previous wedge is malformed.
+        if (activeWedge) {
+          activeWedge.parentNode?.removeChild(activeWedge);
+        }
+        activeWedge = w;
+      } else if (type === "stop") {
+        if (activeWedge) {
+          activeWedge = null; // well-formed closure
+        } else {
+          // Isolated stop with no active wedge start.
+          w.parentNode?.removeChild(w);
+        }
+      }
+    }
+
+    // Any remaining active wedge reached EOF without a stop.
+    if (activeWedge) {
+      activeWedge.parentNode?.removeChild(activeWedge);
+    }
+  }
+
   // Strip zero-duration non-grace notes.
   const notes = Array.from(doc.getElementsByTagName("note"));
   for (const n of notes) {
@@ -164,9 +195,12 @@ function createEmptyMeasure(doc: Document, number: number): Element {
   const note = doc.createElement("note");
   const rest = doc.createElement("rest");
   const duration = doc.createElement("duration");
+  const type = doc.createElement("type");
   duration.textContent = "1";
+  type.textContent = "whole";
   note.appendChild(rest);
   note.appendChild(duration);
+  note.appendChild(type);
   emptyMeasure.appendChild(note);
 
   return emptyMeasure;
