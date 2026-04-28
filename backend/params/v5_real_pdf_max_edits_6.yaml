@@ -1,0 +1,10 @@
+# v5 variant for real-PDF A/B: increase rhythm-fix edit budget from 4 → 6.
+meta:
+  id: v5_real_pdf_max_edits_6
+  version: 51
+  parent: v5_real_pdf
+  description: "v5_real_pdf variant with postprocess.rhythm_fix.max_edits_per_measure=6"
+
+postprocess:
+  rhythm_fix:
+    max_edits_per_measure: 6
