@@ -8,6 +8,7 @@ unprocessed result.
 
 from __future__ import annotations
 
+import copy
 import logging
 from dataclasses import dataclass
 from typing import Mapping
@@ -109,14 +110,14 @@ def run_postprocess_and_evaluate(
         rebuild_voices(score, log=log)
     if pitch_fix_enabled:
         can_rollback = True
+        pre_pitch_score_obj = None
         try:
-            pre_pitch_xml = write_musicxml(score)
+            pre_pitch_score_obj = copy.deepcopy(score)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "pitch_fix pre-write failed: %s: %s (rollback disabled)",
+                "pitch_fix deepcopy failed: %s: %s (rollback disabled)",
                 type(exc).__name__, exc,
             )
-            pre_pitch_xml = ""
             can_rollback = False
         pre_pitch_edits = len(log)
         pre_pitch_card = score_musicxml(score, edits_count=pre_pitch_edits)
@@ -145,17 +146,27 @@ def run_postprocess_and_evaluate(
             }
         )
         if can_rollback and regression >= pitch_fix_regression_threshold and regression > 0:
-            score = parse_musicxml(pre_pitch_xml)
-            metrics["postprocess.pitch_fix.rollback"] = True
-            reason = (
-                "pitch_fix rollback: final_score regressed by "
-                f"{regression:.4f} (threshold={pitch_fix_regression_threshold:.4f})"
-            )
-            warnings.append(reason)
-            logger.warning(reason)
-            card = pre_pitch_card
-            fscore = pre_pitch_score
-            edits = pre_pitch_edits
+            if pre_pitch_score_obj is None:
+                logger.warning(
+                    "pitch_fix rollback requested but snapshot missing; "
+                    "keeping post-pitch state"
+                )
+                metrics["postprocess.pitch_fix.rollback"] = False
+                card = post_pitch_card
+                fscore = post_pitch_score
+                edits = len(log)
+            else:
+                score = pre_pitch_score_obj
+                metrics["postprocess.pitch_fix.rollback"] = True
+                reason = (
+                    "pitch_fix rollback: final_score regressed by "
+                    f"{regression:.4f} (threshold={pitch_fix_regression_threshold:.4f})"
+                )
+                warnings.append(reason)
+                logger.warning(reason)
+                card = pre_pitch_card
+                fscore = pre_pitch_score
+                edits = pre_pitch_edits
         else:
             if (
                 not can_rollback
