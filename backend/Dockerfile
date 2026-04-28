@@ -54,6 +54,7 @@ RUN python3 -m pip install --no-cache-dir \
       "pytesseract>=0.3.10" \
       "pdf2image>=1.17.0" \
       "pillow>=10.0.0" \
+      "pypdf>=4.0" \
       "pyyaml>=6.0" \
       "jsonschema>=4.0" \
       "numpy>=1.26" \

@@ -13,7 +13,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from ..omr.audiveris_runner import OmrResult, run_audiveris
+from ..omr.audiveris_runner import OmrResult, run_audiveris, run_audiveris_chunked
 from .artifacts import FileArtifactStore
 from .contracts import ArtifactRef
 from .controller import Pipeline
@@ -34,7 +34,7 @@ def run_omr_via_pipeline(
     *,
     job_id: str | None = None,
     param_set_id: str = "v1_baseline",
-    driver: AudiverisDriver = run_audiveris,
+    driver: AudiverisDriver = run_audiveris_chunked,
     params: Mapping[str, Any] | None = None,
 ) -> OmrResult:
     """Run the OMR stage end-to-end and return the legacy `OmrResult`.

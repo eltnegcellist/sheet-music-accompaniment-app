@@ -193,3 +193,92 @@ def _read_musicxml(path: Path) -> str:
 def cleanup(output_dir: Path) -> None:
     """Best-effort cleanup helper for callers that manage their own temp dirs."""
     shutil.rmtree(output_dir, ignore_errors=True)
+
+
+def run_audiveris_chunked(
+    pdf_path: Path,
+    output_dir: Path,
+    *,
+    pages_per_chunk: int = 6,
+    long_pdf_threshold: int = 8,
+) -> OmrResult:
+    """Run Audiveris with automatic chunking for long PDFs.
+
+    For PDFs above `long_pdf_threshold` pages we slice the input into chunks
+    of `pages_per_chunk` pages each, run Audiveris per chunk, and stitch the
+    results back together. Below the threshold we delegate to the original
+    `run_audiveris` so short scores keep their previous code path.
+
+    Returns a single `OmrResult` whose MusicXML, measures and page sizes are
+    merged across all successful chunks. A chunk that fails the OMR stage
+    contributes a warning but does not abort the run — partial results are
+    better than nothing on long pieces.
+    """
+    from ..music.musicxml_concat import concat_musicxml
+    from ..pdf.splitter import count_pages, split_pdf
+
+    total_pages = count_pages(pdf_path)
+    if total_pages == 0 or total_pages <= long_pdf_threshold:
+        return run_audiveris(pdf_path, output_dir)
+
+    chunks_dir = output_dir / "_chunks"
+    chunks = split_pdf(pdf_path, chunks_dir, pages_per_chunk=pages_per_chunk)
+    logger.info(
+        "Splitting %d-page PDF into %d chunks (%d pages each, threshold %d)",
+        total_pages,
+        len(chunks),
+        pages_per_chunk,
+        long_pdf_threshold,
+    )
+
+    chunk_xmls: list[str] = []
+    merged_measures: list[MeasureLayout] = []
+    merged_page_sizes: list[tuple[float, float]] = []
+    warnings: list[str] = [
+        f"{total_pages}ページのPDFを{len(chunks)}個のチャンクに分割して解析しました。",
+    ]
+    measure_offset = 0
+
+    for idx, chunk in enumerate(chunks):
+        chunk_out = output_dir / f"chunk_{idx:03d}"
+        try:
+            chunk_result = run_audiveris(chunk.path, chunk_out)
+        except AudiverisError as exc:
+            logger.warning("Chunk %d failed: %s", idx, exc)
+            warnings.append(
+                f"チャンク {idx + 1}/{len(chunks)} (page {chunk.page_offset + 1}-"
+                f"{chunk.page_offset + chunk.page_count}) の解析に失敗しました: {exc}"
+            )
+            continue
+
+        chunk_xmls.append(chunk_result.music_xml)
+        # Page indices in this chunk's measures are relative to the chunk's
+        # PDF; remap them to the source PDF coordinates.
+        for m in chunk_result.measures:
+            merged_measures.append(
+                MeasureLayout(
+                    index=m.index + measure_offset,
+                    page=m.page + chunk.page_offset,
+                    bbox=m.bbox,
+                )
+            )
+        merged_page_sizes.extend(chunk_result.page_sizes)
+        warnings.extend(chunk_result.warnings)
+        # Advance the measure-number offset by however many measures this
+        # chunk actually contributed. We rely on Audiveris's per-chunk
+        # numbering starting at 1; if a chunk omits measures we still keep
+        # alignment with the highest measure number it produced.
+        if chunk_result.measures:
+            measure_offset = max(m.index for m in merged_measures)
+    if not chunk_xmls:
+        raise AudiverisError(
+            "All chunks failed during chunked OMR. No MusicXML produced."
+        )
+
+    merged_xml = concat_musicxml(chunk_xmls, warnings=warnings)
+    return OmrResult(
+        music_xml=merged_xml,
+        measures=merged_measures,
+        page_sizes=merged_page_sizes,
+        warnings=warnings,
+    )
