@@ -235,6 +235,7 @@ class NgramFixReport:
     candidates: int = 0
     corrected: int = 0
     capped_by_max_ratio: int = 0
+    gated_by_adaptive_threshold: int = 0
 
 
 def fix_ngram_outliers(
@@ -245,14 +246,18 @@ def fix_ngram_outliers(
     quantile: float = 0.99,
     correction_window_semitones: int = 1,
     min_cost_semitones: int = 6,
+    robust_method: str = "mad",
+    robust_iqr_multiplier: float = 3.5,
+    robust_mad_multiplier: float = 6.0,
+    max_ratio_reference_notes: int = 128,
+    max_ratio_min_scale: float = 0.25,
 ) -> NgramFixReport:
     """Phase 3-3-c: smooth out unusual 3-gram melodic jumps.
 
     Compute the distribution of |interval_in| + |interval_out| triplets
-    across the whole score; flag the worst `quantile` fraction whose
-    cost is also at least `min_cost_semitones` (a tritone by default,
-    so smooth scales never count as candidates regardless of how short
-    the score is).
+    across the whole score; flag triples whose cost satisfies all gates
+    via `cost >= max(quantile_cutoff, robust_cutoff, min_cost_semitones)`.
+    The robust cutoff is selected by `robust_method` ("iqr" or "mad").
 
     Each candidate's middle note is nudged ±1 semitone (within
     `correction_window_semitones`) toward the linear interpolation of
@@ -275,14 +280,27 @@ def fix_ngram_outliers(
 
     costs = sorted(t[-1] for t in triples)
     cutoff_idx = max(0, int(quantile * (len(costs) - 1)))
-    cutoff = max(costs[cutoff_idx], min_cost_semitones)
+    quantile_cutoff = costs[cutoff_idx]
+    q1 = costs[int(0.25 * (len(costs) - 1))]
+    q3 = costs[int(0.75 * (len(costs) - 1))]
+    iqr_cutoff = q3 + robust_iqr_multiplier * (q3 - q1)
+    med = median(costs)
+    mad = median(abs(c - med) for c in costs)
+    mad_cutoff = med + robust_mad_multiplier * mad
+    robust_cutoff = mad_cutoff if robust_method.lower() == "mad" else iqr_cutoff
+    cutoff = max(quantile_cutoff, robust_cutoff, float(min_cost_semitones))
     candidates = [t for t in triples if t[-1] >= cutoff]
     report.candidates = len(candidates)
+    report.gated_by_adaptive_threshold = len(triples) - len(candidates)
 
     total_notes = sum(
         1 for n in score.flatten().notes if isinstance(n, note.Note)
     )
-    cap = int(total_notes * max_ratio)
+    ratio_scale = 1.0
+    if max_ratio_reference_notes > 0:
+        ratio_scale = min(1.0, total_notes / max_ratio_reference_notes)
+    effective_max_ratio = max_ratio * max(max_ratio_min_scale, ratio_scale)
+    cap = int(total_notes * effective_max_ratio)
 
     for n_obj, prev_m, cur_m, next_m, _ in candidates:
         if report.corrected >= cap:

@@ -26,3 +26,8 @@ postprocess:
       quantile: 0.99
       correction_window_semitones: 1
       min_cost_semitones: 6
+      robust_method: mad
+      robust_iqr_multiplier: 3.5
+      robust_mad_multiplier: 6.0
+      max_ratio_reference_notes: 128
+      max_ratio_min_scale: 0.25
