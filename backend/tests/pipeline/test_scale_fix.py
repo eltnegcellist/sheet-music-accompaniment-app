@@ -144,3 +144,24 @@ def test_chord_constituents_are_skipped():
     report = fix_scale_outliers(score, key, log=log)
     # The F# is a chord member, not a single Note → skipped.
     assert report.candidates == 0
+
+
+def test_explicit_accidental_is_skipped():
+    """Visible accidentals are treated as intentional notation and not auto-fixed."""
+    score = parse_musicxml(_ONE_OUTLIER)
+    key = estimate_key(score)
+    assert key is not None
+
+    # Mark the outlier F# as explicitly shown in notation.
+    outlier = [n for n in score.flatten().notes if int(n.pitch.midi) == 66][0]
+    assert outlier.pitch.accidental is not None
+    outlier.pitch.accidental.displayStatus = True
+
+    log = EditLog()
+    report = fix_scale_outliers(score, key, log=log)
+
+    assert report.candidates == 1
+    assert report.skipped_explicit_accidental == 1
+    assert report.corrected == 0
+    assert int(outlier.pitch.midi) == 66
+    assert len(log) == 0

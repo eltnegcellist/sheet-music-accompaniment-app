@@ -28,6 +28,7 @@ class ScaleFixReport:
     candidates: int = 0          # notes that were off-scale
     corrected: int = 0           # notes whose pitch we actually changed
     skipped_by_per_measure_cap: int = 0
+    skipped_explicit_accidental: int = 0
 
 
 def _pitched_notes(score: stream.Score) -> list[tuple[note.Note, int]]:
@@ -126,6 +127,10 @@ def fix_scale_outliers(
         seq = seq_per_measure[mnum]
         for idx in out_idxs:
             n = seq[idx]
+            acc = n.pitch.accidental
+            if acc is not None and acc.displayStatus is True:
+                report.skipped_explicit_accidental += 1
+                continue
             old_midi = int(n.pitch.midi)
             new_midi, delta = _nearest_scale_pc(old_midi, scale_pcs)
             if delta == 0 or new_midi == old_midi:
