@@ -51,7 +51,11 @@ PARAM_SETS = (
     "v3_with_postprocess",
     "v4_with_pitch",
     "v5_real_pdf",
+    "v5_real_pdf_max_edits_6",
+    "v5_real_pdf_max_edits_8",
 )
+
+MAX_WORST_CASE_REGRESSION = 0.02
 
 
 @dataclass
@@ -167,6 +171,12 @@ def test_real_pdf_lift_under_each_paramset(capfd):
             "Set RUN_REAL_PDF_E2E=1 to drive Audiveris, or "
             "RUN_REAL_PDF_E2E=cached to score cached output only."
         )
+    if mode != "cached":
+        print(
+            "[note] RUN_REAL_PDF_E2E=1 will refresh missing cache entries before "
+            "running 4→6→8 A/B scoring. For strict same-cache reruns, use "
+            "RUN_REAL_PDF_E2E=cached."
+        )
     REAL_PDF_DIR.mkdir(parents=True, exist_ok=True)
     pdfs = sorted(REAL_PDF_DIR.glob("*.pdf"))
     if not pdfs:
@@ -209,12 +219,25 @@ def test_real_pdf_lift_under_each_paramset(capfd):
     print("\n=== Real-PDF pipeline lift ===")
     print(_format_table(results))
 
-    # Soft assertion: v5 average must not regress vs v1. We deliberately
-    # don't enforce a positive lift here because real PDFs vary widely;
-    # the table is the actual signal.
+    # Acceptance gate 1 (average): v5 and its derivatives must not regress
+    # against v1 on average.
     avg_v1 = sum(r.scores_by_paramset["v1_baseline"] for r in results) / len(results)
     avg_v5 = sum(r.scores_by_paramset["v5_real_pdf"] for r in results) / len(results)
     assert avg_v5 >= avg_v1 - 0.005, (
         f"v5 average final_score regressed vs v1 on real PDFs: "
         f"v1={avg_v1:.4f} v5={avg_v5:.4f}"
     )
+
+    # Acceptance gate 2 (worst-case): increasing max edits (4→6→8) should
+    # not cause an outsized per-PDF regression vs v5_real_pdf.
+    for variant in ("v5_real_pdf_max_edits_6", "v5_real_pdf_max_edits_8"):
+        deltas = [
+            r.scores_by_paramset[variant] - r.scores_by_paramset["v5_real_pdf"]
+            for r in results
+        ]
+        worst_regression = min(deltas)
+        assert worst_regression >= -MAX_WORST_CASE_REGRESSION, (
+            f"{variant} worst-case regression too large vs v5_real_pdf: "
+            f"worst={worst_regression:.4f}, "
+            f"limit={-MAX_WORST_CASE_REGRESSION:.4f}"
+        )

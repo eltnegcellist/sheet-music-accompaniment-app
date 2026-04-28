@@ -48,6 +48,7 @@ def _measure_numbers_of(part: stream.Part) -> list[int]:
 def _build_placeholder(
     bar_duration_ql: float,
     number: int,
+    prev_measure: stream.Measure | None = None,
 ) -> stream.Measure:
     """Build a music21 Measure containing a single full-bar rest.
 
@@ -56,7 +57,20 @@ def _build_placeholder(
     """
     placeholder = stream.Measure(number=number)
     rest_duration = max(bar_duration_ql, 0.0001)  # avoid 0-duration rest
-    placeholder.append(note.Rest(quarterLength=rest_duration))
+
+    voices = (
+        list(prev_measure.getElementsByClass("Voice"))
+        if prev_measure is not None
+        else []
+    )
+    if voices:
+        for v in voices:
+            new_v = stream.Voice(id=v.id)
+            new_v.append(note.Rest(quarterLength=rest_duration))
+            placeholder.insert(0.0, new_v)
+    else:
+        placeholder.append(note.Rest(quarterLength=rest_duration))
+
     return placeholder
 
 
@@ -136,13 +150,15 @@ def fill_missing_measures(
         for m in existing:
             part.remove(m)
         offset = 0.0
+        prev_m_for_placeholder = None
         for number, measure, bar_ql in plan:
             if measure is None:
-                m = _build_placeholder(bar_ql, number)
+                m = _build_placeholder(bar_ql, number, prev_m_for_placeholder)
             else:
                 m = measure
                 # Reset number in case the original carried something odd.
                 m.number = number
+                prev_m_for_placeholder = m
             part.insert(offset, m)
             offset += bar_ql
     return report

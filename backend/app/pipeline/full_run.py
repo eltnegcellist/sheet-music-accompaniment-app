@@ -8,6 +8,7 @@ unprocessed result.
 
 from __future__ import annotations
 
+import copy
 import logging
 from dataclasses import dataclass
 from typing import Mapping
@@ -43,6 +44,8 @@ class PipelineRun:
     card: ScoreCard
     final_score: float
     edits_count: int
+    warnings: list[str]
+    metrics: dict[str, float | int | str | bool]
 
 
 def run_postprocess_and_evaluate(
@@ -55,6 +58,7 @@ def run_postprocess_and_evaluate(
     pitch_fix_enabled: bool = False,
     snap_durations: list[int] | None = None,
     max_edits_per_measure: int = 4,
+    pitch_fix_regression_threshold: float = 0.0,
     weights: Mapping[str, float] = _DEFAULT_WEIGHTS,
 ) -> PipelineRun | None:
     """Apply postprocess passes (in canonical order) and score the result.
@@ -75,6 +79,11 @@ def run_postprocess_and_evaluate(
     if not music_xml or not music_xml.strip():
         return None
     try:
+        validate_weights(weights)
+    except ValueError as exc:
+        logger.warning("bad weights — %s", exc)
+        return None
+    try:
         score = parse_musicxml(music_xml)
     except Exception as exc:  # noqa: BLE001
         logger.warning(
@@ -84,6 +93,8 @@ def run_postprocess_and_evaluate(
         return None
 
     log = EditLog()
+    warnings: list[str] = []
+    metrics: dict[str, float | int | str | bool] = {}
     if fill_measures_enabled:
         fill_missing_measures(score, log=log)
     if fix_key_accidentals_enabled:
@@ -98,6 +109,22 @@ def run_postprocess_and_evaluate(
     if voice_rebuild_enabled:
         rebuild_voices(score, log=log)
     if pitch_fix_enabled:
+        can_rollback = True
+        flat_notes = []
+        pre_pitch_state: list[int] = []
+        try:
+            flat_notes = [n for n in score.flatten().notes if n.isNote]
+            pre_pitch_state = [int(n.pitch.midi) for n in flat_notes]
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "pitch_fix state save failed: %s: %s (rollback disabled)",
+                type(exc).__name__, exc,
+            )
+            can_rollback = False
+        pre_pitch_edits = len(log)
+        pre_pitch_card = score_musicxml(score, edits_count=pre_pitch_edits)
+        pre_pitch_score = final_score(pre_pitch_card, weights)
+
         # Order: octave first (catches Audiveris ledger-line confusion),
         # then scale (uses key estimate), then n-gram (catches whatever's
         # left). Each sub-pass mutates `score` in place.
@@ -106,6 +133,62 @@ def run_postprocess_and_evaluate(
         if key is not None:
             fix_scale_outliers(score, key, log=log)
         fix_ngram_outliers(score, log=log)
+
+        post_pitch_card = score_musicxml(score, edits_count=len(log))
+        post_pitch_score = final_score(post_pitch_card, weights)
+        regression = pre_pitch_score - post_pitch_score
+        metrics.update(
+            {
+                "postprocess.pitch_fix.pre_final_score": round(pre_pitch_score, 4),
+                "postprocess.pitch_fix.post_final_score": round(post_pitch_score, 4),
+                "postprocess.pitch_fix.regression": round(regression, 4),
+                "postprocess.pitch_fix.rollback_threshold": (
+                    pitch_fix_regression_threshold
+                ),
+            }
+        )
+        if can_rollback and regression >= pitch_fix_regression_threshold and regression > 0:
+            if len(flat_notes) != len(pre_pitch_state):
+                logger.warning(
+                    "pitch_fix rollback unavailable: snapshot size mismatch "
+                    "(notes=%d state=%d)",
+                    len(flat_notes), len(pre_pitch_state),
+                )
+                metrics["postprocess.pitch_fix.rollback"] = False
+                card = post_pitch_card
+                fscore = post_pitch_score
+                edits = len(log)
+            else:
+                for n, original_midi in zip(flat_notes, pre_pitch_state):
+                    n.pitch.midi = original_midi
+                metrics["postprocess.pitch_fix.rollback"] = True
+                reason = (
+                    "pitch_fix rollback: final_score regressed by "
+                    f"{regression:.4f} (threshold={pitch_fix_regression_threshold:.4f})"
+                )
+                warnings.append(reason)
+                logger.warning(reason)
+                card = pre_pitch_card
+                fscore = pre_pitch_score
+                edits = pre_pitch_edits
+        else:
+            if (
+                not can_rollback
+                and regression >= pitch_fix_regression_threshold
+                and regression > 0
+            ):
+                logger.warning(
+                    "pitch_fix regression detected, but rollback unavailable "
+                    "due to save failure"
+                )
+            metrics["postprocess.pitch_fix.rollback"] = False
+            card = post_pitch_card
+            fscore = post_pitch_score
+            edits = len(log)
+    else:
+        edits = len(log)
+        card = score_musicxml(score, edits_count=edits)
+        fscore = final_score(card, weights)
 
     try:
         out_xml = write_musicxml(score)
@@ -116,18 +199,11 @@ def run_postprocess_and_evaluate(
         )
         return None
 
-    edits = len(log)
-    try:
-        validate_weights(weights)
-    except ValueError as exc:
-        logger.warning("bad weights — %s", exc)
-        return None
-    card = score_musicxml(score, edits_count=edits)
-    fscore = final_score(card, weights)
-
     return PipelineRun(
         music_xml=out_xml,
         card=card,
         final_score=fscore,
         edits_count=edits,
+        warnings=warnings,
+        metrics=metrics,
     )

@@ -31,6 +31,78 @@ describe("sanitizeForOsmd", () => {
     expect(cleaned).not.toContain("octave-shift");
   });
 
+  it("removes malformed wedge starts that never receive a stop", () => {
+    const xml = `<?xml version="1.0"?>
+<score-partwise><part-list><score-part id="P1"/></part-list><part id="P1">
+  <measure number="1">
+    <direction><direction-type><wedge type="crescendo"/></direction-type></direction>
+    <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>
+  </measure>
+  <measure number="2">
+    <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration></note>
+  </measure>
+</part></score-partwise>`;
+    const cleaned = sanitizeForOsmd(xml);
+    expect(cleaned).not.toContain('<wedge type="crescendo"');
+  });
+
+  it("keeps well-formed wedge start/stop pairs", () => {
+    const xml = `<?xml version="1.0"?>
+<score-partwise><part-list><score-part id="P1"/></part-list><part id="P1">
+  <measure number="1">
+    <direction><direction-type><wedge type="crescendo"/></direction-type></direction>
+    <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>
+  </measure>
+  <measure number="2">
+    <direction><direction-type><wedge type="stop"/></direction-type></direction>
+    <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration></note>
+  </measure>
+</part></score-partwise>`;
+    const cleaned = sanitizeForOsmd(xml);
+    expect(cleaned).toContain('<wedge type="crescendo"');
+    expect(cleaned).toContain('<wedge type="stop"');
+  });
+
+  it("tracks wedges by number so independent spans do not collide", () => {
+    const xml = `<?xml version="1.0"?>
+<score-partwise><part-list><score-part id="P1"/></part-list><part id="P1">
+  <measure number="1">
+    <direction><direction-type><wedge type="crescendo" number="1"/></direction-type></direction>
+    <direction><direction-type><wedge type="diminuendo" number="2"/></direction-type></direction>
+    <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>
+  </measure>
+  <measure number="2">
+    <direction><direction-type><wedge type="stop" number="2"/></direction-type></direction>
+    <direction><direction-type><wedge type="stop" number="1"/></direction-type></direction>
+    <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration></note>
+  </measure>
+</part></score-partwise>`;
+    const cleaned = sanitizeForOsmd(xml);
+    expect(cleaned).toContain('<wedge type="crescendo" number="1"');
+    expect(cleaned).toContain('<wedge type="diminuendo" number="2"');
+    expect(cleaned).toContain('<wedge type="stop" number="1"');
+    expect(cleaned).toContain('<wedge type="stop" number="2"');
+  });
+
+  it("removes wedges whose start-stop span is implausibly long", () => {
+    const xml = `<?xml version="1.0"?>
+<score-partwise><part-list><score-part id="P1"/></part-list><part id="P1">
+  <measure number="1">
+    <direction><direction-type><wedge type="crescendo" number="1"/></direction-type></direction>
+    <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>
+  </measure>
+  <measure number="2"><note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration></note></measure>
+  <measure number="3"><note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration></note></measure>
+  <measure number="4">
+    <direction><direction-type><wedge type="stop" number="1"/></direction-type></direction>
+    <note><pitch><step>F</step><octave>4</octave></pitch><duration>1</duration></note>
+  </measure>
+</part></score-partwise>`;
+    const cleaned = sanitizeForOsmd(xml);
+    expect(cleaned).not.toContain('<wedge type="crescendo" number="1"');
+    expect(cleaned).not.toContain('<wedge type="stop" number="1"');
+  });
+
   it("repairs zero <divisions> to 1 rather than dropping the element", () => {
     const xml = `<?xml version="1.0"?>
 <score-partwise><part-list><score-part id="P1"/></part-list><part id="P1">
@@ -106,6 +178,8 @@ describe("sanitizeForOsmd", () => {
     expect(part2Measure4?.getElementsByTagName("rest").length).toBe(1);
     expect(part2Measure3?.getElementsByTagName("duration")[0]?.textContent).toBe("1");
     expect(part2Measure4?.getElementsByTagName("duration")[0]?.textContent).toBe("1");
+    expect(part2Measure3?.getElementsByTagName("type")[0]?.textContent).toBe("whole");
+    expect(part2Measure4?.getElementsByTagName("type")[0]?.textContent).toBe("whole");
   });
 
   it("preserves measure numbers and inserts missing rests before later measures", () => {
@@ -143,6 +217,8 @@ describe("sanitizeForOsmd", () => {
     );
     expect(part2Measure13?.getElementsByTagName("rest").length).toBe(1);
     expect(part2Measure14?.getElementsByTagName("rest").length).toBe(1);
+    expect(part2Measure13?.getElementsByTagName("type")[0]?.textContent).toBe("whole");
+    expect(part2Measure14?.getElementsByTagName("type")[0]?.textContent).toBe("whole");
   });
 
   it("aligns non-reference part key signatures to the reference part", () => {
