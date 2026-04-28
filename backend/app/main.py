@@ -11,6 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from .cache import AnalyzeCache, hash_pdf_bytes
 from .music.accompaniment import find_accompaniment_part, find_solo_part
 from .music.merger import merge_layout_with_musicxml
+from .music.solo_merger import merge_solo_into_full
+from .pdf import count_pages, detect_solo_split, slice_pdf
 from .music.parser import (
     extract_score_title,
     extract_divisions_and_tempo,
@@ -183,9 +185,43 @@ async def analyze(
                 )
             param_set_id, params = _load_active_params()
             active_param_set_id = param_set_id
+
+            # Solo enrichment: when the caller provided an explicit solo PDF
+            # we always run a second Audiveris pass on it. When no explicit
+            # solo PDF is provided, we try to detect a solo-only section
+            # inside the main PDF and split it off automatically (Pattern B
+            # in the product spec). The detection is conservative — when in
+            # doubt we keep the original PDF intact.
+            full_pdf_for_omr = pdf_path
+            inferred_solo_pdf: Path | None = None
+            if solo_pdf_path is None:
+                detection = detect_solo_split(pdf_path)
+                if detection is not None:
+                    total = count_pages(pdf_path)
+                    if 0 < detection.solo_start_page < total:
+                        try:
+                            inferred_solo_pdf = slice_pdf(
+                                pdf_path,
+                                tmp / "auto_solo.pdf",
+                                start_page=detection.solo_start_page,
+                            )
+                            full_pdf_for_omr = slice_pdf(
+                                pdf_path,
+                                tmp / "auto_full.pdf",
+                                start_page=0,
+                                end_page=detection.solo_start_page,
+                            )
+                            warnings.append(
+                                f"PDF を自動分割: 1〜{detection.solo_start_page} ページを"
+                                f" 全体譜、{detection.solo_start_page + 1} ページ以降を"
+                                "ソロ専用譜として解析します。"
+                            )
+                        except (OSError, ValueError) as exc:
+                            logger.warning("Auto solo split failed: %s", exc)
+
             try:
                 omr_result = run_omr_via_pipeline(
-                    pdf_path,
+                    full_pdf_for_omr,
                     tmp / "out",
                     param_set_id=param_set_id,
                     params=params,
@@ -197,6 +233,49 @@ async def analyze(
                 logger.exception("Pipeline aborted")
                 raise HTTPException(500, f"OMR failed: {exc}") from exc
             warnings.extend(omr_result.warnings)
+
+            solo_only_xml: str | None = None
+            solo_source = solo_pdf_path or inferred_solo_pdf
+            if solo_source is not None:
+                try:
+                    solo_only_result = run_omr_via_pipeline(
+                        solo_source,
+                        tmp / "solo_out",
+                        param_set_id=param_set_id,
+                        params=params,
+                    )
+                    solo_only_xml = solo_only_result.music_xml
+                    warnings.extend(
+                        f"[ソロ譜] {w}" for w in solo_only_result.warnings
+                    )
+                except AudiverisError as exc:
+                    logger.warning("Solo-only OMR failed: %s", exc)
+                    warnings.append(
+                        f"ソロ専用譜の解析に失敗しました ({exc}); 全体譜の解析結果のみ使用します。"
+                    )
+                except RuntimeError as exc:
+                    logger.warning("Solo-only pipeline aborted: %s", exc)
+                    warnings.append(
+                        f"ソロ専用譜のパイプラインが中断しました ({exc})"
+                    )
+
+            if solo_only_xml:
+                solo_part_hint = find_solo_part(
+                    omr_result.music_xml,
+                    find_accompaniment_part(omr_result.music_xml),
+                )
+                merged_full_xml = merge_solo_into_full(
+                    omr_result.music_xml,
+                    solo_only_xml,
+                    solo_part_id_in_full=solo_part_hint,
+                    warnings=warnings,
+                )
+                omr_result = OmrResult(
+                    music_xml=merged_full_xml,
+                    measures=omr_result.measures,
+                    page_sizes=omr_result.page_sizes,
+                    warnings=omr_result.warnings,
+                )
 
         merged_xml = merge_layout_with_musicxml(
             omr_xml=omr_result.music_xml,

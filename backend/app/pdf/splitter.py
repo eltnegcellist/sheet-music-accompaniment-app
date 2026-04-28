@@ -89,3 +89,33 @@ def split_pdf(
 def iter_chunk_files(chunks: Iterable[PdfChunk]) -> list[Path]:
     """Convenience: list of paths corresponding to each chunk."""
     return [c.path for c in chunks]
+
+
+def slice_pdf(
+    pdf_path: Path,
+    output_path: Path,
+    *,
+    start_page: int,
+    end_page: int | None = None,
+) -> Path:
+    """Write `pdf_path[start_page:end_page]` to `output_path`.
+
+    Page indices are 0-based. `end_page` is exclusive; ``None`` means "to end".
+    Always returns `output_path`. Raises if the requested range is empty.
+    """
+    reader = PdfReader(str(pdf_path))
+    total = len(reader.pages)
+    if start_page < 0 or start_page >= total:
+        raise ValueError(f"start_page {start_page} out of range (0..{total})")
+    end = total if end_page is None else min(total, end_page)
+    if end <= start_page:
+        raise ValueError(
+            f"empty page range: start={start_page} end={end_page} total={total}"
+        )
+    writer = PdfWriter()
+    for page_idx in range(start_page, end):
+        writer.add_page(reader.pages[page_idx])
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("wb") as fh:
+        writer.write(fh)
+    return output_path
