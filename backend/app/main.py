@@ -202,23 +202,44 @@ async def analyze(
                 detection = detect_solo_split(pdf_path)
                 if detection is not None:
                     total = count_pages(pdf_path)
-                    if 0 < detection.solo_start_page < total:
+                    full_ok = (
+                        0 <= detection.full_start_page < detection.full_end_page <= total
+                    )
+                    solo_ok = (
+                        0 <= detection.solo_start_page < detection.solo_end_page <= total
+                    )
+                    if full_ok and solo_ok:
                         try:
+                            full_pdf_for_omr = slice_pdf(
+                                pdf_path,
+                                tmp / "auto_full.pdf",
+                                start_page=detection.full_start_page,
+                                end_page=detection.full_end_page,
+                            )
                             inferred_solo_pdf = slice_pdf(
                                 pdf_path,
                                 tmp / "auto_solo.pdf",
                                 start_page=detection.solo_start_page,
+                                end_page=detection.solo_end_page,
                             )
-                            full_pdf_for_omr = slice_pdf(
-                                pdf_path,
-                                tmp / "auto_full.pdf",
-                                start_page=0,
-                                end_page=detection.solo_start_page,
+                            full_range = (
+                                f"{detection.full_start_page + 1}"
+                                f"〜{detection.full_end_page}"
+                            )
+                            solo_range = (
+                                f"{detection.solo_start_page + 1}"
+                                f"〜{detection.solo_end_page}"
+                            )
+                            order = (
+                                "(ソロ譜が前半に配置されています)"
+                                if detection.solo_at_front
+                                else ""
                             )
                             warnings.append(
-                                f"PDF を自動分割: 1〜{detection.solo_start_page} ページを"
-                                f" 全体譜、{detection.solo_start_page + 1} ページ以降を"
-                                "ソロ専用譜として解析します。"
+                                "PDF を自動分割: "
+                                f"{full_range} ページを全体譜、"
+                                f"{solo_range} ページをソロ専用譜として解析します"
+                                f"{order}"
                             )
                         except (OSError, ValueError) as exc:
                             logger.warning("Auto solo split failed: %s", exc)
