@@ -9,6 +9,7 @@ interface Props {
   currentMeasureIndex: number | null;
   isPlaying: boolean;
   isVisible: boolean;
+  zoomPct?: number;
 }
 
 /**
@@ -25,6 +26,7 @@ export function SheetViewer({
   currentMeasureIndex,
   isPlaying,
   isVisible,
+  zoomPct = 100,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const osmdRef = useRef<OpenSheetMusicDisplay | null>(null);
@@ -151,10 +153,12 @@ export function SheetViewer({
     }
   }, [currentMeasureIndex, isPlaying, isVisible]);
 
+  const maxW = Math.round(900 * (zoomPct / 100));
+
   if (!musicXml) {
     return (
-      <div className="sheet-viewer">
-        <div className="sheet-viewer__status">
+      <div className="sheet-area" style={{ maxWidth: maxW }}>
+        <div className="sheet-area__status">
           PDF を読み込むと譜面が表示されます。
         </div>
       </div>
@@ -162,10 +166,10 @@ export function SheetViewer({
   }
 
   return (
-    <div className="sheet-viewer">
-      {scoreTitle && <h3 className="sheet-viewer__title">{scoreTitle}</h3>}
-      {status && <div className="sheet-viewer__status">{status}</div>}
-      <div ref={containerRef} />
+    <div className="sheet-area" style={{ maxWidth: maxW }}>
+      {scoreTitle && <h3 className="sheet-area__title">{scoreTitle}</h3>}
+      {status && <div className="sheet-area__status">{status}</div>}
+      <div className="sheet-area__osmd" ref={containerRef} />
     </div>
   );
 }

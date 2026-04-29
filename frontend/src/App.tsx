@@ -17,7 +17,7 @@ import {
   type SoloBus,
   type SoloInstrumentName,
 } from "./audio/ToneEngine";
-import { PdfUploader } from "./components/PdfUploader";
+import { PdfUploader, type PdfUploaderHandle } from "./components/PdfUploader";
 import { PdfViewer } from "./components/PdfViewer";
 import {
   PlaybackControls,
@@ -41,22 +41,40 @@ const DEFAULT_PLAYBACK: PlaybackState = {
 };
 
 type ViewMode = "pdf" | "sheet";
+type Scene = "upload" | "analyzing" | "loaded";
+type StatusLed = "" | "on" | "busy" | "err";
+
+const CACHE_HIT_WARNING = "（キャッシュから復元しました）";
 
 export default function App() {
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [musicXmlFile, setMusicXmlFile] = useState<File | null>(null);
   const [soloPdfFile, setSoloPdfFile] = useState<File | null>(null);
   const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
-  const [status, setStatus] = useState<string>("PDFを読み込んでください。");
+  const [statusText, setStatusText] = useState<string>(
+    "PDFをドロップして開始",
+  );
+  const [statusLed, setStatusLed] = useState<StatusLed>("");
+  const [errorText, setErrorText] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [playback, setPlayback] = useState<PlaybackState>(DEFAULT_PLAYBACK);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentMeasure, setCurrentMeasure] = useState<number | null>(null);
-  const [currentMeasureOrdinal, setCurrentMeasureOrdinal] = useState<number | null>(
-    null,
-  );
+  const [currentMeasureOrdinal, setCurrentMeasureOrdinal] = useState<
+    number | null
+  >(null);
   const [viewMode, setViewMode] = useState<ViewMode>("pdf");
+  const [pdfPage, setPdfPage] = useState(0);
+  const [pdfTotalPages, setPdfTotalPages] = useState(0);
+  const [zoom, setZoom] = useState(100);
 
+  // Auto-hide topbar/transport based on cursor proximity. The badge / play
+  // pill stay visible so the user always has an entry point.
+  const [headerVisible, setHeaderVisible] = useState(true);
+  const [footerVisible, setFooterVisible] = useState(false);
+  const hideTimers = useRef<{ h?: number; f?: number }>({});
+
+  const uploaderRef = useRef<PdfUploaderHandle>(null);
   const samplerRef = useRef<Tone.Sampler | null>(null);
   const pianoVolumeRef = useRef<Tone.Volume | null>(null);
   const soloBusRef = useRef<SoloBus | null>(null);
@@ -89,6 +107,22 @@ export default function App() {
       (accompanimentScore?.measures.length ?? 1) - 1
     ]?.index ?? 1;
 
+  const isLoaded = !!analysis;
+  const scene: Scene = busy && !analysis ? "analyzing" : isLoaded ? "loaded" : "upload";
+
+  // Cache state is signaled by a sentinel string in the warnings list (set by
+  // the backend when it returns a cached payload); strip it here so it doesn't
+  // surface as a user-facing warning while still reflecting it in the badge.
+  const cached = useMemo(
+    () => !!analysis?.warnings?.includes(CACHE_HIT_WARNING),
+    [analysis],
+  );
+  const visibleWarnings = useMemo(
+    () =>
+      (analysis?.warnings ?? []).filter((w) => w !== CACHE_HIT_WARNING),
+    [analysis],
+  );
+
   // Reset playback range when a new score loads.
   useEffect(() => {
     if (!accompanimentScore || accompanimentScore.measures.length === 0) return;
@@ -106,6 +140,90 @@ export default function App() {
     }
   }, [accompanimentScore, analysis]);
 
+  // Mouse-proximity auto-hide.
+  useEffect(() => {
+    const HEADER_ZONE = 110;
+    const FOOTER_ZONE = 140;
+    const onMove = (e: MouseEvent) => {
+      const y = e.clientY;
+      const h = window.innerHeight;
+      if (y < HEADER_ZONE) {
+        window.clearTimeout(hideTimers.current.h);
+        setHeaderVisible(true);
+      } else {
+        window.clearTimeout(hideTimers.current.h);
+        hideTimers.current.h = window.setTimeout(
+          () => setHeaderVisible(false),
+          1200,
+        );
+      }
+      if (y > h - FOOTER_ZONE) {
+        window.clearTimeout(hideTimers.current.f);
+        setFooterVisible(true);
+      } else {
+        window.clearTimeout(hideTimers.current.f);
+        hideTimers.current.f = window.setTimeout(
+          () => setFooterVisible(false),
+          1500,
+        );
+      }
+    };
+    window.addEventListener("mousemove", onMove);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      Object.values(hideTimers.current).forEach((t) =>
+        window.clearTimeout(t),
+      );
+    };
+  }, []);
+
+  const tempoLabel = useMemo(() => {
+    if (!analysis) return "";
+    const word = analysis.tempo_matched_word;
+    return word ? `${analysis.tempo_bpm} bpm (${word})` : `${analysis.tempo_bpm} bpm`;
+  }, [analysis]);
+
+  const timeSigLabel = analysis?.time_signature
+    ? `${analysis.time_signature.beats}/${analysis.time_signature.beat_type}`
+    : "";
+
+  // Status badge text + LED follow scene state.
+  useEffect(() => {
+    if (errorText) {
+      setStatusLed("err");
+      setStatusText(errorText);
+      return;
+    }
+    if (busy) {
+      setStatusLed("busy");
+      setStatusText("OMR 解析中…");
+      return;
+    }
+    if (analysis) {
+      setStatusLed("on");
+      const accId = analysis.accompaniment_part_id ?? "?";
+      const soloId = analysis.solo_part_id ?? "なし";
+      const playing = isPlaying && currentMeasure != null;
+      setStatusText(
+        playing
+          ? `再生中 — 小節 ${currentMeasure} / ${measureCount}`
+          : `解析完了 · ${measureCount}小節 · ${accId}+${soloId} · ${tempoLabel} · ${timeSigLabel}`,
+      );
+      return;
+    }
+    setStatusLed("");
+    setStatusText("PDFをドロップして開始");
+  }, [
+    analysis,
+    busy,
+    errorText,
+    isPlaying,
+    currentMeasure,
+    measureCount,
+    tempoLabel,
+    timeSigLabel,
+  ]);
+
   const runAnalyze = async (
     pdf: File | undefined,
     musicXml: File | undefined,
@@ -113,37 +231,16 @@ export default function App() {
     force: boolean,
   ) => {
     setBusy(true);
+    setErrorText(null);
     setAnalysis(null);
     setCurrentMeasure(null);
     setCurrentMeasureOrdinal(null);
-    setStatus(
-      force
-        ? "再解析中… (キャッシュを無視します)"
-        : pdf
-          ? "解析中… (楽譜の解析には数分かかる場合があります)"
-          : "MusicXML を読み込み中…",
-    );
     try {
-      const result = await analyzePdf(pdf, musicXml, {
-        soloPdf,
-        force,
-      });
+      const result = await analyzePdf(pdf, musicXml, { soloPdf, force });
       result.music_xml = sanitizeForOsmd(result.music_xml);
       setAnalysis(result);
-      const parsed = parseScore(
-        result.music_xml,
-        result.accompaniment_part_id,
-        result.solo_part_id ?? null,
-      );
-      setStatus(
-        `解析完了: ${parsed.measures.length} 小節 / タイトル: ${
-          result.score_title ?? "(未検出)"
-        } / 伴奏: ${
-          result.accompaniment_part_id ?? "(自動検出失敗)"
-        } / ソロ: ${result.solo_part_id ?? "なし"}`,
-      );
     } catch (err) {
-      setStatus(`エラー: ${(err as Error).message}`);
+      setErrorText(`エラー: ${(err as Error).message}`);
     } finally {
       setBusy(false);
     }
@@ -157,6 +254,8 @@ export default function App() {
     setPdfFile(pdf ?? null);
     setMusicXmlFile(musicXml ?? null);
     setSoloPdfFile(soloPdf ?? null);
+    setPdfPage(0);
+    setPdfTotalPages(0);
     await runAnalyze(pdf, musicXml, soloPdf, false);
   };
 
@@ -174,7 +273,6 @@ export default function App() {
     if (!accompanimentScore || !analysis || !parsedScore) return;
     await ensureAudioRunning();
     if (!samplerRef.current) {
-      setStatus("ピアノ音源を読み込み中…");
       samplerRef.current = await getPianoSampler();
       if (!pianoVolumeRef.current) {
         pianoVolumeRef.current = new Tone.Volume(0).toDestination();
@@ -183,9 +281,6 @@ export default function App() {
       samplerRef.current.connect(pianoVolumeRef.current);
     }
     if (soloScore) {
-      // Manual override beats the part-name inference. OMR sometimes labels
-      // a single-staff part as "Voice" when it can't OCR the instrument
-      // name, which would otherwise default the playback to violin.
       const wantedInstrument: SoloInstrumentName =
         playback.soloInstrument !== "auto"
           ? playback.soloInstrument
@@ -194,7 +289,6 @@ export default function App() {
         !soloBusRef.current ||
         soloBusRef.current.instrument !== wantedInstrument
       ) {
-        setStatus(`ソロ音源 (${wantedInstrument}) を読み込み中…`);
         soloBusRef.current = await getSoloSampler(wantedInstrument);
       }
     }
@@ -212,13 +306,7 @@ export default function App() {
     const beatsPerBar = analysis.time_signature?.beats ?? 4;
     metronomeRef.current.setBeatsPerBar(beatsPerBar);
     metronomeRef.current.setEnabled(playback.metronome);
-    // Pass through the parser's fermata windows verbatim — they cover the
-    // exact range where the held note is sustained, so the metronome falls
-    // silent over the fermata and resumes cleanly on the next downbeat.
     metronomeRef.current.setFermataWindows(parsedScore.fermataWindows);
-    // Restrict the click track to the playback range so the user gets clicks
-    // on the very first beat of the chosen start measure even when fermatas
-    // earlier in the score have shifted everything by a fractional beat.
     const playRangeMeasures = accompanimentScore.measures.filter(
       (m) => m.index >= playback.startMeasure && m.index <= playback.endMeasure,
     );
@@ -245,7 +333,8 @@ export default function App() {
       soloSynth: soloBusRef.current?.synth,
       onMeasureChange: (ordinal) => {
         setCurrentMeasureOrdinal(ordinal);
-        const measureNumber = accompanimentScore.measures[ordinal - 1]?.index ?? null;
+        const measureNumber =
+          accompanimentScore.measures[ordinal - 1]?.index ?? null;
         setCurrentMeasure(measureNumber);
       },
       startMeasure: playback.startMeasure,
@@ -257,7 +346,6 @@ export default function App() {
         setIsPlaying(false);
         setCurrentMeasure(null);
         setCurrentMeasureOrdinal(null);
-        setStatus("再生完了");
       },
     });
 
@@ -267,7 +355,6 @@ export default function App() {
     );
     transport.start(startAt);
     setIsPlaying(true);
-    setStatus("再生中");
   };
 
   const handleDownloadMusicXml = () => {
@@ -294,7 +381,6 @@ export default function App() {
     setIsPlaying(false);
     setCurrentMeasure(null);
     setCurrentMeasureOrdinal(null);
-    setStatus("停止");
   };
 
   // Live tempo updates while playing.
@@ -322,109 +408,150 @@ export default function App() {
     );
   }, [playback.pianoVolume]);
 
+  const fileLabel = pdfFile?.name ?? musicXmlFile?.name ?? "PDFを開く";
+
   return (
     <div className="app">
-      <header className="app__header">
-        <div className="app__header-main">
-          <strong>IMSLP Accompanist</strong>
-          <PdfUploader disabled={busy} onSelect={handleSelect} />
-          <button
-            type="button"
-            className="reanalyze"
-            onClick={handleReanalyze}
-            disabled={busy || (!pdfFile && !musicXmlFile)}
-            title="キャッシュを破棄してAudiverisを再起動します"
-          >
-            再解析
-          </button>
-          <span className="status">{status}</span>
+      {/* Always-visible logo badge (shown when topbar is collapsed). */}
+      <div className={`logo-badge${headerVisible ? " logo-badge--hidden" : ""}`}>
+        <div className="logo-badge__glyph">♩</div>
+        <span className="logo-badge__name">IMSLP Accompanist</span>
+      </div>
+
+      {/* Topbar (auto-hide). */}
+      <header className={`topbar${headerVisible ? "" : " topbar--collapsed"}`}>
+        <div className="topbar__logo">
+          <div className="topbar__glyph">♩</div>
+          <span className="topbar__name">IMSLP Accompanist</span>
         </div>
-        <div className="view-tabs">
-          <button
-            type="button"
-            className={viewMode === "pdf" ? "view-tabs__active" : ""}
-            onClick={() => setViewMode("pdf")}
-          >
-            PDF
-          </button>
-          <button
-            type="button"
-            className={viewMode === "sheet" ? "view-tabs__active" : ""}
-            onClick={() => setViewMode("sheet")}
-            disabled={!analysis}
-          >
-            譜面
-          </button>
+        <div className="topbar__sep" />
+        <div
+          className={`file-chip${isLoaded ? " file-chip--loaded" : ""}`}
+          onClick={() => uploaderRef.current?.open()}
+          title="ファイルを開く"
+        >
+          <span className="file-chip__icon">{isLoaded ? "📄" : "＋"}</span>
+          <span className="file-chip__name">{fileLabel}</span>
+        </div>
+        {isLoaded && analysis && (
+          <>
+            <div className="topbar__sep" />
+            <span
+              className="topbar__title"
+              title={analysis.score_title ?? undefined}
+            >
+              {analysis.score_title ?? "(タイトル未検出)"}
+            </span>
+            <div className="topbar__sep" />
+            <div className={`cache-badge${cached ? " cache-badge--hit" : ""}`}>
+              <div className="cache-badge__dot" />
+              {cached ? "キャッシュ済み" : "未キャッシュ"}
+            </div>
+            <button
+              type="button"
+              className="reanalyze-btn"
+              disabled={isPlaying || busy}
+              onClick={handleReanalyze}
+              title="キャッシュを破棄してAudiverisを再起動します"
+            >
+              ↺ 再解析
+            </button>
+            <div className="topbar__sep" />
+            <div className="view-tabs">
+              <button
+                type="button"
+                className={`vtab${viewMode === "pdf" ? " vtab--on" : ""}`}
+                onClick={() => setViewMode("pdf")}
+                disabled={!pdfFile}
+              >
+                PDF
+                {pdfTotalPages > 0 && (
+                  <span className="vtab__pill">P.{pdfPage + 1}</span>
+                )}
+              </button>
+              <button
+                type="button"
+                className={`vtab${viewMode === "sheet" ? " vtab--on" : ""}`}
+                onClick={() => setViewMode("sheet")}
+              >
+                譜面 <span className="vtab__pill">OSMD</span>
+              </button>
+            </div>
+          </>
+        )}
+        <div className="topbar__spacer" />
+        <div className="status-badge">
+          {statusLed && (
+            <div className={`status-badge__led status-badge__led--${statusLed}`} />
+          )}
+          <span>{statusText}</span>
         </div>
       </header>
 
-      <main className="app__main">
-        {/* Both views stay mounted so OSMD can measure its container width
-            correctly on first render — toggling display:none collapses the
-            width to zero and OSMD produces a squashed layout. */}
-        <div
-          className={
-            "view-panel" + (viewMode === "pdf" ? "" : " view-panel--hidden")
-          }
-        >
-          <PdfViewer
-            pdfFile={pdfFile}
-            measures={analysis?.measures ?? []}
-            pageSizes={analysis?.page_sizes ?? []}
-            currentMeasureIndex={currentMeasure}
+      {/* Body. */}
+      <div className="body">
+        {scene === "upload" && (
+          <PdfUploader
+            ref={uploaderRef}
+            disabled={busy}
+            onSelect={handleSelect}
           />
-        </div>
-        <div
-          className={
-            "view-panel" + (viewMode === "sheet" ? "" : " view-panel--hidden")
-          }
-        >
-          <SheetViewer
-            musicXml={analysis?.music_xml ?? null}
-            scoreTitle={analysis?.score_title ?? null}
-            currentMeasureIndex={currentMeasureOrdinal}
-            isPlaying={isPlaying}
-            isVisible={viewMode === "sheet"}
+        )}
+        {scene === "analyzing" && <Analyzing />}
+
+        {/* Hidden file input is always mounted so the topbar file chip can
+            invoke the picker even when the upload zone isn't on screen. */}
+        {scene !== "upload" && (
+          <PdfUploader
+            ref={uploaderRef}
+            disabled={busy}
+            onSelect={handleSelect}
+            hidden
           />
-        </div>
-      </main>
+        )}
 
-      <footer className="app__footer">
-        <div className="analysis-actions">
-          <button
-            type="button"
-            onClick={handleDownloadMusicXml}
-            disabled={!analysis}
-          >
-            MusicXML をダウンロード
-          </button>
-          <small>
-            次回は PDF と一緒にこのファイルもドロップすると OMR をスキップして即解析できます。
-          </small>
-          {analysis && (
-            <small className="tempo-debug">
-              テンポ: {analysis.tempo_bpm} bpm
-              {analysis.tempo_matched_word
-                ? ` (${analysis.tempo_matched_word})`
-                : ` (source: ${analysis.tempo_source ?? "?"})`}
-              {analysis.time_signature && (
-                <>
-                  {" / 拍子: "}
-                  {analysis.time_signature.beats}/
-                  {analysis.time_signature.beat_type}
-                </>
-              )}
-
-            </small>
-          )}
-        </div>
-        {analysis?.warnings && analysis.warnings.length > 0 && (
-          <div className="warnings">
-            {analysis.warnings.map((w, i) => (
-              <div key={i}>⚠ {w}</div>
-            ))}
+        {isLoaded && (
+          <div className="score-area">
+            {/* Both views stay mounted so OSMD can measure its container width
+                correctly on first render — toggling display:none collapses the
+                width to zero and OSMD produces a squashed layout. */}
+            <div style={{ display: viewMode === "pdf" ? "contents" : "none" }}>
+              <PdfViewer
+                pdfFile={pdfFile}
+                measures={analysis?.measures ?? []}
+                pageSizes={analysis?.page_sizes ?? []}
+                currentMeasureIndex={currentMeasure}
+                zoomPct={zoom}
+                pageIndex={pdfPage}
+                onPageChange={setPdfPage}
+                onTotalPages={setPdfTotalPages}
+              />
+            </div>
+            <div style={{ display: viewMode === "sheet" ? "contents" : "none" }}>
+              <SheetViewer
+                musicXml={analysis?.music_xml ?? null}
+                scoreTitle={analysis?.score_title ?? null}
+                currentMeasureIndex={currentMeasureOrdinal}
+                isPlaying={isPlaying}
+                isVisible={viewMode === "sheet"}
+                zoomPct={zoom}
+              />
+            </div>
           </div>
         )}
+      </div>
+
+      {/* Warnings (above transport). */}
+      {visibleWarnings.length > 0 && (
+        <div className="warnings">
+          {visibleWarnings.map((w, i) => (
+            <div key={i}>⚠ {w}</div>
+          ))}
+        </div>
+      )}
+
+      {/* Transport. */}
+      {isLoaded && (
         <PlaybackControls
           state={playback}
           onChange={setPlayback}
@@ -436,8 +563,47 @@ export default function App() {
           isReady={!!accompanimentScore && !busy}
           onPlay={handlePlay}
           onStop={handleStop}
+          onDownloadMusicXml={handleDownloadMusicXml}
+          canDownload={!!analysis}
+          timeSignature={analysis?.time_signature ?? null}
+          currentMeasure={currentMeasure}
+          expanded={footerVisible}
         />
-      </footer>
+      )}
+
+      {/* Zoom control. */}
+      {isLoaded && (
+        <div className={`zoom-ctl${footerVisible ? "" : " zoom-ctl--hidden"}`}>
+          <span className="zoom-ctl__lbl">表示</span>
+          <input
+            type="range"
+            className="zoom-sl"
+            min={40}
+            max={160}
+            step={5}
+            value={zoom}
+            onChange={(e) => setZoom(+e.target.value)}
+          />
+          <span className="zoom-ctl__val">{zoom}%</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Analyzing() {
+  const [sec, setSec] = useState(0);
+  useEffect(() => {
+    const t = window.setInterval(() => setSec((s) => s + 1), 1000);
+    return () => window.clearInterval(t);
+  }, []);
+  return (
+    <div className="analyzing">
+      <div className="analyzing__ring" />
+      <div className="analyzing__title">OMR 解析中…</div>
+      <div className="analyzing__elapsed">
+        {sec}s 経過 — 数十秒かかる場合があります
+      </div>
     </div>
   );
 }
