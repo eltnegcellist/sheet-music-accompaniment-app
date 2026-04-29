@@ -75,14 +75,36 @@ def test_invalid_chunk_skipped_with_warning() -> None:
     assert nums["P1"] == [1, 2, 3, 4]
 
 
-def test_part_count_mismatch_records_warning_but_appends() -> None:
+def test_part_count_mismatch_pads_unmatched_part_with_rests() -> None:
+    """Solo-only chunk after a full chunk: P2 must receive rest measures so
+    the timeline stays aligned and downstream detectors can see the silence."""
     a = _score([[1, 2], [1, 2]])
-    b = _score([[1]])  # only one part
+    b = _score([[1, 2, 3]])  # only one part — represents a solo-only chunk
     warnings: list[str] = []
     merged = concat_musicxml([a, b], warnings=warnings)
     nums = _measure_numbers(merged)
-    assert nums["P1"] == [1, 2, 3]
-    assert any("パート数" in w for w in warnings)
+    assert nums["P1"] == [1, 2, 3, 4, 5]
+    # Unmatched scaffold part should now have placeholder rest measures for
+    # the same renumbered range — *not* end abruptly at the previous chunk.
+    assert nums["P2"] == [1, 2, 3, 4, 5]
+
+
+def test_padded_rests_have_no_pitched_notes() -> None:
+    """The placeholders we append must register as 'empty' for downstream
+    silent-run detection — no <pitch>, just rests."""
+    a = _score([[1, 2], [1, 2]])
+    b = _score([[1, 2, 3]])
+    merged = concat_musicxml([a, b])
+    root = etree.fromstring(merged.encode("utf-8"))
+    p2 = root.find(".//part[@id='P2']")
+    assert p2 is not None
+    appended = p2.findall("measure")[2:]  # 3rd onward
+    assert len(appended) == 3
+    for m in appended:
+        # No pitched notes
+        assert not m.findall(".//pitch")
+        # Each placeholder still has at least one <note><rest/> for validity
+        assert m.find(".//note/rest") is not None
 
 
 def test_empty_chunk_list_returns_empty_string() -> None:

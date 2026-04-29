@@ -20,7 +20,7 @@ from .music.solo_section_detector import (
     find_solo_only_measure_range,
     measure_range_to_page_range,
 )
-from .pdf import count_pages, detect_solo_split, slice_pdf
+from .pdf import count_pages, slice_pdf
 from .music.parser import (
     extract_score_title,
     extract_divisions_and_tempo,
@@ -195,58 +195,12 @@ async def analyze(
             active_param_set_id = param_set_id
 
             # Solo enrichment: when the caller provided an explicit solo PDF
-            # we always run a second Audiveris pass on it. When no explicit
-            # solo PDF is provided, we try to detect a solo-only section
-            # inside the main PDF and split it off automatically (Pattern B
-            # in the product spec). The detection is conservative — when in
-            # doubt we keep the original PDF intact.
+            # we always run a second Audiveris pass on it. Otherwise we will
+            # attempt MusicXML-based detection *after* the first OMR (further
+            # down) so we can reason about empty accompaniment measures
+            # rather than fragile pixel/staff-count heuristics.
             full_pdf_for_omr = pdf_path
             inferred_solo_pdf: Path | None = None
-            if solo_pdf_path is None:
-                detection = detect_solo_split(pdf_path)
-                if detection is not None:
-                    total = count_pages(pdf_path)
-                    full_ok = (
-                        0 <= detection.full_start_page < detection.full_end_page <= total
-                    )
-                    solo_ok = (
-                        0 <= detection.solo_start_page < detection.solo_end_page <= total
-                    )
-                    if full_ok and solo_ok:
-                        try:
-                            full_pdf_for_omr = slice_pdf(
-                                pdf_path,
-                                tmp / "auto_full.pdf",
-                                start_page=detection.full_start_page,
-                                end_page=detection.full_end_page,
-                            )
-                            inferred_solo_pdf = slice_pdf(
-                                pdf_path,
-                                tmp / "auto_solo.pdf",
-                                start_page=detection.solo_start_page,
-                                end_page=detection.solo_end_page,
-                            )
-                            full_range = (
-                                f"{detection.full_start_page + 1}"
-                                f"〜{detection.full_end_page}"
-                            )
-                            solo_range = (
-                                f"{detection.solo_start_page + 1}"
-                                f"〜{detection.solo_end_page}"
-                            )
-                            order = (
-                                "(ソロ譜が前半に配置されています)"
-                                if detection.solo_at_front
-                                else ""
-                            )
-                            warnings.append(
-                                "PDF を自動分割: "
-                                f"{full_range} ページを全体譜、"
-                                f"{solo_range} ページをソロ専用譜として解析します"
-                                f"{order}"
-                            )
-                        except (OSError, ValueError) as exc:
-                            logger.warning("Auto solo split failed: %s", exc)
 
             try:
                 omr_result = run_omr_via_pipeline(

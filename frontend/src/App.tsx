@@ -37,6 +37,7 @@ const DEFAULT_PLAYBACK: PlaybackState = {
   metronome: false,
   pianoVolume: 100,
   soloVolume: "normal",
+  soloInstrument: "auto",
 };
 
 type ViewMode = "pdf" | "sheet";
@@ -182,9 +183,13 @@ export default function App() {
       samplerRef.current.connect(pianoVolumeRef.current);
     }
     if (soloScore) {
-      const wantedInstrument: SoloInstrumentName = inferSoloInstrument(
-        analysis?.solo_part_name ?? null,
-      );
+      // Manual override beats the part-name inference. OMR sometimes labels
+      // a single-staff part as "Voice" when it can't OCR the instrument
+      // name, which would otherwise default the playback to violin.
+      const wantedInstrument: SoloInstrumentName =
+        playback.soloInstrument !== "auto"
+          ? playback.soloInstrument
+          : inferSoloInstrument(analysis?.solo_part_name ?? null);
       if (
         !soloBusRef.current ||
         soloBusRef.current.instrument !== wantedInstrument

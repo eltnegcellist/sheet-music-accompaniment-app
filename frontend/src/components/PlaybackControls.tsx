@@ -1,6 +1,12 @@
 import type { ChangeEvent } from "react";
 
+import type { SoloInstrumentName } from "../audio/ToneEngine";
+
 export type SoloVolumeMode = "normal" | "karaoke" | "off";
+
+/** "auto" defers to the part-name heuristic; everything else is a hard
+ *  override the user picked from the dropdown. */
+export type SoloInstrumentChoice = "auto" | SoloInstrumentName;
 
 export interface PlaybackState {
   bpm: number;
@@ -11,7 +17,19 @@ export interface PlaybackState {
   metronome: boolean;
   pianoVolume: number;
   soloVolume: SoloVolumeMode;
+  soloInstrument: SoloInstrumentChoice;
 }
+
+const SOLO_INSTRUMENT_LABELS: Array<[SoloInstrumentChoice, string]> = [
+  ["auto", "自動"],
+  ["violin", "Violin"],
+  ["cello", "Cello"],
+  ["flute", "Flute"],
+  ["clarinet", "Clarinet"],
+  ["trumpet", "Trumpet"],
+  ["saxophone", "Saxophone"],
+  ["guitar", "Guitar"],
+];
 
 interface Props {
   state: PlaybackState;
@@ -157,6 +175,28 @@ export function PlaybackControls({
           <option value="karaoke">カラオケ</option>
           <option value="off">無し</option>
         </select>
+      </label>
+
+      <label>
+        ソロ楽器
+        <select
+          value={state.soloInstrument}
+          disabled={!hasSolo}
+          onChange={(e) =>
+            update({
+              soloInstrument: e.target.value as SoloInstrumentChoice,
+            })
+          }
+        >
+          {SOLO_INSTRUMENT_LABELS.map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
+        <small className="controls__hint">
+          OMRが楽器名を取り違えた場合に手動で上書きできます
+        </small>
       </label>
     </div>
   );

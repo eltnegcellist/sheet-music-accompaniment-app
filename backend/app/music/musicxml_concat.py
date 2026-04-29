@@ -13,9 +13,14 @@ Strategy
 2. For each subsequent chunk, walk its `<part>` elements in document order
    and append every `<measure>` child to the corresponding part in the
    scaffold, renumbering measure@number sequentially across the whole score.
-3. Any chunks whose part count differs from the scaffold are still
-   appended best-effort by index (Audiveris occasionally drops a part on
-   noisy pages); the warnings list records the mismatch.
+3. **Part-count alignment**: when a chunk has fewer parts than the
+   scaffold (a solo-only chunk has 1 part; a piano+solo scaffold has 2),
+   we still need every scaffold part to receive **some** measure for the
+   chunk's measure-number range — otherwise downstream logic that walks
+   measures per part (e.g. find_solo_only_measure_range) sees a "gap"
+   instead of a silent run. We append rest-only placeholder measures to
+   the unmatched scaffold parts so the timeline stays aligned and the
+   accompaniment shows up as silent across that range.
 
 We do **not** try to dedupe `<sound tempo>` / `<direction>` directives
 across chunk boundaries — it's safer to keep them and let the player honor
@@ -77,7 +82,8 @@ def concat_musicxml(
         if len(chunk_parts) != len(base_parts) and warnings is not None:
             warnings.append(
                 f"分割チャンクのパート数 ({len(chunk_parts)}) が"
-                f" 基準 ({len(base_parts)}) と異なります。インデックス順に結合します。"
+                f" 基準 ({len(base_parts)}) と異なります。"
+                "不足パートには休符小節で補完します。"
             )
 
         chunk_max = _max_measure_number(root)
@@ -88,12 +94,38 @@ def concat_musicxml(
         # numbers must stay aligned across parts.
         chunk_min = _min_measure_number(root)
         delta = next_measure_number - max(1, chunk_min)
+
+        # Collect the renumbered measure numbers from the chunk so we can
+        # mirror them into any unmatched scaffold parts (placeholder rests).
+        # Audiveris keeps measure numbers consistent across parts inside a
+        # chunk, so reading them off the first part is sufficient.
+        chunk_measure_numbers: list[str] = []
+        for measure in chunk_parts[0].findall("measure"):
+            shifted = _shifted_measure_number(measure.get("number") or "", delta)
+            if shifted:
+                chunk_measure_numbers.append(shifted)
+
+        matched_target_indices: set[int] = set()
         for idx, chunk_part in enumerate(chunk_parts):
-            target = base_parts[idx] if idx < len(base_parts) else base_parts[-1]
+            target_idx = idx if idx < len(base_parts) else len(base_parts) - 1
+            matched_target_indices.add(target_idx)
+            target = base_parts[target_idx]
             for measure in chunk_part.findall("measure"):
                 cloned = deepcopy(measure)
                 _shift_measure_number(cloned, delta)
                 target.append(cloned)
+
+        # Keep the timeline aligned across all scaffold parts: append a
+        # placeholder rest measure to anything we didn't have a chunk part
+        # for. Without this the part appears to "drop out" mid-piece, and
+        # detectors that search for long silent stretches (e.g. solo-only
+        # detection) can't see them.
+        for idx, target in enumerate(base_parts):
+            if idx in matched_target_indices:
+                continue
+            for number in chunk_measure_numbers:
+                target.append(_make_rest_measure(number))
+
         next_measure_number = chunk_max + delta + 1
 
     return etree.tostring(
@@ -138,11 +170,21 @@ def _min_measure_number(root: etree._Element) -> int:
 
 
 def _shift_measure_number(measure: etree._Element, delta: int) -> None:
+    shifted = _shifted_measure_number(measure.get("number") or "", delta)
+    if shifted is not None:
+        measure.set("number", shifted)
+
+
+def _shifted_measure_number(raw: str, delta: int) -> str | None:
+    """Return the renumbered string for a measure attribute or None.
+
+    Some scores number pickup measures "X1" or similar — preserve any non-
+    digit prefix so we don't break implicit-measure semantics. Negative or
+    non-parseable numbers are returned unchanged (so the original attribute
+    stays valid).
+    """
     if delta == 0:
-        return
-    raw = measure.get("number") or ""
-    # Some scores number pickup measures "X1" or similar — preserve the
-    # prefix to avoid breaking implicit-measure semantics.
+        return raw or None
     prefix = ""
     digits = raw
     while digits and not digits[0].isdigit() and digits[0] != "-":
@@ -151,7 +193,23 @@ def _shift_measure_number(measure: etree._Element, delta: int) -> None:
     try:
         n = int(digits) if digits else 0
     except ValueError:
-        return
+        return raw or None
     if n <= 0:
-        return
-    measure.set("number", f"{prefix}{n + delta}")
+        return raw or None
+    return f"{prefix}{n + delta}"
+
+
+def _make_rest_measure(number: str) -> etree._Element:
+    """Build a measure element holding a single full-measure rest.
+
+    The resulting `<measure>` is structurally valid and contains zero
+    pitched notes — exactly what the empty-measure detector needs to see
+    in order to flag a long accompaniment-silent run.
+    """
+    measure = etree.Element("measure", number=number)
+    note = etree.SubElement(measure, "note")
+    rest = etree.SubElement(note, "rest")
+    rest.set("measure", "yes")
+    duration = etree.SubElement(note, "duration")
+    duration.text = "1"
+    return measure
