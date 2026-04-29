@@ -16,6 +16,10 @@ from .music.accompaniment import (
 )
 from .music.merger import merge_layout_with_musicxml
 from .music.solo_merger import merge_solo_into_full
+from .music.solo_section_detector import (
+    find_solo_only_measure_range,
+    measure_range_to_page_range,
+)
 from .pdf import count_pages, detect_solo_split, slice_pdf
 from .music.parser import (
     extract_score_title,
@@ -258,6 +262,57 @@ async def analyze(
                 logger.exception("Pipeline aborted")
                 raise HTTPException(500, f"OMR failed: {exc}") from exc
             warnings.extend(omr_result.warnings)
+
+            # Post-OMR detection: when neither an explicit solo PDF nor the
+            # pre-OMR pixel heuristic produced a slice, examine the OMR'd
+            # MusicXML to see whether a long stretch of measures has an empty
+            # accompaniment part. That structural signal is more reliable
+            # than ink-density heuristics on engravings where the solo-only
+            # pages are densely packed (and thus have similar pixel density
+            # to full-score pages).
+            if solo_pdf_path is None and inferred_solo_pdf is None:
+                try:
+                    acc_part_id = find_accompaniment_part(omr_result.music_xml)
+                except Exception as exc:  # lxml parse / detection edge cases
+                    logger.warning("post-OMR solo detect: acc part lookup failed: %s", exc)
+                    acc_part_id = None
+                if acc_part_id:
+                    detected_range = find_solo_only_measure_range(
+                        omr_result.music_xml,
+                        acc_part_id,
+                    )
+                    if detected_range is not None:
+                        page_range = measure_range_to_page_range(
+                            omr_result.measures,
+                            detected_range.start_measure,
+                            detected_range.end_measure,
+                        )
+                        if page_range is not None and page_range[0] < page_range[1]:
+                            try:
+                                inferred_solo_pdf = slice_pdf(
+                                    pdf_path,
+                                    tmp / "musicxml_inferred_solo.pdf",
+                                    start_page=page_range[0],
+                                    end_page=page_range[1],
+                                )
+                                position = (
+                                    "前半"
+                                    if detected_range.solo_at_front
+                                    else "後半"
+                                )
+                                warnings.append(
+                                    "MusicXML 解析の結果、"
+                                    f"{detected_range.start_measure}〜"
+                                    f"{detected_range.end_measure} 小節 (PDF "
+                                    f"{page_range[0] + 1}〜{page_range[1]} ページ) "
+                                    f"で伴奏パートが {detected_range.accompaniment_empty_count} "
+                                    f"小節連続して空のため、{position}をソロ専用譜と"
+                                    "判定し再解析します。"
+                                )
+                            except (OSError, ValueError) as exc:
+                                logger.warning(
+                                    "musicxml-based solo slice failed: %s", exc
+                                )
 
             solo_only_xml: str | None = None
             solo_source = solo_pdf_path or inferred_solo_pdf
