@@ -1,73 +1,72 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useImperativeHandle, useRef, useState, forwardRef } from "react";
 
 interface Props {
   disabled?: boolean;
   onSelect: (pdf?: File, musicXml?: File, soloPdf?: File) => void;
+  /** When true, render only a hidden input — the parent draws its own UI and
+   *  triggers the picker via the imperative ref. */
+  hidden?: boolean;
 }
 
-const SOLO_NAME_RE = /(solo|独奏|ソロ|violin|vln|vn|cello|vc|flute|fl|ob|oboe|clarinet|cl|sax|trumpet|tp)/i;
+export interface PdfUploaderHandle {
+  open: () => void;
+}
 
-export function PdfUploader({ disabled, onSelect }: Props) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [dragActive, setDragActive] = useState(false);
+const SOLO_NAME_RE =
+  /(solo|独奏|ソロ|violin|vln|vn|cello|vc|flute|fl|ob|oboe|clarinet|cl|sax|trumpet|tp)/i;
 
-  const pickFromList = useCallback(
-    (files: FileList | null) => {
-      if (!files || files.length === 0) return;
-      const pdfs: File[] = [];
-      let xml: File | undefined;
-      for (const f of Array.from(files)) {
-        if (/\.pdf$/i.test(f.name)) pdfs.push(f);
-        else if (/\.(xml|musicxml|mxl)$/i.test(f.name)) xml = f;
-      }
+/** Picks accompaniment PDF / MusicXML / solo PDF from a flat FileList using
+ *  filename heuristics. Multiple PDFs → the one matching the solo regex (or
+ *  the smaller file) is the solo-only score. */
+function pickFiles(files: FileList | null): {
+  pdf?: File;
+  xml?: File;
+  soloPdf?: File;
+} {
+  if (!files || files.length === 0) return {};
+  const pdfs: File[] = [];
+  let xml: File | undefined;
+  for (const f of Array.from(files)) {
+    if (/\.pdf$/i.test(f.name)) pdfs.push(f);
+    else if (/\.(xml|musicxml|mxl)$/i.test(f.name)) xml = f;
+  }
 
-      let pdf: File | undefined;
-      let soloPdf: File | undefined;
-      if (pdfs.length === 1) {
-        pdf = pdfs[0];
-      } else if (pdfs.length >= 2) {
-        // Heuristic: a file whose name contains "solo" / instrument name is the
-        // solo-only score; the other is the full score with accompaniment.
-        const soloIdx = pdfs.findIndex((f) => SOLO_NAME_RE.test(f.name));
-        if (soloIdx >= 0) {
-          soloPdf = pdfs[soloIdx];
-          pdf = pdfs.find((_, i) => i !== soloIdx);
-        } else {
-          // Fall back to "smaller file is the solo" — solo-only PDFs are
-          // almost always thinner than the full accompaniment score.
-          const sorted = [...pdfs].sort((a, b) => b.size - a.size);
-          pdf = sorted[0];
-          soloPdf = sorted[1];
-        }
-      }
-      if (pdf || xml) onSelect(pdf, xml, soloPdf);
-    },
-    [onSelect],
-  );
+  let pdf: File | undefined;
+  let soloPdf: File | undefined;
+  if (pdfs.length === 1) {
+    pdf = pdfs[0];
+  } else if (pdfs.length >= 2) {
+    const soloIdx = pdfs.findIndex((f) => SOLO_NAME_RE.test(f.name));
+    if (soloIdx >= 0) {
+      soloPdf = pdfs[soloIdx];
+      pdf = pdfs.find((_, i) => i !== soloIdx);
+    } else {
+      const sorted = [...pdfs].sort((a, b) => b.size - a.size);
+      pdf = sorted[0];
+      soloPdf = sorted[1];
+    }
+  }
+  return { pdf, xml, soloPdf };
+}
 
-  return (
-    <div className="uploader">
-      <div
-        className={`uploader__drop${dragActive ? " uploader__drop--active" : ""}`}
-        onClick={() => inputRef.current?.click()}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragActive(true);
-        }}
-        onDragLeave={() => setDragActive(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDragActive(false);
-          pickFromList(e.dataTransfer.files);
-        }}
-      >
-        PDF / MusicXML をドロップ、またはクリックして選択
-        <br />
-        <small>
-          (MusicXMLのみでも再生できます。PDF同時指定でハイライト対応 /
-          ソロ専用PDFを同時に投入するとソロ認識が向上します)
-        </small>
-      </div>
+export const PdfUploader = forwardRef<PdfUploaderHandle, Props>(
+  function PdfUploader({ disabled, onSelect, hidden }, ref) {
+    const inputRef = useRef<HTMLInputElement>(null);
+    const [drag, setDrag] = useState(false);
+
+    useImperativeHandle(ref, () => ({
+      open: () => inputRef.current?.click(),
+    }));
+
+    const handleFiles = useCallback(
+      (files: FileList | null) => {
+        const { pdf, xml, soloPdf } = pickFiles(files);
+        if (pdf || xml) onSelect(pdf, xml, soloPdf);
+      },
+      [onSelect],
+    );
+
+    const input = (
       <input
         ref={inputRef}
         type="file"
@@ -75,8 +74,89 @@ export function PdfUploader({ disabled, onSelect }: Props) {
         multiple
         hidden
         disabled={disabled}
-        onChange={(e) => pickFromList(e.target.files)}
+        onChange={(e) => {
+          handleFiles(e.target.files);
+          // Allow selecting the same file again later.
+          e.target.value = "";
+        }}
       />
-    </div>
-  );
-}
+    );
+
+    if (hidden) return input;
+
+    return (
+      <div className="upload">
+        <div
+          className={`drop-card${drag ? " drop-card--drag" : ""}`}
+          onClick={() => inputRef.current?.click()}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDrag(true);
+          }}
+          onDragLeave={() => setDrag(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDrag(false);
+            handleFiles(e.dataTransfer.files);
+          }}
+        >
+          <div className="drop-card__bg">
+            {[
+              { s: 90, x: "5%", y: "8%", o: 0.07 },
+              { s: 70, x: "70%", y: "12%", o: 0.05 },
+              { s: 55, x: "80%", y: "55%", o: 0.04 },
+              { s: 40, x: "8%", y: "65%", o: 0.04 },
+            ].map((c, i) => (
+              <span
+                key={i}
+                className="drop-card__clef"
+                style={{ fontSize: c.s, left: c.x, top: c.y, opacity: c.o }}
+              >
+                𝄞
+              </span>
+            ))}
+            <svg
+              style={{
+                position: "absolute",
+                inset: 0,
+                width: "100%",
+                height: "100%",
+                opacity: 0.06,
+              }}
+              viewBox="0 0 460 200"
+              preserveAspectRatio="none"
+            >
+              {[60, 68, 76, 84, 92, 130, 138, 146, 154, 162].map((y, i) => (
+                <line
+                  key={i}
+                  x1="20"
+                  y1={y}
+                  x2="440"
+                  y2={y}
+                  stroke="white"
+                  strokeWidth="1.2"
+                />
+              ))}
+            </svg>
+          </div>
+          <div
+            className="drop-card__icon"
+            style={{ position: "relative", zIndex: 1 }}
+          >
+            𝄞
+          </div>
+          <div className="drop-card__title">楽譜PDFをドロップ</div>
+          <div className="drop-card__sub" style={{ marginTop: 8 }}>
+            クリックしてファイルを選択
+            <br />
+            <em>.pdf</em> のみ、または <em>.pdf + .musicxml</em> で OMR をスキップ
+          </div>
+        </div>
+        <div className="upload__hint">
+          IMSLP などから取得した伴奏パート譜に対応
+        </div>
+        {input}
+      </div>
+    );
+  },
+);
