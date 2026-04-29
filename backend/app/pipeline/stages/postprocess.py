@@ -11,7 +11,9 @@ inserted without re-plumbing main.py.
 
 from __future__ import annotations
 
+from fractions import Fraction
 from io import StringIO
+import math
 from pathlib import Path
 from typing import Callable
 
@@ -58,7 +60,31 @@ def write_musicxml(score: stream.Score) -> str:
     `write()` returns a Path; we read it back and clean it up so callers
     work with bytes-in/bytes-out semantics. The temp file is best-effort —
     music21 manages its own temp dir.
+
+    Before export, we normalise every note/rest duration into a safe
+    positive Fraction to avoid music21 hanging on pathological float
+    quarterLength values.
     """
+    for el in score.flatten().notesAndRests:
+        ql = el.duration.quarterLength
+        if isinstance(ql, Fraction):
+            if ql <= 0:
+                el.duration.quarterLength = Fraction(1, 1)
+            continue
+        if isinstance(ql, float):
+            if math.isnan(ql) or math.isinf(ql) or ql <= 0:
+                el.duration.quarterLength = Fraction(1, 1)
+            else:
+                el.duration.quarterLength = Fraction(ql).limit_denominator(256)
+            continue
+        try:
+            parsed = Fraction(str(ql))
+            el.duration.quarterLength = (
+                parsed if parsed > 0 else Fraction(1, 1)
+            )
+        except (TypeError, ValueError, ZeroDivisionError):
+            el.duration.quarterLength = Fraction(1, 1)
+
     target = score.write("musicxml")
     target_path = Path(target)
     try:
