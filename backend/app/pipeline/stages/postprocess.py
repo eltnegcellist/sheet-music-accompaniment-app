@@ -11,7 +11,9 @@ inserted without re-plumbing main.py.
 
 from __future__ import annotations
 
+from fractions import Fraction
 from io import StringIO
+import math
 from pathlib import Path
 from typing import Callable
 
@@ -52,6 +54,34 @@ def parse_musicxml(xml: str) -> stream.Score:
     return score
 
 
+def _sanitize_fractions(stream_obj) -> None:
+    """Recursively normalise stream offsets and durations to safe Fractions.
+
+    This avoids export-time hangs caused by floating-point dust that can
+    produce zero-length forward/backup steps in music21's XML writer.
+    """
+    for el in stream_obj:
+        if hasattr(el, "offset") and el.offset is not None:
+            try:
+                el.offset = Fraction(float(el.offset)).limit_denominator(64)
+            except (TypeError, ValueError, ZeroDivisionError):
+                pass
+
+        if hasattr(el, "duration") and el.duration is not None:
+            try:
+                ql = float(el.duration.quarterLength)
+            except (TypeError, ValueError):
+                ql = 1.0
+
+            if math.isnan(ql) or math.isinf(ql) or ql <= 0:
+                el.duration.quarterLength = Fraction(1, 1)
+            else:
+                el.duration.quarterLength = Fraction(ql).limit_denominator(64)
+
+        if getattr(el, "isStream", False):
+            _sanitize_fractions(el)
+
+
 def write_musicxml(score: stream.Score) -> str:
     """Serialise a music21 Score back to a MusicXML string.
 
@@ -59,6 +89,8 @@ def write_musicxml(score: stream.Score) -> str:
     work with bytes-in/bytes-out semantics. The temp file is best-effort —
     music21 manages its own temp dir.
     """
+    _sanitize_fractions(score)
+
     target = score.write("musicxml")
     target_path = Path(target)
     try:
