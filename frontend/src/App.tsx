@@ -494,35 +494,11 @@ export default function App() {
             <button
               type="button"
               className="reanalyze-btn"
-              onClick={() => uploaderRef.current?.open()}
-              title="別のPDFをアップロード"
-            >
-              ＋ 別のPDFをアップロード
-            </button>
-            <button
-              type="button"
-              className="reanalyze-btn"
               disabled={isPlaying || busy}
               onClick={handleReanalyze}
               title="キャッシュを破棄してAudiverisを再起動します"
             >
               ↺ もう一度PDFを再解析
-            </button>
-            <button
-              type="button"
-              className="reanalyze-btn"
-              onClick={handleBackToUpload}
-              title="アップロード画面に戻る"
-            >
-              ← 戻る
-            </button>
-            <button
-              type="button"
-              className="reanalyze-btn"
-              onClick={handleBackToUpload}
-              title="アップロード画面に戻る"
-            >
-              ← 戻る
             </button>
             <div className="topbar__sep" />
             <div className="view-tabs">
