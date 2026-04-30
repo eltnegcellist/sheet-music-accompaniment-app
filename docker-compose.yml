@@ -6,6 +6,7 @@ services:
       - "8000:8000"
     volumes:
       - ./backend/app:/app/app
+      - ./backend/cache:/app/cache
       # Mount tests + params so the real-PDF E2E harness can read them
       # from the container. The cache directory under tests/fixtures/
       # persists on the host for fast iteration across container restarts.

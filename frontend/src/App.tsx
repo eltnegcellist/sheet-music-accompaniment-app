@@ -121,10 +121,6 @@ export default function App() {
   // Cache state is signaled by a sentinel string in the warnings list (set by
   // the backend when it returns a cached payload); strip it here so it doesn't
   // surface as a user-facing warning while still reflecting it in the badge.
-  const cached = useMemo(
-    () => !!analysis?.warnings?.includes(CACHE_HIT_WARNING),
-    [analysis],
-  );
   const visibleWarnings = useMemo(
     () =>
       (analysis?.warnings ?? []).filter((w) => w !== CACHE_HIT_WARNING),
@@ -455,6 +451,7 @@ export default function App() {
       setWarningsDismissed(false);
       setPdfPage(0);
       setPdfTotalPages(0);
+      setViewMode("sheet");
       setMusicXmlFile(null);
       setSoloPdfFile(null);
     } catch (err) {
@@ -486,17 +483,14 @@ export default function App() {
         {isLoaded && analysis && (
           <>
             <div className="topbar__sep" />
-            <span
-              className="topbar__title"
-              title={analysis.score_title ?? undefined}
+            <button
+              type="button"
+              className="reanalyze-btn"
+              onClick={() => uploaderRef.current?.open()}
+              title="別のPDFをアップロード"
             >
-              {analysis.score_title ?? "(タイトル未検出)"}
-            </span>
-            <div className="topbar__sep" />
-            <div className={`cache-badge${cached ? " cache-badge--hit" : ""}`}>
-              <div className="cache-badge__dot" />
-              {cached ? "キャッシュ済み" : "未キャッシュ"}
-            </div>
+              ＋ 別のPDFをアップロード
+            </button>
             <button
               type="button"
               className="reanalyze-btn"
@@ -512,7 +506,15 @@ export default function App() {
               onClick={handleReanalyze}
               title="キャッシュを破棄してAudiverisを再起動します"
             >
-              ↺ 再解析
+              ↺ もう一度PDFを再解析
+            </button>
+            <button
+              type="button"
+              className="reanalyze-btn"
+              onClick={handleBackToUpload}
+              title="アップロード画面に戻る"
+            >
+              ← 戻る
             </button>
             <button
               type="button"
