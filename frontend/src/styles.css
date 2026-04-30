@@ -612,6 +612,9 @@ body {
   height: 64px;
   padding: 0 6px;
 }
+.transport__row > .tr-sec:first-child {
+  padding-left: 2px;
+}
 .transport__row--2 {
   height: 54px;
   border-top: 1px solid var(--rule);
@@ -832,7 +835,7 @@ body {
   gap: 6px;
 }
 .range-num {
-  width: 44px;
+  width: 56px;
   background: var(--ink-3);
   border: 1px solid var(--rule-hi);
   border-radius: var(--r-sm);
