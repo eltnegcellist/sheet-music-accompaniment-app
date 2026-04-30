@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 
 from .cache import AnalyzeCache, hash_pdf_bytes
 from .music.accompaniment import (
@@ -384,5 +385,28 @@ async def analyze(
                 active_param_set_id,
                 response.model_dump(mode="json"),
             )
+            if pdf_bytes:
+                _analyze_cache.put_pdf(cache_key, active_param_set_id, pdf_bytes)
 
         return response
+
+
+@app.get("/cache")
+def get_cache_list() -> list[dict[str, str | float]]:
+    return _analyze_cache.list_caches()
+
+
+@app.get("/cache/{key}/{param_set_id}")
+def get_cache_json(key: str, param_set_id: str) -> AnalyzeResponse:
+    cached = _analyze_cache.get(key, param_set_id)
+    if not cached:
+        raise HTTPException(404, "Cache not found")
+    return AnalyzeResponse.model_validate(cached)
+
+
+@app.get("/cache/{key}/{param_set_id}/pdf")
+def get_cache_pdf(key: str, param_set_id: str) -> Response:
+    pdf_bytes = _analyze_cache.get_pdf(key, param_set_id)
+    if not pdf_bytes:
+        raise HTTPException(404, "PDF cache not found")
+    return Response(content=pdf_bytes, media_type="application/pdf")
