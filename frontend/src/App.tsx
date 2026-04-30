@@ -67,6 +67,7 @@ export default function App() {
   const [pdfPage, setPdfPage] = useState(0);
   const [pdfTotalPages, setPdfTotalPages] = useState(0);
   const [zoom, setZoom] = useState(100);
+  const [warningsDismissed, setWarningsDismissed] = useState(false);
 
   // Auto-hide topbar/transport based on cursor proximity. The badge / play
   // pill stay visible so the user always has an entry point.
@@ -239,6 +240,7 @@ export default function App() {
       const result = await analyzePdf(pdf, musicXml, { soloPdf, force });
       result.music_xml = sanitizeForOsmd(result.music_xml);
       setAnalysis(result);
+      setWarningsDismissed(false);
     } catch (err) {
       setErrorText(`エラー: ${(err as Error).message}`);
     } finally {
@@ -515,7 +517,12 @@ export default function App() {
             {/* Both views stay mounted so OSMD can measure its container width
                 correctly on first render — toggling display:none collapses the
                 width to zero and OSMD produces a squashed layout. */}
-            <div style={{ display: viewMode === "pdf" ? "contents" : "none" }}>
+            <div
+              className={
+                "view-panel" +
+                (viewMode === "pdf" ? "" : " view-panel--hidden")
+              }
+            >
               <PdfViewer
                 pdfFile={pdfFile}
                 measures={analysis?.measures ?? []}
@@ -527,7 +534,12 @@ export default function App() {
                 onTotalPages={setPdfTotalPages}
               />
             </div>
-            <div style={{ display: viewMode === "sheet" ? "contents" : "none" }}>
+            <div
+              className={
+                "view-panel" +
+                (viewMode === "sheet" ? "" : " view-panel--hidden")
+              }
+            >
               <SheetViewer
                 musicXml={analysis?.music_xml ?? null}
                 scoreTitle={analysis?.score_title ?? null}
@@ -542,11 +554,20 @@ export default function App() {
       </div>
 
       {/* Warnings (above transport). */}
-      {visibleWarnings.length > 0 && (
+      {visibleWarnings.length > 0 && !warningsDismissed && (
         <div className="warnings">
           {visibleWarnings.map((w, i) => (
             <div key={i}>⚠ {w}</div>
           ))}
+          <button
+            type="button"
+            className="warnings__close"
+            onClick={() => setWarningsDismissed(true)}
+            aria-label="閉じる"
+            title="閉じる"
+          >
+            ×
+          </button>
         </div>
       )}
 
