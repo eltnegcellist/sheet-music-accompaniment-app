@@ -132,6 +132,7 @@ async def analyze(
         # user-XML mixes get distinct entries. Empty inputs hash to a known
         # constant; we also fold `_PARAM_SET_ID` in via the file-name suffix.
         cache_key: str | None = None
+        cache_key_pdf_only: str | None = None
         if pdf_bytes:
             cache_key = hash_pdf_bytes(
                 pdf_bytes,
@@ -151,9 +152,12 @@ async def analyze(
                     cached_warnings.append("（キャッシュから復元しました）")
                 cached["warnings"] = cached_warnings
                 return AnalyzeResponse.model_validate(cached)
+
         if cache_key is not None and force_reanalyze:
             logger.info("Force re-analyze: invalidating cache for %s", cache_key[:12])
             _analyze_cache.invalidate(cache_key)
+            if cache_key_pdf_only is not None:
+                _analyze_cache.invalidate(cache_key_pdf_only)
 
         warnings: list[str] = []
         # When the caller supplies a valid MusicXML we can skip Audiveris
