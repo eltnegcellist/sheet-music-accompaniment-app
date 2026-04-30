@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 
 from .cache import AnalyzeCache, hash_pdf_bytes
 from .music.accompaniment import (
@@ -22,13 +23,12 @@ from .music.solo_section_detector import (
 )
 from .pdf import count_pages, slice_pdf
 from .music.parser import (
-    extract_score_title,
     extract_divisions_and_tempo,
     extract_tempo_info,
     extract_time_signature,
     list_measures_with_bbox,
 )
-from .ocr.tempo_ocr import extract_tempo_from_pdf, extract_title_from_pdf
+from .ocr.tempo_ocr import extract_tempo_from_pdf
 from .omr.audiveris_runner import AudiverisError, OmrResult
 from .pipeline.params_loader import ParamsError, load_params
 from .pipeline.run import run_omr_via_pipeline
@@ -336,11 +336,7 @@ async def analyze(
                     "Using OCR-derived tempo %.1f (was default)", ocr_info.bpm
                 )
                 tempo_info = ocr_info
-        score_title = extract_score_title(merged_xml)
-        if score_title is None and pdf is not None:
-            ocr_title = extract_title_from_pdf(pdf_path)
-            if ocr_title:
-                score_title = ocr_title
+        score_title = pdf.filename if pdf is not None else None
         time_signature = extract_time_signature(merged_xml)
         measures = [
             MeasureBox(index=m.index, page=m.page, bbox=m.bbox)
@@ -384,5 +380,28 @@ async def analyze(
                 active_param_set_id,
                 response.model_dump(mode="json"),
             )
+            if pdf_bytes:
+                _analyze_cache.put_pdf(cache_key, active_param_set_id, pdf_bytes)
 
         return response
+
+
+@app.get("/cache")
+def get_cache_list() -> list[dict[str, str | float]]:
+    return _analyze_cache.list_caches()
+
+
+@app.get("/cache/{key}/{param_set_id}")
+def get_cache_json(key: str, param_set_id: str) -> AnalyzeResponse:
+    cached = _analyze_cache.get(key, param_set_id)
+    if not cached:
+        raise HTTPException(404, "Cache not found")
+    return AnalyzeResponse.model_validate(cached)
+
+
+@app.get("/cache/{key}/{param_set_id}/pdf")
+def get_cache_pdf(key: str, param_set_id: str) -> Response:
+    pdf_bytes = _analyze_cache.get_pdf(key, param_set_id)
+    if not pdf_bytes:
+        raise HTTPException(404, "PDF cache not found")
+    return Response(content=pdf_bytes, media_type="application/pdf")

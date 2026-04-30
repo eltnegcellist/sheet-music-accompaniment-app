@@ -45,3 +45,32 @@ export async function analyzePdf(
   }
   return (await response.json()) as AnalyzeResponse;
 }
+
+export interface CacheEntry {
+  key: string;
+  param_set_id: string;
+  pdf_name: string;
+  timestamp: number;
+}
+
+export async function getCacheList(): Promise<CacheEntry[]> {
+  const response = await fetch(`${BACKEND_URL}/cache`);
+  if (!response.ok) throw new Error("Failed to fetch cache list");
+  return (await response.json()) as CacheEntry[];
+}
+
+export async function getCachedAnalysis(
+  key: string,
+  paramSetId: string,
+): Promise<AnalyzeResponse> {
+  const response = await fetch(`${BACKEND_URL}/cache/${key}/${paramSetId}`);
+  if (!response.ok) throw new Error("Failed to fetch cached analysis");
+  return (await response.json()) as AnalyzeResponse;
+}
+
+export async function getCachedPdf(key: string, paramSetId: string): Promise<File> {
+  const response = await fetch(`${BACKEND_URL}/cache/${key}/${paramSetId}/pdf`);
+  if (!response.ok) throw new Error("Failed to fetch cached PDF");
+  const blob = await response.blob();
+  return new File([blob], "cached_score.pdf", { type: "application/pdf" });
+}
