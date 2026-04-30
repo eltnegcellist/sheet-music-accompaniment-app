@@ -180,12 +180,12 @@ body {
   align-items: center;
   gap: 7px;
   padding: 4px 10px;
-  background: var(--ink-3);
-  border: 1px solid var(--rule-hi);
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: var(--r-sm);
-  cursor: pointer;
+  cursor: default;
   font-size: 12px;
-  color: var(--text-2);
+  color: var(--text-4);
   transition:
     border-color 0.15s,
     background 0.15s;
@@ -193,12 +193,12 @@ body {
   max-width: 240px;
 }
 .file-chip:hover {
-  border-color: var(--text-4);
-  background: var(--ink-4);
+  border-color: transparent;
+  background: transparent;
 }
 .file-chip--loaded {
-  border-color: var(--gold);
-  color: var(--gold);
+  border-color: transparent;
+  color: var(--text-4);
 }
 .file-chip__icon {
   font-size: 13px;
@@ -1094,21 +1094,22 @@ body {
 /* ─── WARNINGS ──────────────────────────────── */
 .warnings {
   position: fixed;
-  bottom: 96px;
-  left: 50%;
-  transform: translateX(-50%);
+  right: 8px;
+  bottom: 84px;
   z-index: 29;
-  background: oklch(15% 0.03 42);
-  border: 1px solid oklch(38% 0.08 42);
+  background: var(--ink-2);
+  border: 1px solid var(--rule-hi);
   border-radius: var(--r-md);
   padding: 8px 36px 8px 14px;
   font-size: 11.5px;
-  color: oklch(78% 0.08 50);
+  color: var(--text-3);
   font-family: var(--mono);
   display: flex;
   flex-direction: column;
   gap: 3px;
-  max-width: 500px;
+  width: min(360px, calc(100vw - 16px));
+  max-height: 36vh;
+  overflow-y: auto;
 }
 .warnings__close {
   position: absolute;
@@ -1121,7 +1122,7 @@ body {
   justify-content: center;
   background: transparent;
   border: none;
-  color: oklch(78% 0.08 50 / 0.7);
+  color: var(--text-4);
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
@@ -1131,8 +1132,8 @@ body {
     color 0.15s;
 }
 .warnings__close:hover {
-  background: oklch(38% 0.08 42 / 0.4);
-  color: oklch(92% 0.06 50);
+  background: var(--ink-4);
+  color: var(--text-2);
 }
 
 /* OSMD container (children get full width) */
@@ -1156,4 +1157,54 @@ body {
   overflow: hidden;
   margin: 0;
   gap: 0;
+}
+
+/* ─── CACHE LIST ─────────────────────────────── */
+.cache-list-container {
+  padding: 0 24px 48px;
+  max-width: 460px;
+  margin: 0 auto;
+  width: 100%;
+}
+.cache-list-title {
+  font-size: 13px;
+  color: var(--text-3);
+  margin-bottom: 12px;
+  font-weight: 500;
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 8px;
+}
+.cache-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cache-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--ink-2);
+  border: 1px solid var(--rule-hi);
+  padding: 12px 16px;
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+.cache-item:hover {
+  border-color: var(--gold);
+  background: var(--ink-3);
+}
+.cache-item__title {
+  font-weight: 600;
+  color: var(--text);
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cache-item__date {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-4);
+  flex-shrink: 0;
 }

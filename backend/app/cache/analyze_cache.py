@@ -62,6 +62,9 @@ class AnalyzeCache:
     def path_for(self, key: str, param_set_id: str | None) -> Path:
         return self.root / f"{key}__{_safe_token(param_set_id)}.json"
 
+    def pdf_path_for(self, key: str, param_set_id: str | None) -> Path:
+        return self.root / f"{key}__{_safe_token(param_set_id)}.pdf"
+
     def get(self, key: str, param_set_id: str | None) -> dict[str, Any] | None:
         path = self.path_for(key, param_set_id)
         if not path.exists():
@@ -110,10 +113,66 @@ class AnalyzeCache:
         set cannot mask the new result.
         """
         if param_set_id is not None:
-            path = self.path_for(key, param_set_id)
-            path.unlink(missing_ok=True)
+            self.path_for(key, param_set_id).unlink(missing_ok=True)
+            self.pdf_path_for(key, param_set_id).unlink(missing_ok=True)
             return
         if not self.root.exists():
             return
         for p in self.root.glob(f"{key}__*.json"):
             p.unlink(missing_ok=True)
+        for p in self.root.glob(f"{key}__*.pdf"):
+            p.unlink(missing_ok=True)
+
+    def put_pdf(self, key: str, param_set_id: str | None, pdf_bytes: bytes) -> None:
+        self.root.mkdir(parents=True, exist_ok=True)
+        path = self.pdf_path_for(key, param_set_id)
+        try:
+            with tempfile.NamedTemporaryFile(
+                "wb",
+                dir=self.root,
+                prefix=".tmp_pdf_",
+                suffix=".pdf",
+                delete=False,
+            ) as fh:
+                fh.write(pdf_bytes)
+                tmp_path = Path(fh.name)
+            os.replace(tmp_path, path)
+        except OSError as exc:
+            logger.warning("Cache write failed for PDF %s: %s", path, exc)
+
+    def get_pdf(self, key: str, param_set_id: str | None) -> bytes | None:
+        path = self.pdf_path_for(key, param_set_id)
+        if not path.exists():
+            return None
+        try:
+            return path.read_bytes()
+        except OSError as exc:
+            logger.warning("Cache read failed for PDF %s: %s", path, exc)
+            return None
+
+    def list_caches(self) -> list[dict[str, Any]]:
+        if not self.root.exists():
+            return []
+        caches: list[dict[str, Any]] = []
+        for p in self.root.glob("*.json"):
+            parts = p.stem.split("__")
+            if len(parts) < 2:
+                continue
+            key = parts[0]
+            param_set_id = "__".join(parts[1:])
+            try:
+                with p.open("r", encoding="utf-8") as fh:
+                    payload = json.load(fh)
+                score_title = payload.get("score_title") if isinstance(payload, dict) else None
+                caches.append(
+                    {
+                        "key": key,
+                        "param_set_id": param_set_id,
+                        "pdf_name": score_title or "ファイル名不明",
+                        "timestamp": p.stat().st_mtime,
+                    }
+                )
+            except (OSError, json.JSONDecodeError):
+                continue
+        caches.sort(key=lambda item: item["timestamp"], reverse=True)
+        return caches

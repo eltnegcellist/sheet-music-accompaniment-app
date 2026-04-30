@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as Tone from "tone";
 
-import { analyzePdf } from "./api/analyze";
+import {
+  analyzePdf,
+  getCacheList,
+  getCachedAnalysis,
+  getCachedPdf,
+  type CacheEntry,
+} from "./api/analyze";
 import { Metronome } from "./audio/Metronome";
 import {
   cancelSchedule,
@@ -36,7 +42,7 @@ const DEFAULT_PLAYBACK: PlaybackState = {
   countInBars: 1,
   metronome: false,
   pianoVolume: 100,
-  soloVolume: "normal",
+  soloVolume: "off",
   soloInstrument: "auto",
 };
 
@@ -63,11 +69,12 @@ export default function App() {
   const [currentMeasureOrdinal, setCurrentMeasureOrdinal] = useState<
     number | null
   >(null);
-  const [viewMode, setViewMode] = useState<ViewMode>("pdf");
+  const [viewMode, setViewMode] = useState<ViewMode>("sheet");
   const [pdfPage, setPdfPage] = useState(0);
   const [pdfTotalPages, setPdfTotalPages] = useState(0);
   const [zoom, setZoom] = useState(100);
   const [warningsDismissed, setWarningsDismissed] = useState(false);
+  const [cacheList, setCacheList] = useState<CacheEntry[]>([]);
 
   // Auto-hide topbar/transport based on cursor proximity. The badge / play
   // pill stay visible so the user always has an entry point.
@@ -114,10 +121,6 @@ export default function App() {
   // Cache state is signaled by a sentinel string in the warnings list (set by
   // the backend when it returns a cached payload); strip it here so it doesn't
   // surface as a user-facing warning while still reflecting it in the badge.
-  const cached = useMemo(
-    () => !!analysis?.warnings?.includes(CACHE_HIT_WARNING),
-    [analysis],
-  );
   const visibleWarnings = useMemo(
     () =>
       (analysis?.warnings ?? []).filter((w) => w !== CACHE_HIT_WARNING),
@@ -385,6 +388,20 @@ export default function App() {
     setCurrentMeasureOrdinal(null);
   };
 
+  const handleBackToUpload = () => {
+    handleStop();
+    setAnalysis(null);
+    setPdfFile(null);
+    setMusicXmlFile(null);
+    setSoloPdfFile(null);
+    setErrorText(null);
+    setWarningsDismissed(false);
+    setPdfPage(0);
+    setPdfTotalPages(0);
+    setViewMode("pdf");
+    getCacheList().then(setCacheList).catch(console.error);
+  };
+
   // Live tempo updates while playing.
   useEffect(() => {
     Tone.getTransport().bpm.rampTo(playback.bpm, 0.05);
@@ -412,6 +429,38 @@ export default function App() {
 
   const fileLabel = pdfFile?.name ?? musicXmlFile?.name ?? "PDFを開く";
 
+  useEffect(() => {
+    getCacheList().then(setCacheList).catch(console.error);
+  }, []);
+
+  const loadFromCache = async (entry: CacheEntry) => {
+    setBusy(true);
+    setErrorText(null);
+    setAnalysis(null);
+    setPdfFile(null);
+    setCurrentMeasure(null);
+    setCurrentMeasureOrdinal(null);
+    try {
+      const [analysisResult, pdfFileResult] = await Promise.all([
+        getCachedAnalysis(entry.key, entry.param_set_id),
+        getCachedPdf(entry.key, entry.param_set_id),
+      ]);
+      analysisResult.music_xml = sanitizeForOsmd(analysisResult.music_xml);
+      setPdfFile(pdfFileResult);
+      setAnalysis(analysisResult);
+      setWarningsDismissed(false);
+      setPdfPage(0);
+      setPdfTotalPages(0);
+      setViewMode("sheet");
+      setMusicXmlFile(null);
+      setSoloPdfFile(null);
+    } catch (err) {
+      setErrorText(`キャッシュの読み込みに失敗しました: ${(err as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="app">
       {/* Always-visible logo badge (shown when topbar is collapsed). */}
@@ -427,28 +476,21 @@ export default function App() {
           <span className="topbar__name">IMSLP Accompanist</span>
         </div>
         <div className="topbar__sep" />
-        <div
-          className={`file-chip${isLoaded ? " file-chip--loaded" : ""}`}
-          onClick={() => uploaderRef.current?.open()}
-          title="ファイルを開く"
-        >
+        <div className={`file-chip${isLoaded ? " file-chip--loaded" : ""}`}>
           <span className="file-chip__icon">{isLoaded ? "📄" : "＋"}</span>
           <span className="file-chip__name">{fileLabel}</span>
         </div>
         {isLoaded && analysis && (
           <>
             <div className="topbar__sep" />
-            <span
-              className="topbar__title"
-              title={analysis.score_title ?? undefined}
+            <button
+              type="button"
+              className="reanalyze-btn"
+              onClick={() => uploaderRef.current?.open()}
+              title="別のPDFをアップロード"
             >
-              {analysis.score_title ?? "(タイトル未検出)"}
-            </span>
-            <div className="topbar__sep" />
-            <div className={`cache-badge${cached ? " cache-badge--hit" : ""}`}>
-              <div className="cache-badge__dot" />
-              {cached ? "キャッシュ済み" : "未キャッシュ"}
-            </div>
+              ＋ 別のPDFをアップロード
+            </button>
             <button
               type="button"
               className="reanalyze-btn"
@@ -456,7 +498,15 @@ export default function App() {
               onClick={handleReanalyze}
               title="キャッシュを破棄してAudiverisを再起動します"
             >
-              ↺ 再解析
+              ↺ もう一度PDFを再解析
+            </button>
+            <button
+              type="button"
+              className="reanalyze-btn"
+              onClick={handleBackToUpload}
+              title="アップロード画面に戻る"
+            >
+              ← 戻る
             </button>
             <div className="topbar__sep" />
             <div className="view-tabs">
@@ -493,11 +543,40 @@ export default function App() {
       {/* Body. */}
       <div className="body">
         {scene === "upload" && (
-          <PdfUploader
-            ref={uploaderRef}
-            disabled={busy}
-            onSelect={handleSelect}
-          />
+          <div
+            className="upload-container"
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              height: "100%",
+              overflowY: "auto",
+            }}
+          >
+            <PdfUploader
+              ref={uploaderRef}
+              disabled={busy}
+              onSelect={handleSelect}
+            />
+            {cacheList.length > 0 && (
+              <div className="cache-list-container">
+                <h3 className="cache-list-title">最近の曲から開く</h3>
+                <div className="cache-list">
+                  {cacheList.map((c) => (
+                    <div
+                      key={`${c.key}-${c.param_set_id}`}
+                      className="cache-item"
+                      onClick={() => loadFromCache(c)}
+                    >
+                      <span className="cache-item__title">{c.pdf_name}</span>
+                      <span className="cache-item__date">
+                        {new Date(c.timestamp * 1000).toLocaleDateString()}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         )}
         {scene === "analyzing" && <Analyzing />}
 
@@ -623,7 +702,7 @@ function Analyzing() {
       <div className="analyzing__ring" />
       <div className="analyzing__title">OMR 解析中…</div>
       <div className="analyzing__elapsed">
-        {sec}s 経過 — 数十秒かかる場合があります
+        {sec}s 経過 — 数分かかる場合があります
       </div>
     </div>
   );
