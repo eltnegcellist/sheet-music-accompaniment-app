@@ -388,6 +388,20 @@ export default function App() {
     setCurrentMeasureOrdinal(null);
   };
 
+  const handleBackToUpload = () => {
+    handleStop();
+    setAnalysis(null);
+    setPdfFile(null);
+    setMusicXmlFile(null);
+    setSoloPdfFile(null);
+    setErrorText(null);
+    setWarningsDismissed(false);
+    setPdfPage(0);
+    setPdfTotalPages(0);
+    setViewMode("pdf");
+    getCacheList().then(setCacheList).catch(console.error);
+  };
+
   // Live tempo updates while playing.
   useEffect(() => {
     Tone.getTransport().bpm.rampTo(playback.bpm, 0.05);
