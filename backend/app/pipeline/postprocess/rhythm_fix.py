@@ -9,6 +9,7 @@ evaluator can read the trail later.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from fractions import Fraction
 
 from music21 import note, stream
 
@@ -53,7 +54,8 @@ def _apply_actions(
         loc = EditLocation(part=part_id, measure=measure_no, voice=voice_no)
 
         if action.kind == "rest_insert":
-            new_rest = note.Rest(quarterLength=float(action.new_duration_ql or 0))
+            ql = Fraction(float(action.new_duration_ql or 0)).limit_denominator(128)
+            new_rest = note.Rest(quarterLength=ql)
             container.append(new_rest)
             log.append(
                 "rest_insert",
@@ -78,7 +80,7 @@ def _apply_actions(
 
         if action.kind == "snap":
             target = elements[action.note_index] if action.note_index is not None else None
-            new_qL = float(action.new_duration_ql or 0)
+            new_qL = Fraction(float(action.new_duration_ql or 0)).limit_denominator(128)
             if target is not None and new_qL > 0:
                 before = {"duration_ql": float(target.duration.quarterLength)}
                 target.duration.quarterLength = new_qL
@@ -87,7 +89,7 @@ def _apply_actions(
                     reason=action.reason,
                     location=loc,
                     before=before,
-                    after={"duration_ql": new_qL},
+                    after={"duration_ql": float(new_qL)},
                 )
             continue
 

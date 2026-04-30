@@ -11,7 +11,9 @@ inserted without re-plumbing main.py.
 
 from __future__ import annotations
 
+from fractions import Fraction
 from io import StringIO
+import math
 from pathlib import Path
 from typing import Callable
 
@@ -52,6 +54,29 @@ def parse_musicxml(xml: str) -> stream.Score:
     return score
 
 
+def _sanitize_note_rest_durations(score: stream.Score) -> None:
+    """Normalize only note/rest durations to export-safe Fractions.
+
+    We intentionally avoid mutating offsets or non-note elements (clefs,
+    key signatures, time signatures, etc.) to minimize layout side effects.
+    """
+    for part in score.parts:
+        for measure in part.getElementsByClass("Measure"):
+            voices = list(measure.getElementsByClass("Voice"))
+            containers = voices if voices else [measure]
+            for container in containers:
+                for el in container.notesAndRests:
+                    try:
+                        ql = float(el.duration.quarterLength)
+                    except (AttributeError, TypeError, ValueError, OverflowError):
+                        ql = 0.0
+
+                    if math.isnan(ql) or math.isinf(ql) or ql <= 0:
+                        el.duration.quarterLength = Fraction(1, 64)
+                    else:
+                        el.duration.quarterLength = Fraction(ql).limit_denominator(64)
+
+
 def write_musicxml(score: stream.Score) -> str:
     """Serialise a music21 Score back to a MusicXML string.
 
@@ -59,6 +84,8 @@ def write_musicxml(score: stream.Score) -> str:
     work with bytes-in/bytes-out semantics. The temp file is best-effort —
     music21 manages its own temp dir.
     """
+    _sanitize_note_rest_durations(score)
+
     target = score.write("musicxml")
     target_path = Path(target)
     try:

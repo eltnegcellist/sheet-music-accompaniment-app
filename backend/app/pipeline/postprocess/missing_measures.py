@@ -56,7 +56,7 @@ def _build_placeholder(
     expected duration don't misclassify the placeholder as broken.
     """
     placeholder = stream.Measure(number=number)
-    rest_duration = max(bar_duration_ql, 0.0001)  # avoid 0-duration rest
+    rest_duration = max(bar_duration_ql, 1.0)  # avoid tiny durations that can hang music21 export
 
     voices = (
         list(prev_measure.getElementsByClass("Voice"))
