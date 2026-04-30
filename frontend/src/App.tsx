@@ -614,7 +614,7 @@ export default function App() {
               <SheetViewer
                 musicXml={analysis?.music_xml ?? null}
                 scoreTitle={analysis?.score_title ?? null}
-                currentMeasureIndex={currentMeasureOrdinal}
+                currentMeasureIndex={currentMeasure}
                 isPlaying={isPlaying}
                 isVisible={viewMode === "sheet"}
                 zoomPct={zoom}

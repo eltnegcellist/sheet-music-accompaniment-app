@@ -1,7 +1,10 @@
 services:
   backend:
+    platform: linux/amd64
     build:
       context: ./backend
+      args:
+        AUDIVERIS_VERSION: ${AUDIVERIS_VERSION:-5.10.2}
     ports:
       - "8000:8000"
     volumes:
