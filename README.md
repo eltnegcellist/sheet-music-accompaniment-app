@@ -1,104 +1,115 @@
 # IMSLP Accompanist
 
-IMSLP などのパブリックドメイン PDF 楽譜から **伴奏パート（ピアノ）** を抽出し、ブラウザで演奏する Web アプリのプロトタイプ。
-器楽ソロ奏者がリハーサル・本番補助で「伴奏者代わり」に使うことを想定。
+[English](#english) | [日本語](#日本語)
 
-## 構成
+---
 
-| 層 | 技術 |
-|---|---|
-| フロントエンド | React + TypeScript + Vite |
-| PDF 表示 | PDF.js（オーバーレイ Canvas で現在小節をハイライト） |
-| 譜面表示 | OpenSheetMusicDisplay (OSMD)（SVG レンダリング + カーソル追従） |
-| 音声再生 | Tone.js + Salamander Grand Piano (SoundFont) + バイオリン風 PolySynth |
-| バックエンド | Python + FastAPI |
-| OMR | Audiveris (CLI, Docker 同梱) |
-| テンポ／タイトル OCR | pdf2image + Tesseract (ita+eng) |
+## English
 
-## 主な機能
+Web application prototype that extracts **accompaniment (piano) parts** from public-domain sheet music PDFs (such as IMSLP) and plays them in the browser.
 
-### 解析
-- PDF アップロード → Audiveris で MusicXML + 小節バウンディングボックスを抽出
-- 「2段譜のパート」を伴奏（ピアノ）と自動判定。Klavier / Pianoforte / ピアノ などの名称マッチもフォールバック
-- ソロパートは非伴奏パートの中から音符密度で自動選定（OMR の余剰パート対策）
-- テンポ検出は `<sound tempo>` → `<metronome>` → イタリア語テンポ語（Allegro, Andante…）→ PDF 上部の OCR フォールバック → 120 BPM デフォルト の 5 段階
-- タイトルは MusicXML メタデータ → PDF 上部の OCR（中央配置スコアで最も「見出しらしい」行）にフォールバック
-- 任意で同じ曲の MusicXML を一緒にアップロードすると、音符データはそちらを優先（有効なら Audiveris 自体をスキップして大幅高速化 / NPE 回避）
-- MusicXML 単体アップロードでも解析可（PDF 連動ハイライトは不可）
+> Full Japanese document: [README.ja.md](./README.ja.md)
 
-### 再生
-- ピアノ音源で伴奏を再生（Salamander Grand Piano、CDN 経由でロード）
-- ソロパートが検出された場合はバイオリン風シンセ（AM + Sawtooth）で同時再生
-- ソロ音量モード：`普通 / カラオケ(小さめ) / 無し`
-- 伴奏音量スライダー（0–120%）、テンポスライダー（30–240 BPM、再生中でもリアルタイム変更可）
-- 開始小節／終了小節指定、区間ループ、カウントイン（0–4 小節）、メトロノーム
-- フェルマータを検出して音価を延長し、その間のメトロノームクリックを抑制
+### What this app does
 
-### 表示
-- 「PDF」ビュー：元 PDF を表示し、再生中の小節を黄色でオーバーレイ・ハイライト。該当ページへ自動ページ送り
-- 「譜面」ビュー：MusicXML を OSMD でレンダリングし、カーソルを現在小節まで追従
-- MusicXML サニタイザ：不完全な `<time>` 除去、`<divisions>=0` 補正、`<octave-shift>` 除去、ゼロ長ノート除去、パート間の欠落小節を空小節で補填、調号の整合化（OSMD クラッシュ対策）
-- 解析済み MusicXML をダウンロード可（次回アップロードすれば OMR をスキップ）
+#### 1) Analyze score files
+- Upload a PDF, run OMR with **Audiveris**, and extract MusicXML + measure bounding boxes.
+- Auto-detect accompaniment parts (mainly two-staff piano parts).
+- Auto-select a solo part from non-accompaniment parts using note-density heuristics.
+- Detect tempo with multiple fallbacks (`<sound tempo>` -> `<metronome>` -> Italian tempo words -> OCR on the PDF header -> default 120 BPM).
+- Detect title from MusicXML metadata, then fallback to OCR.
+- Optionally upload your own MusicXML together with PDF to prioritize that data and skip heavy OMR in many cases.
+- MusicXML-only upload is also supported (without PDF-linked measure highlight).
 
-## 開発環境
+#### 2) Playback support
+- Play accompaniment with Salamander Grand Piano (Tone.js sampler).
+- If a solo part is detected, play it simultaneously using a violin-like synth.
+- Solo volume modes: normal / karaoke (lower) / mute.
+- Accompaniment volume slider (0-120%) and live tempo slider (30-240 BPM).
+- Start/end measure selection, loop playback, count-in (0-4 measures), metronome.
+- Fermata-aware handling to extend note duration and suppress metronome clicks during the extension.
+
+#### 3) Visual support
+- **PDF view**: shows source PDF and highlights the current measure during playback.
+- **Sheet view**: renders MusicXML via OSMD and follows the current measure cursor.
+- Built-in MusicXML sanitization for unstable OMR output (`time`, `divisions`, empty/invalid notes, missing measures, key consistency, etc.).
+- Download analyzed MusicXML for future fast re-import.
+
+### How to run
+
+#### Option A (recommended): Docker Compose
 
 ```bash
 docker compose up --build
 ```
 
-- フロント: <http://localhost:5173>
-- バックエンド: <http://localhost:8000>（`GET /health` で疎通確認）
+- Frontend: <http://localhost:5173>
+- Backend: <http://localhost:8000> (`GET /health`)
 
-初回ビルドは Audiveris（〜500MB）の取得に時間がかかります。
+> First build may take time because Audiveris image assets are large.
 
-## エンドツーエンド動作確認
+#### Option B: Run frontend/backend separately
 
-1. <http://localhost:5173> を開く
-2. IMSLP からダウンロードした短い曲（数ページ）の PDF をドラッグ＆ドロップ
-3. 解析完了まで待つ（30秒〜1分程度。長い楽譜ほど Audiveris に時間がかかる）
-4. 「再生」ボタンで伴奏ピアノが鳴り、PDF 上で現在小節がハイライトされる
-5. テンポスライダーや「開始小節 / 終了小節 / ループ / カウントイン / メトロノーム / 伴奏音量 / ソロ音量」を試す
-6. 「譜面」タブで OSMD レンダリング + カーソル追従を確認
-7. 「MusicXML をダウンロード」で保存すると、次回以降はその MusicXML と PDF を一緒にドロップするだけで OMR をスキップして即解析
+##### Backend
+```bash
+cd backend
+pip install -e .
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
 
-## テスト
+##### Frontend
+```bash
+cd frontend
+npm install
+npm run dev -- --host 0.0.0.0
+```
+
+### Accuracy notes (important)
+- OMR quality depends heavily on **Audiveris** and source image quality.
+- **Perfect recognition is difficult**, especially for noisy/old scanned sheets.
+- If possible, use **clean, digitally engraved sheet music** rather than scanned paper images for better accuracy.
+
+---
+
+## 日本語
+
+IMSLP などのパブリックドメイン楽譜 PDF から**伴奏パート（主にピアノ）**を抽出し、ブラウザで再生できる Web アプリのプロトタイプです。
+
+> 日本語の完全版: [README.ja.md](./README.ja.md)
+
+### 主な機能
+- PDF を Audiveris で解析し、MusicXML と小節位置を抽出。
+- 伴奏（主に 2 段譜ピアノ）とソロパートを自動判定。
+- テンポ・タイトルを MusicXML 優先、必要に応じて OCR で補完。
+- 伴奏再生、ソロ同時再生、テンポ/音量/ループ/カウントイン/メトロノーム対応。
+- PDF ハイライト表示と譜面ビュー（OSMD）に対応。
+
+### 起動方法
+
+#### 方法 A（推奨）: Docker Compose
 
 ```bash
-# backend (pytest)
-cd backend && pip install -e ".[dev]" && pytest
-
-# frontend (vitest)
-cd frontend && npm install && npm test
+docker compose up --build
 ```
 
-## 既知の制限
+- フロントエンド: <http://localhost:5173>
+- バックエンド: <http://localhost:8000>（`GET /health`）
 
-- Audiveris の OMR 精度は印刷品質に強く依存。スキャン汚れの多い古い譜面では音符の取りこぼし／誤認が発生します。
-- 反復記号（D.C., D.S., volta）は MVP では展開せず、楽譜を上から順に1回だけ演奏します。
-- 拍子変更は検出するものの、メトロノーム UI は冒頭の拍子のみ表示します。
-- ピアノ音源は CDN（tonejs.github.io）から取得。オフライン運用には自前ホストへ差し替えてください。
-- バイオリンパートはサンプルではなくシンセ（PolySynth + AMSynth）で代用。音色は「ピアノと区別できること」を優先した簡易音源です。
-- OCR フォールバック（pdf2image + Tesseract）はコンテナ同梱ですが、page 1 の上部 15% のみ走査するため、タイトルが下方にある譜面では検出できないことがあります。
+#### 方法 B: 個別起動
 
-## ディレクトリ
+```bash
+# backend
+cd backend
+pip install -e .
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
+# frontend
+cd frontend
+npm install
+npm run dev -- --host 0.0.0.0
 ```
-sandbox/
-├── docker-compose.yml
-├── frontend/                    React + Vite (ブラウザ UI)
-│   └── src/
-│       ├── api/                 バックエンド呼び出し (analyze.ts)
-│       ├── audio/               Tone.js エンジン / スケジューラ / メトロノーム
-│       │   ├── ToneEngine.ts    ピアノサンプラ + バイオリン風シンセのシングルトン
-│       │   ├── Scheduler.ts     Tone.Transport への音符 / 小節コールバック登録
-│       │   └── Metronome.ts     クリック音 + カウントイン + フェルマータ抑制
-│       ├── components/          PdfUploader / PdfViewer / SheetViewer / PlaybackControls
-│       └── music/               MusicXML パーサ + OSMD 向けサニタイザ
-└── backend/                     FastAPI + Audiveris + Tesseract
-    └── app/
-        ├── main.py              /analyze エンドポイント
-        ├── schemas.py           Pydantic レスポンスモデル
-        ├── omr/                 Audiveris CLI ラッパ + .omr レイアウト解析
-        ├── music/               伴奏パート判定 / MusicXML マージ / テンポ・拍子抽出
-        └── ocr/                 Tesseract によるテンポ・タイトル OCR フォールバック
-```
+
+### 認識精度に関する重要事項
+- 楽譜読み込み精度は **Audiveris（外部ソフトウェア）に強く依存**します。
+- OMR の性質上、**常に正確な読み込みを保証することは難しい**です。
+- 可能であればスキャン譜よりも**打ち込みの綺麗な楽譜（デジタル浄書譜）**を使うと精度が上がります。
