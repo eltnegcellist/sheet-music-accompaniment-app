@@ -141,16 +141,12 @@ async def analyze(
                 b"|xml|",
                 user_xml_bytes,
             )
-            cache_key_pdf_only = hash_pdf_bytes(pdf_bytes)
 
+        active_param_set_id, params = _load_active_params()
         if cache_key is not None and not force_reanalyze:
-            for key in (cache_key, cache_key_pdf_only):
-                if key is None:
-                    continue
-                cached = _analyze_cache.get(key, _PARAM_SET_ID)
-                if cached is None:
-                    continue
-                logger.info("Cache hit for %s", key[:12])
+            cached = _analyze_cache.get(cache_key, active_param_set_id)
+            if cached is not None:
+                logger.info("Cache hit for %s", cache_key[:12])
                 cached_warnings = list(cached.get("warnings") or [])
                 if "（キャッシュから復元しました）" not in cached_warnings:
                     cached_warnings.append("（キャッシュから復元しました）")
@@ -164,10 +160,6 @@ async def analyze(
                 _analyze_cache.invalidate(cache_key_pdf_only)
 
         warnings: list[str] = []
-        # When OMR is bypassed (user uploaded MusicXML) we still want the
-        # response to record which param set the server is configured for —
-        # set early so every branch lands on the same value.
-        active_param_set_id: str | None = _PARAM_SET_ID
         # When the caller supplies a valid MusicXML we can skip Audiveris
         # entirely. That's ~20x faster on long scores and sidesteps Audiveris
         # bugs (NullPointerExceptions in reduceScores/Voices occur on some
@@ -201,9 +193,6 @@ async def analyze(
                     400,
                     "music_xml is invalid. Please upload a valid MusicXML or add a PDF.",
                 )
-            param_set_id, params = _load_active_params()
-            active_param_set_id = param_set_id
-
             # Solo enrichment: when the caller provided an explicit solo PDF
             # we always run a second Audiveris pass on it. Otherwise we will
             # attempt MusicXML-based detection *after* the first OMR (further
@@ -216,7 +205,7 @@ async def analyze(
                 omr_result = run_omr_via_pipeline(
                     full_pdf_for_omr,
                     tmp / "out",
-                    param_set_id=param_set_id,
+                    param_set_id=active_param_set_id,
                     params=params,
                 )
             except AudiverisError as exc:
@@ -285,7 +274,7 @@ async def analyze(
                     solo_only_result = run_omr_via_pipeline(
                         solo_source,
                         tmp / "solo_out",
-                        param_set_id=param_set_id,
+                        param_set_id=active_param_set_id,
                         params=params,
                     )
                     solo_only_xml = solo_only_result.music_xml
@@ -390,9 +379,10 @@ async def analyze(
         )
 
         if cache_key is not None:
-            payload = response.model_dump(mode="json")
-            _analyze_cache.put(cache_key, _PARAM_SET_ID, payload)
-            if cache_key_pdf_only is not None:
-                _analyze_cache.put(cache_key_pdf_only, _PARAM_SET_ID, payload)
+            _analyze_cache.put(
+                cache_key,
+                active_param_set_id,
+                response.model_dump(mode="json"),
+            )
 
         return response
