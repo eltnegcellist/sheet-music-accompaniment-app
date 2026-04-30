@@ -54,32 +54,27 @@ def parse_musicxml(xml: str) -> stream.Score:
     return score
 
 
-def _sanitize_fractions(stream_obj) -> None:
-    """Recursively normalise stream offsets and durations to safe Fractions.
+def _sanitize_note_rest_durations(score: stream.Score) -> None:
+    """Normalize only note/rest durations to export-safe Fractions.
 
-    This avoids export-time hangs caused by floating-point dust that can
-    produce zero-length forward/backup steps in music21's XML writer.
+    We intentionally avoid mutating offsets or non-note elements (clefs,
+    key signatures, time signatures, etc.) to minimize layout side effects.
     """
-    for el in stream_obj:
-        if hasattr(el, "offset") and el.offset is not None:
-            try:
-                el.offset = Fraction(float(el.offset)).limit_denominator(64)
-            except (TypeError, ValueError, ZeroDivisionError):
-                pass
+    for part in score.parts:
+        for measure in part.getElementsByClass("Measure"):
+            voices = list(measure.getElementsByClass("Voice"))
+            containers = voices if voices else [measure]
+            for container in containers:
+                for el in container.notesAndRests:
+                    try:
+                        ql = float(el.duration.quarterLength)
+                    except (AttributeError, TypeError, ValueError, OverflowError):
+                        ql = 0.0
 
-        if hasattr(el, "duration") and el.duration is not None:
-            try:
-                ql = float(el.duration.quarterLength)
-            except (TypeError, ValueError):
-                ql = 1.0
-
-            if math.isnan(ql) or math.isinf(ql) or ql <= 0:
-                el.duration.quarterLength = Fraction(1, 1)
-            else:
-                el.duration.quarterLength = Fraction(ql).limit_denominator(64)
-
-        if getattr(el, "isStream", False):
-            _sanitize_fractions(el)
+                    if math.isnan(ql) or math.isinf(ql) or ql <= 0:
+                        el.duration.quarterLength = Fraction(1, 64)
+                    else:
+                        el.duration.quarterLength = Fraction(ql).limit_denominator(64)
 
 
 def write_musicxml(score: stream.Score) -> str:
@@ -93,7 +88,7 @@ def write_musicxml(score: stream.Score) -> str:
     positive Fraction to avoid music21 hanging on pathological float
     quarterLength values.
     """
-    _sanitize_fractions(score)
+    _sanitize_note_rest_durations(score)
 
     target = score.write("musicxml")
     target_path = Path(target)
