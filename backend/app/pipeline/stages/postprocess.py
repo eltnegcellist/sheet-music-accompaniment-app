@@ -83,6 +83,10 @@ def write_musicxml(score: stream.Score) -> str:
     `write()` returns a Path; we read it back and clean it up so callers
     work with bytes-in/bytes-out semantics. The temp file is best-effort —
     music21 manages its own temp dir.
+
+    Before export, we normalise every note/rest duration into a safe
+    positive Fraction to avoid music21 hanging on pathological float
+    quarterLength values.
     """
     _sanitize_note_rest_durations(score)
 
