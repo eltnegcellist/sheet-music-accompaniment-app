@@ -1098,7 +1098,7 @@ body {
   background: oklch(15% 0.03 42);
   border: 1px solid oklch(38% 0.08 42);
   border-radius: var(--r-md);
-  padding: 8px 14px;
+  padding: 8px 36px 8px 14px;
   font-size: 11.5px;
   color: oklch(78% 0.08 50);
   font-family: var(--mono);
@@ -1106,10 +1106,51 @@ body {
   flex-direction: column;
   gap: 3px;
   max-width: 500px;
-  pointer-events: none;
+}
+.warnings__close {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: oklch(78% 0.08 50 / 0.7);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 4px;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.warnings__close:hover {
+  background: oklch(38% 0.08 42 / 0.4);
+  color: oklch(92% 0.06 50);
 }
 
 /* OSMD container (children get full width) */
 .sheet-area__osmd {
   width: 100%;
+}
+
+/* Both score views stay mounted so OSMD can measure its container width on
+ * first render — toggling display:none collapses it to 0 and OSMD lays out
+ * a squashed score that doesn't recover. */
+.view-panel {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+.view-panel--hidden {
+  visibility: hidden;
+  height: 0;
+  overflow: hidden;
+  margin: 0;
+  gap: 0;
 }
