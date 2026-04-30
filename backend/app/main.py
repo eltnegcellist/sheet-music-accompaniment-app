@@ -23,13 +23,12 @@ from .music.solo_section_detector import (
 )
 from .pdf import count_pages, slice_pdf
 from .music.parser import (
-    extract_score_title,
     extract_divisions_and_tempo,
     extract_tempo_info,
     extract_time_signature,
     list_measures_with_bbox,
 )
-from .ocr.tempo_ocr import extract_tempo_from_pdf, extract_title_from_pdf
+from .ocr.tempo_ocr import extract_tempo_from_pdf
 from .omr.audiveris_runner import AudiverisError, OmrResult
 from .pipeline.params_loader import ParamsError, load_params
 from .pipeline.run import run_omr_via_pipeline
@@ -337,11 +336,7 @@ async def analyze(
                     "Using OCR-derived tempo %.1f (was default)", ocr_info.bpm
                 )
                 tempo_info = ocr_info
-        score_title = extract_score_title(merged_xml)
-        if score_title is None and pdf is not None:
-            ocr_title = extract_title_from_pdf(pdf_path)
-            if ocr_title:
-                score_title = ocr_title
+        score_title = pdf.filename if pdf is not None else None
         time_signature = extract_time_signature(merged_xml)
         measures = [
             MeasureBox(index=m.index, page=m.page, bbox=m.bbox)

@@ -168,7 +168,7 @@ class AnalyzeCache:
                     {
                         "key": key,
                         "param_set_id": param_set_id,
-                        "score_title": score_title or "タイトル不明",
+                        "pdf_name": score_title or "ファイル名不明",
                         "timestamp": p.stat().st_mtime,
                     }
                 )

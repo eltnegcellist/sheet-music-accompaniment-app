@@ -49,7 +49,7 @@ export async function analyzePdf(
 export interface CacheEntry {
   key: string;
   param_set_id: string;
-  score_title: string;
+  pdf_name: string;
   timestamp: number;
 }
 

@@ -42,7 +42,7 @@ const DEFAULT_PLAYBACK: PlaybackState = {
   countInBars: 1,
   metronome: false,
   pianoVolume: 100,
-  soloVolume: "normal",
+  soloVolume: "off",
   soloInstrument: "auto",
 };
 
@@ -69,7 +69,7 @@ export default function App() {
   const [currentMeasureOrdinal, setCurrentMeasureOrdinal] = useState<
     number | null
   >(null);
-  const [viewMode, setViewMode] = useState<ViewMode>("pdf");
+  const [viewMode, setViewMode] = useState<ViewMode>("sheet");
   const [pdfPage, setPdfPage] = useState(0);
   const [pdfTotalPages, setPdfTotalPages] = useState(0);
   const [zoom, setZoom] = useState(100);
@@ -392,6 +392,20 @@ export default function App() {
     setCurrentMeasureOrdinal(null);
   };
 
+  const handleBackToUpload = () => {
+    handleStop();
+    setAnalysis(null);
+    setPdfFile(null);
+    setMusicXmlFile(null);
+    setSoloPdfFile(null);
+    setErrorText(null);
+    setWarningsDismissed(false);
+    setPdfPage(0);
+    setPdfTotalPages(0);
+    setViewMode("pdf");
+    getCacheList().then(setCacheList).catch(console.error);
+  };
+
   // Live tempo updates while playing.
   useEffect(() => {
     Tone.getTransport().bpm.rampTo(playback.bpm, 0.05);
@@ -465,11 +479,7 @@ export default function App() {
           <span className="topbar__name">IMSLP Accompanist</span>
         </div>
         <div className="topbar__sep" />
-        <div
-          className={`file-chip${isLoaded ? " file-chip--loaded" : ""}`}
-          onClick={() => uploaderRef.current?.open()}
-          title="ファイルを開く"
-        >
+        <div className={`file-chip${isLoaded ? " file-chip--loaded" : ""}`}>
           <span className="file-chip__icon">{isLoaded ? "📄" : "＋"}</span>
           <span className="file-chip__name">{fileLabel}</span>
         </div>
@@ -490,11 +500,27 @@ export default function App() {
             <button
               type="button"
               className="reanalyze-btn"
+              onClick={() => uploaderRef.current?.open()}
+              title="別のPDFをアップロード"
+            >
+              ＋ 別のPDFをアップロード
+            </button>
+            <button
+              type="button"
+              className="reanalyze-btn"
               disabled={isPlaying || busy}
               onClick={handleReanalyze}
               title="キャッシュを破棄してAudiverisを再起動します"
             >
               ↺ 再解析
+            </button>
+            <button
+              type="button"
+              className="reanalyze-btn"
+              onClick={handleBackToUpload}
+              title="アップロード画面に戻る"
+            >
+              ← 戻る
             </button>
             <div className="topbar__sep" />
             <div className="view-tabs">
@@ -555,7 +581,7 @@ export default function App() {
                       className="cache-item"
                       onClick={() => loadFromCache(c)}
                     >
-                      <span className="cache-item__title">{c.score_title}</span>
+                      <span className="cache-item__title">{c.pdf_name}</span>
                       <span className="cache-item__date">
                         {new Date(c.timestamp * 1000).toLocaleDateString()}
                       </span>
@@ -690,7 +716,7 @@ function Analyzing() {
       <div className="analyzing__ring" />
       <div className="analyzing__title">OMR 解析中…</div>
       <div className="analyzing__elapsed">
-        {sec}s 経過 — 数十秒かかる場合があります
+        {sec}s 経過 — 数分かかる場合があります
       </div>
     </div>
   );
