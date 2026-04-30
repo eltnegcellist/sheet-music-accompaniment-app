@@ -13,8 +13,11 @@ from __future__ import annotations
 
 from fractions import Fraction
 from io import StringIO
+import logging
 import math
+import os
 from pathlib import Path
+import signal
 from typing import Callable
 
 from music21 import converter, stream
@@ -38,6 +41,12 @@ from ..postprocess.rhythm import analyse_measures, measure_duration_match_rate
 from ..postprocess.rhythm_fix import fix_rhythm
 from ..postprocess.voice_rebuild import rebuild_voices
 from ..registry import register
+
+logger = logging.getLogger(__name__)
+
+
+class _MusicXMLWriteTimeoutError(TimeoutError):
+    """Raised when music21 MusicXML export exceeds the configured timeout."""
 
 
 def parse_musicxml(xml: str) -> stream.Score:
@@ -88,9 +97,27 @@ def write_musicxml(score: stream.Score) -> str:
     positive Fraction to avoid music21 hanging on pathological float
     quarterLength values.
     """
-    _sanitize_note_rest_durations(score)
+    timeout_s = int(os.getenv("POSTPROCESS_WRITE_TIMEOUT_S", "30"))
 
-    target = score.write("musicxml")
+    def _alarm_handler(signum, frame):  # noqa: ARG001
+        raise _MusicXMLWriteTimeoutError(
+            f"music21 score.write('musicxml') timed out after {timeout_s}s"
+        )
+
+    logger.info("postprocess.write_musicxml start")
+    _sanitize_note_rest_durations(score)
+    logger.info("postprocess.write_musicxml sanitize_done timeout_s=%s", timeout_s)
+
+    prev_handler = signal.signal(signal.SIGALRM, _alarm_handler)
+    signal.alarm(timeout_s)
+    try:
+        logger.info("postprocess.write_musicxml score_write_start")
+        target = score.write("musicxml")
+        logger.info("postprocess.write_musicxml score_write_done")
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, prev_handler)
+
     target_path = Path(target)
     try:
         return target_path.read_text(encoding="utf-8")
