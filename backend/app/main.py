@@ -132,6 +132,7 @@ async def analyze(
         # user-XML mixes get distinct entries. Empty inputs hash to a known
         # constant; we also fold `_PARAM_SET_ID` in via the file-name suffix.
         cache_key: str | None = None
+        cache_key_pdf_only: str | None = None
         if pdf_bytes:
             cache_key = hash_pdf_bytes(
                 pdf_bytes,
@@ -140,18 +141,27 @@ async def analyze(
                 b"|xml|",
                 user_xml_bytes,
             )
+            cache_key_pdf_only = hash_pdf_bytes(pdf_bytes)
+
         if cache_key is not None and not force_reanalyze:
-            cached = _analyze_cache.get(cache_key, _PARAM_SET_ID)
-            if cached is not None:
-                logger.info("Cache hit for %s", cache_key[:12])
+            for key in (cache_key, cache_key_pdf_only):
+                if key is None:
+                    continue
+                cached = _analyze_cache.get(key, _PARAM_SET_ID)
+                if cached is None:
+                    continue
+                logger.info("Cache hit for %s", key[:12])
                 cached_warnings = list(cached.get("warnings") or [])
                 if "（キャッシュから復元しました）" not in cached_warnings:
                     cached_warnings.append("（キャッシュから復元しました）")
                 cached["warnings"] = cached_warnings
                 return AnalyzeResponse.model_validate(cached)
+
         if cache_key is not None and force_reanalyze:
             logger.info("Force re-analyze: invalidating cache for %s", cache_key[:12])
             _analyze_cache.invalidate(cache_key)
+            if cache_key_pdf_only is not None:
+                _analyze_cache.invalidate(cache_key_pdf_only)
 
         warnings: list[str] = []
         # When OMR is bypassed (user uploaded MusicXML) we still want the
@@ -380,10 +390,9 @@ async def analyze(
         )
 
         if cache_key is not None:
-            _analyze_cache.put(
-                cache_key,
-                _PARAM_SET_ID,
-                response.model_dump(mode="json"),
-            )
+            payload = response.model_dump(mode="json")
+            _analyze_cache.put(cache_key, _PARAM_SET_ID, payload)
+            if cache_key_pdf_only is not None:
+                _analyze_cache.put(cache_key_pdf_only, _PARAM_SET_ID, payload)
 
         return response
