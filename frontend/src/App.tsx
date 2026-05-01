@@ -441,7 +441,8 @@ export default function App() {
     getCacheList().then(setCacheList).catch(console.error);
   };
 
-  // Start/stop AudioAnalyzer when syncEnabled changes.
+  // Start/stop AudioAnalyzer only when syncEnabled changes.
+  // Sub-options (autoStop, tempoFollow, etc.) are read via playbackRef at callback time.
   useEffect(() => {
     if (!playback.syncEnabled) {
       audioAnalyzerRef.current?.stop();
@@ -457,28 +458,29 @@ export default function App() {
     const analyzer = new AudioAnalyzer();
     audioAnalyzerRef.current = analyzer;
 
-    // Tempo tracking
-    if (playback.tempoFollow) {
-      const tracker = new TempoTracker();
-      tracker.reset(playbackRef.current.bpm);
-      tempoTrackerRef.current = tracker;
-      tracker.onBpmChange = (bpm) => {
-        setDetectedBpm(bpm);
-        setPlayback((p) => ({ ...p, bpm }));
-      };
-      analyzer.onOnset = (t) => tracker.handleOnset(t);
+    // Always create tracker/follower; callbacks gate on playbackRef flags
+    const tracker = new TempoTracker();
+    tempoTrackerRef.current = tracker;
+    tracker.onBpmChange = (bpm) => {
+      setDetectedBpm(bpm);
+      setPlayback((p) => ({ ...p, bpm }));
+    };
+
+    if (soloScore) {
+      scoreFollowerRef.current = new ScoreFollower(soloScore.notes);
     }
 
-    // Score follower
-    if (playback.autoStopPositionDetect && soloScore) {
-      scoreFollowerRef.current = new ScoreFollower(soloScore.notes);
-      analyzer.onPitch = (hz) => {
-        if (hz !== null) scoreFollowerRef.current?.addPitch(hz);
-      };
-    }
+    analyzer.onOnset = (t) => {
+      if (playbackRef.current.tempoFollow) tracker.handleOnset(t);
+    };
+
+    analyzer.onPitch = (hz) => {
+      if (hz !== null && playbackRef.current.autoStopPositionDetect) {
+        scoreFollowerRef.current?.addPitch(hz);
+      }
+    };
 
     analyzer.onLevel = (db) => {
-      // Normalise -90..0 dB → 0..1 for the meter
       setMicLevel(Math.max(0, Math.min(1, (db + 90) / 90)));
     };
 
@@ -517,7 +519,7 @@ export default function App() {
       audioAnalyzerRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playback.syncEnabled, playback.tempoFollow, playback.autoStop, playback.autoStopPositionDetect]);
+  }, [playback.syncEnabled]);
 
   // Live tempo updates while playing.
   useEffect(() => {
