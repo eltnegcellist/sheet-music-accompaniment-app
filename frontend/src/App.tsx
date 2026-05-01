@@ -11,7 +11,6 @@ import {
 import { AudioAnalyzer } from "./audio/AudioAnalyzer";
 import type { LevelDetail } from "./audio/AudioAnalyzer";
 import { Metronome } from "./audio/Metronome";
-import { ScoreFollower } from "./audio/ScoreFollower";
 import { TempoTracker } from "./audio/TempoTracker";
 import {
   cancelSchedule,
@@ -52,7 +51,6 @@ const DEFAULT_PLAYBACK: PlaybackState = {
   syncEnabled: false,
   tempoFollow: false,
   autoStop: false,
-  autoStopPositionDetect: false,
 };
 
 type AudioFollowState = "idle" | "playing" | "auto-paused" | "manual-stopped";
@@ -103,7 +101,7 @@ export default function App() {
   // Sync feature refs
   const audioAnalyzerRef = useRef<AudioAnalyzer | null>(null);
   const tempoTrackerRef = useRef<TempoTracker | null>(null);
-  const scoreFollowerRef = useRef<ScoreFollower | null>(null);
+  const lastPitchHzRef = useRef<number | null>(null);
   const audioFollowStateRef = useRef<AudioFollowState>("idle");
   const resumeTokenRef = useRef<{ cancelled: boolean } | null>(null);
   const playbackRef = useRef<PlaybackState>(DEFAULT_PLAYBACK);
@@ -450,7 +448,6 @@ export default function App() {
       audioAnalyzerRef.current?.stop();
       audioAnalyzerRef.current = null;
       tempoTrackerRef.current = null;
-      scoreFollowerRef.current = null;
       setMicLevel(0);
       setDetectedBpm(null);
       setMicError(null);
@@ -463,20 +460,15 @@ export default function App() {
     const analyzer = new AudioAnalyzer();
     audioAnalyzerRef.current = analyzer;
 
-    // Always create tracker/follower; callbacks gate on playbackRef flags
     const tracker = new TempoTracker();
     tempoTrackerRef.current = tracker;
+    if (soloScore) tracker.setScore(soloScore.notes);
     tracker.onBpmChange = (bpm) => {
       setDetectedBpm(bpm);
       setPlayback((p) => ({ ...p, bpm }));
-      // addEvent は後で定義されるため ref 経由で呼ぶ代わりに直接 setSyncEvents を使う
       const time = new Date().toLocaleTimeString("ja-JP", { hour12: false });
-      setSyncEvents((prev) => [{ time, kind: "bpm", label: `BPM推定: ${bpm}` }, ...prev].slice(0, 20));
+      setSyncEvents((prev) => [{ time, kind: "bpm" as const, label: `BPM推定: ${bpm}` }, ...prev].slice(0, 20));
     };
-
-    if (soloScore) {
-      scoreFollowerRef.current = new ScoreFollower(soloScore.notes);
-    }
 
     const addEvent = (kind: SyncEvent["kind"], label: string) => {
       const time = new Date().toLocaleTimeString("ja-JP", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -484,15 +476,14 @@ export default function App() {
     };
 
     analyzer.onOnset = (t) => {
-      if (playbackRef.current.tempoFollow) tracker.handleOnset(t);
+      const hz = lastPitchHzRef.current;
+      if (playbackRef.current.tempoFollow && hz !== null) tracker.addPitchOnset(hz, t);
       addEvent("onset", `オンセット t=${t.toFixed(0)}ms`);
     };
 
     analyzer.onPitch = (hz) => {
+      lastPitchHzRef.current = hz;
       setPitchHz(hz);
-      if (hz !== null && playbackRef.current.autoStopPositionDetect) {
-        scoreFollowerRef.current?.addPitch(hz);
-      }
     };
 
     analyzer.onLevel = (db) => {
@@ -519,11 +510,7 @@ export default function App() {
       await new Promise((r) => setTimeout(r, 1500));
       if (token.cancelled) return;
 
-      let resumeMeasure = currentMeasureRef.current ?? playbackRef.current.startMeasure;
-      if (playbackRef.current.autoStopPositionDetect && scoreFollowerRef.current) {
-        const pos = scoreFollowerRef.current.findBestMeasure(playbackRef.current.bpm);
-        if (pos) resumeMeasure = pos.measure;
-      }
+      const resumeMeasure = currentMeasureRef.current ?? playbackRef.current.startMeasure;
       setPlayback((p) => ({ ...p, startMeasure: resumeMeasure }));
       await handlePlay();
     };
