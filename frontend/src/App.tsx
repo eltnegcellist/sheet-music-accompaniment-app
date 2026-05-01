@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as Tone from "tone";
 
 import {
@@ -8,10 +8,7 @@ import {
   getCachedPdf,
   type CacheEntry,
 } from "./api/analyze";
-import { AudioAnalyzer } from "./audio/AudioAnalyzer";
-import type { LevelDetail } from "./audio/AudioAnalyzer";
 import { Metronome } from "./audio/Metronome";
-import { TempoTracker } from "./audio/TempoTracker";
 import {
   cancelSchedule,
   scheduleScore,
@@ -32,7 +29,6 @@ import {
   PlaybackControls,
   type PlaybackState,
 } from "./components/PlaybackControls";
-import type { SyncEvent } from "./components/SyncDebugPanel";
 import { SheetViewer } from "./components/SheetViewer";
 import { parseScore } from "./music/musicXmlParser";
 import { sanitizeForOsmd } from "./music/sanitize";
@@ -48,12 +44,7 @@ const DEFAULT_PLAYBACK: PlaybackState = {
   pianoVolume: 100,
   soloVolume: "off",
   soloInstrument: "auto",
-  syncEnabled: false,
-  tempoFollow: false,
-  autoStop: false,
 };
-
-type AudioFollowState = "idle" | "playing" | "auto-paused" | "manual-stopped";
 
 type ViewMode = "pdf" | "sheet";
 type Scene = "upload" | "analyzing" | "loaded";
@@ -97,26 +88,6 @@ export default function App() {
   const soloBusRef = useRef<SoloBus | null>(null);
   const metronomeRef = useRef<Metronome | null>(null);
   const handleRef = useRef<ScheduledHandle | null>(null);
-
-  // Sync feature refs
-  const audioAnalyzerRef = useRef<AudioAnalyzer | null>(null);
-  const tempoTrackerRef = useRef<TempoTracker | null>(null);
-  const lastPitchHzRef = useRef<number | null>(null);
-  const audioFollowStateRef = useRef<AudioFollowState>("idle");
-  const resumeTokenRef = useRef<{ cancelled: boolean } | null>(null);
-  const playbackRef = useRef<PlaybackState>(DEFAULT_PLAYBACK);
-  const currentMeasureRef = useRef<number | null>(null);
-
-  const [micLevel, setMicLevel] = useState(0);
-  const [detectedBpm, setDetectedBpm] = useState<number | null>(null);
-  const [micError, setMicError] = useState<string | null>(null);
-  const [levelDetail, setLevelDetail] = useState<LevelDetail | null>(null);
-  const [pitchHz, setPitchHz] = useState<number | null>(null);
-  const [syncEvents, setSyncEvents] = useState<SyncEvent[]>([]);
-
-  // Keep refs in sync with state to avoid stale closures in callbacks
-  useEffect(() => { playbackRef.current = playback; }, [playback]);
-  useEffect(() => { currentMeasureRef.current = currentMeasure; }, [currentMeasure]);
 
   const parsedScore = useMemo(() => {
     if (!analysis) return null;
@@ -303,11 +274,8 @@ export default function App() {
     );
   };
 
-  const handlePlay = useCallback(async () => {
-    const accompanimentScore_ = accompanimentScore;
-    const analysis_ = analysis;
-    const parsedScore_ = parsedScore;
-    if (!accompanimentScore_ || !analysis_ || !parsedScore_) return;
+  const handlePlay = async () => {
+    if (!accompanimentScore || !analysis || !parsedScore) return;
     await ensureAudioRunning();
     if (!samplerRef.current) {
       samplerRef.current = await getPianoSampler();
@@ -317,12 +285,11 @@ export default function App() {
       samplerRef.current.disconnect();
       samplerRef.current.connect(pianoVolumeRef.current);
     }
-    const pb = playbackRef.current;
     if (soloScore) {
       const wantedInstrument: SoloInstrumentName =
-        pb.soloInstrument !== "auto"
-          ? pb.soloInstrument
-          : inferSoloInstrument(analysis_?.solo_part_name ?? null);
+        playback.soloInstrument !== "auto"
+          ? playback.soloInstrument
+          : inferSoloInstrument(analysis?.solo_part_name ?? null);
       if (
         !soloBusRef.current ||
         soloBusRef.current.instrument !== wantedInstrument
@@ -339,58 +306,61 @@ export default function App() {
     const transport = Tone.getTransport();
     transport.stop();
     transport.cancel(0);
-    transport.bpm.value = pb.bpm;
+    transport.bpm.value = playback.bpm;
 
-    const beatsPerBar = analysis_.time_signature?.beats ?? 4;
+    const beatsPerBar = analysis.time_signature?.beats ?? 4;
     metronomeRef.current.setBeatsPerBar(beatsPerBar);
-    metronomeRef.current.setEnabled(pb.metronome);
-    metronomeRef.current.setFermataWindows(parsedScore_.fermataWindows);
-    const playRangeMeasures = accompanimentScore_.measures.filter(
-      (m) => m.index >= pb.startMeasure && m.index <= pb.endMeasure,
+    metronomeRef.current.setEnabled(playback.metronome);
+    metronomeRef.current.setFermataWindows(parsedScore.fermataWindows);
+    const playRangeMeasures = accompanimentScore.measures.filter(
+      (m) => m.index >= playback.startMeasure && m.index <= playback.endMeasure,
     );
     const offsetBeats = playRangeMeasures[0]?.startBeat ?? 0;
     metronomeRef.current.setMeasures(playRangeMeasures, offsetBeats);
     metronomeRef.current.start();
 
     if (soloBusRef.current) {
-      soloBusRef.current.volume.volume.value = soloVolumeToDb(pb.soloVolume);
+      soloBusRef.current.volume.volume.value = soloVolumeToDb(
+        playback.soloVolume,
+      );
     }
     if (pianoVolumeRef.current) {
       pianoVolumeRef.current.volume.value = Tone.gainToDb(
-        Math.max(0.0001, pb.pianoVolume / 100),
+        Math.max(0.0001, playback.pianoVolume / 100),
       );
     }
 
     handleRef.current = scheduleScore({
-      notes: accompanimentScore_.notes,
-      measures: accompanimentScore_.measures,
+      notes: accompanimentScore.notes,
+      measures: accompanimentScore.measures,
       sampler: samplerRef.current,
       soloNotes: soloScore?.notes,
       soloSynth: soloBusRef.current?.synth,
       onMeasureChange: (ordinal) => {
         setCurrentMeasureOrdinal(ordinal);
         const measureNumber =
-          accompanimentScore_.measures[ordinal - 1]?.index ?? null;
+          accompanimentScore.measures[ordinal - 1]?.index ?? null;
         setCurrentMeasure(measureNumber);
       },
-      startMeasure: pb.startMeasure,
-      endMeasure: pb.endMeasure,
-      loop: pb.loop,
+      startMeasure: playback.startMeasure,
+      endMeasure: playback.endMeasure,
+      loop: playback.loop,
       onPlaybackComplete: () => {
         metronomeRef.current?.stop();
         handleRef.current = null;
         setIsPlaying(false);
         setCurrentMeasure(null);
         setCurrentMeasureOrdinal(null);
-        audioFollowStateRef.current = "idle";
       },
     });
 
-    const startAt = await metronomeRef.current.countIn(pb.countInBars, pb.bpm);
+    const startAt = await metronomeRef.current.countIn(
+      playback.countInBars,
+      playback.bpm,
+    );
     transport.start(startAt);
     setIsPlaying(true);
-    audioFollowStateRef.current = "playing";
-  }, [accompanimentScore, analysis, parsedScore, soloScore]);
+  };
 
   const handleDownloadMusicXml = () => {
     if (!analysis) return;
@@ -406,7 +376,7 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
-  const handleStop = useCallback((reason: "manual" | "auto" = "manual") => {
+  const handleStop = () => {
     const transport = Tone.getTransport();
     transport.stop();
     transport.cancel(0);
@@ -416,16 +386,7 @@ export default function App() {
     setIsPlaying(false);
     setCurrentMeasure(null);
     setCurrentMeasureOrdinal(null);
-
-    if (reason === "manual") {
-      audioFollowStateRef.current = "manual-stopped";
-      if (resumeTokenRef.current) resumeTokenRef.current.cancelled = true;
-      // analyzer is managed by the syncEnabled useEffect — keep it alive
-    } else {
-      // auto-stop: keep AudioContext alive so onActivity can still fire
-      audioFollowStateRef.current = "auto-paused";
-    }
-  }, []);
+  };
 
   const handleBackToUpload = () => {
     handleStop();
@@ -440,92 +401,6 @@ export default function App() {
     setViewMode("pdf");
     getCacheList().then(setCacheList).catch(console.error);
   };
-
-  // Start/stop AudioAnalyzer only when syncEnabled changes.
-  // Sub-options (autoStop, tempoFollow, etc.) are read via playbackRef at callback time.
-  useEffect(() => {
-    if (!playback.syncEnabled) {
-      audioAnalyzerRef.current?.stop();
-      audioAnalyzerRef.current = null;
-      tempoTrackerRef.current = null;
-      setMicLevel(0);
-      setDetectedBpm(null);
-      setMicError(null);
-      setLevelDetail(null);
-      setPitchHz(null);
-      setSyncEvents([]);
-      return;
-    }
-
-    const analyzer = new AudioAnalyzer();
-    audioAnalyzerRef.current = analyzer;
-
-    const tracker = new TempoTracker();
-    tempoTrackerRef.current = tracker;
-    if (soloScore) tracker.setScore(soloScore.notes);
-    tracker.onBpmChange = (bpm) => {
-      setDetectedBpm(bpm);
-      setPlayback((p) => ({ ...p, bpm }));
-      const time = new Date().toLocaleTimeString("ja-JP", { hour12: false });
-      setSyncEvents((prev) => [{ time, kind: "bpm" as const, label: `BPM推定: ${bpm}` }, ...prev].slice(0, 20));
-    };
-
-    const addEvent = (kind: SyncEvent["kind"], label: string) => {
-      const time = new Date().toLocaleTimeString("ja-JP", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
-      setSyncEvents((prev) => [{ time, kind, label }, ...prev].slice(0, 20));
-    };
-
-    analyzer.onOnset = (t) => {
-      const hz = lastPitchHzRef.current;
-      if (playbackRef.current.tempoFollow && hz !== null) tracker.addPitchOnset(hz, t);
-      addEvent("onset", `オンセット t=${t.toFixed(0)}ms`);
-    };
-
-    analyzer.onPitch = (hz) => {
-      lastPitchHzRef.current = hz;
-      setPitchHz(hz);
-    };
-
-    analyzer.onLevel = (db) => {
-      setMicLevel(Math.max(0, Math.min(1, (db + 90) / 90)));
-    };
-
-    analyzer.onLevelDetail = (detail) => setLevelDetail(detail);
-
-    analyzer.onSilence = () => {
-      addEvent("silence", `無音検出 (状態: ${audioFollowStateRef.current})`);
-      if (!playbackRef.current.autoStop) return;
-      if (audioFollowStateRef.current !== "playing") return;
-      handleStop("auto");
-    };
-
-    analyzer.onActivity = async () => {
-      addEvent("activity", `音声検出 (状態: ${audioFollowStateRef.current})`);
-      if (!playbackRef.current.autoStop) return;
-      if (audioFollowStateRef.current !== "auto-paused") return;
-      audioFollowStateRef.current = "playing";
-
-      const token = { cancelled: false };
-      resumeTokenRef.current = token;
-      await new Promise((r) => setTimeout(r, 1500));
-      if (token.cancelled) return;
-
-      const resumeMeasure = currentMeasureRef.current ?? playbackRef.current.startMeasure;
-      setPlayback((p) => ({ ...p, startMeasure: resumeMeasure }));
-      await handlePlay();
-    };
-
-    analyzer.start().catch((err: Error) => {
-      setMicError(err.message ?? "マイクにアクセスできません");
-      audioAnalyzerRef.current = null;
-    });
-
-    return () => {
-      analyzer.stop();
-      audioAnalyzerRef.current = null;
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playback.syncEnabled]);
 
   // Live tempo updates while playing.
   useEffect(() => {
@@ -778,20 +653,13 @@ export default function App() {
           hasSolo={!!soloScore}
           isPlaying={isPlaying}
           isReady={!!accompanimentScore && !busy}
-          onPlay={() => handlePlay()}
-          onStop={() => handleStop("manual")}
+          onPlay={handlePlay}
+          onStop={handleStop}
           onDownloadMusicXml={handleDownloadMusicXml}
           canDownload={!!analysis}
           timeSignature={analysis?.time_signature ?? null}
           currentMeasure={currentMeasure}
           expanded={footerVisible}
-          micLevel={micLevel}
-          detectedBpm={detectedBpm}
-          micError={micError}
-          levelDetail={levelDetail}
-          pitchHz={pitchHz}
-          syncState={audioFollowStateRef.current}
-          syncEvents={syncEvents}
         />
       )}
 
