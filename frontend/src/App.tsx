@@ -422,10 +422,7 @@ export default function App() {
     if (reason === "manual") {
       audioFollowStateRef.current = "manual-stopped";
       if (resumeTokenRef.current) resumeTokenRef.current.cancelled = true;
-      audioAnalyzerRef.current?.stop();
-      audioAnalyzerRef.current = null;
-      setMicLevel(0);
-      setDetectedBpm(null);
+      // analyzer is managed by the syncEnabled useEffect — keep it alive
     } else {
       // auto-stop: keep AudioContext alive so onActivity can still fire
       audioFollowStateRef.current = "auto-paused";
