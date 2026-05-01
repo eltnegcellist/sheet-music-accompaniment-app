@@ -347,6 +347,9 @@ export function PlaybackControls({
 
           {state.syncEnabled && (
             <>
+              <div className="sync-warning">
+                ⚠ ヘッドホン推奨：スピーカーから出る伴奏音がマイクに入ると、無音検出やテンポ追従が正しく動作しません
+              </div>
               {/* Sub-options row */}
               <div className="sync-sub">
                 <div className="tr-sep" />

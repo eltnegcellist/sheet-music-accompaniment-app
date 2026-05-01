@@ -927,6 +927,16 @@ body {
   width: 100%;
 }
 
+.sync-warning {
+  width: 100%;
+  font-size: 11px;
+  color: #fa5;
+  background: oklch(20% 0.05 60 / 0.3);
+  border-left: 3px solid #fa5;
+  padding: 4px 8px;
+  border-radius: 3px;
+}
+
 .mic-meter {
   display: flex;
   align-items: center;

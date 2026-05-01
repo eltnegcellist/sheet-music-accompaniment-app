@@ -46,7 +46,17 @@ export class AudioAnalyzer {
   }
 
   async start(): Promise<void> {
-    this.stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    // Music-aware constraints: enable AEC to reduce speaker feedback,
+    // disable noise suppression and AGC which would distort musical content
+    // and compress dynamics needed for onset detection.
+    this.stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: false,
+        autoGainControl: false,
+      },
+      video: false,
+    });
     this.audioCtx = new AudioContext();
     this.sourceNode = this.audioCtx.createMediaStreamSource(this.stream);
 
