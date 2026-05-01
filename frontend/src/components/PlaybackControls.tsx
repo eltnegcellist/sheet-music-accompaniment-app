@@ -1,7 +1,9 @@
 import type { ChangeEvent } from "react";
 
+import type { LevelDetail } from "../audio/AudioAnalyzer";
 import type { SoloInstrumentName } from "../audio/ToneEngine";
 import type { TimeSignature } from "../types";
+import { SyncDebugPanel, type SyncEvent } from "./SyncDebugPanel";
 
 export type SoloVolumeMode = "normal" | "karaoke" | "off";
 
@@ -64,6 +66,10 @@ interface Props {
   micLevel?: number;
   detectedBpm?: number | null;
   micError?: string | null;
+  levelDetail?: LevelDetail | null;
+  pitchHz?: number | null;
+  syncState?: string;
+  syncEvents?: SyncEvent[];
 }
 
 export function PlaybackControls({
@@ -85,6 +91,10 @@ export function PlaybackControls({
   micLevel,
   detectedBpm,
   micError,
+  levelDetail,
+  pitchHz,
+  syncState = "idle",
+  syncEvents = [],
 }: Props) {
   const update = (patch: Partial<PlaybackState>) =>
     onChange({ ...state, ...patch });
@@ -388,6 +398,13 @@ export function PlaybackControls({
                 <div className="mic-error">⚠ {micError}</div>
               )}
             </div>
+
+            <SyncDebugPanel
+              levelDetail={levelDetail ?? null}
+              pitchHz={pitchHz ?? null}
+              syncState={syncState}
+              events={syncEvents}
+            />
           )}
         </div>
       </div>

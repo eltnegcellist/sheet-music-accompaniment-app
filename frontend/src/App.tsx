@@ -9,6 +9,7 @@ import {
   type CacheEntry,
 } from "./api/analyze";
 import { AudioAnalyzer } from "./audio/AudioAnalyzer";
+import type { LevelDetail } from "./audio/AudioAnalyzer";
 import { Metronome } from "./audio/Metronome";
 import { ScoreFollower } from "./audio/ScoreFollower";
 import { TempoTracker } from "./audio/TempoTracker";
@@ -32,6 +33,7 @@ import {
   PlaybackControls,
   type PlaybackState,
 } from "./components/PlaybackControls";
+import type { SyncEvent } from "./components/SyncDebugPanel";
 import { SheetViewer } from "./components/SheetViewer";
 import { parseScore } from "./music/musicXmlParser";
 import { sanitizeForOsmd } from "./music/sanitize";
@@ -110,6 +112,9 @@ export default function App() {
   const [micLevel, setMicLevel] = useState(0);
   const [detectedBpm, setDetectedBpm] = useState<number | null>(null);
   const [micError, setMicError] = useState<string | null>(null);
+  const [levelDetail, setLevelDetail] = useState<LevelDetail | null>(null);
+  const [pitchHz, setPitchHz] = useState<number | null>(null);
+  const [syncEvents, setSyncEvents] = useState<SyncEvent[]>([]);
 
   // Keep refs in sync with state to avoid stale closures in callbacks
   useEffect(() => { playbackRef.current = playback; }, [playback]);
@@ -452,6 +457,9 @@ export default function App() {
       setMicLevel(0);
       setDetectedBpm(null);
       setMicError(null);
+      setLevelDetail(null);
+      setPitchHz(null);
+      setSyncEvents([]);
       return;
     }
 
@@ -464,17 +472,27 @@ export default function App() {
     tracker.onBpmChange = (bpm) => {
       setDetectedBpm(bpm);
       setPlayback((p) => ({ ...p, bpm }));
+      // addEvent は後で定義されるため ref 経由で呼ぶ代わりに直接 setSyncEvents を使う
+      const time = new Date().toLocaleTimeString("ja-JP", { hour12: false });
+      setSyncEvents((prev) => [{ time, kind: "bpm", label: `BPM推定: ${bpm}` }, ...prev].slice(0, 20));
     };
 
     if (soloScore) {
       scoreFollowerRef.current = new ScoreFollower(soloScore.notes);
     }
 
+    const addEvent = (kind: SyncEvent["kind"], label: string) => {
+      const time = new Date().toLocaleTimeString("ja-JP", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      setSyncEvents((prev) => [{ time, kind, label }, ...prev].slice(0, 20));
+    };
+
     analyzer.onOnset = (t) => {
       if (playbackRef.current.tempoFollow) tracker.handleOnset(t);
+      addEvent("onset", `オンセット t=${t.toFixed(0)}ms`);
     };
 
     analyzer.onPitch = (hz) => {
+      setPitchHz(hz);
       if (hz !== null && playbackRef.current.autoStopPositionDetect) {
         scoreFollowerRef.current?.addPitch(hz);
       }
@@ -484,13 +502,17 @@ export default function App() {
       setMicLevel(Math.max(0, Math.min(1, (db + 90) / 90)));
     };
 
+    analyzer.onLevelDetail = (detail) => setLevelDetail(detail);
+
     analyzer.onSilence = () => {
+      addEvent("silence", `無音検出 (状態: ${audioFollowStateRef.current})`);
       if (!playbackRef.current.autoStop) return;
       if (audioFollowStateRef.current !== "playing") return;
       handleStop("auto");
     };
 
     analyzer.onActivity = async () => {
+      addEvent("activity", `音声検出 (状態: ${audioFollowStateRef.current})`);
       if (!playbackRef.current.autoStop) return;
       if (audioFollowStateRef.current !== "auto-paused") return;
       audioFollowStateRef.current = "playing";
@@ -782,6 +804,10 @@ export default function App() {
           micLevel={micLevel}
           detectedBpm={detectedBpm}
           micError={micError}
+          levelDetail={levelDetail}
+          pitchHz={pitchHz}
+          syncState={audioFollowStateRef.current}
+          syncEvents={syncEvents}
         />
       )}
 
