@@ -900,6 +900,70 @@ body {
   white-space: nowrap;
 }
 
+/* ── Sync feature UI ─────────────────────────────── */
+.transport__row--sync {
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--rule);
+  align-items: center;
+}
+
+.sync-master {
+  display: flex;
+  align-items: center;
+}
+
+.sync-sub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mic-meter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mic-meter__bar-wrap {
+  width: 80px;
+  height: 6px;
+  background: var(--ink-3);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.mic-meter__bar {
+  height: 100%;
+  background: var(--accent, #5c9cf5);
+  border-radius: 3px;
+  transition: width 80ms linear;
+}
+
+.mic-meter__bpm {
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.mic-error {
+  font-size: 11px;
+  color: var(--danger, #e05c5c);
+}
+
+.experimental-badge {
+  margin-left: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--accent, #5c9cf5);
+  border: 1px solid var(--accent, #5c9cf5);
+  border-radius: 3px;
+  padding: 0 3px;
+  vertical-align: middle;
+}
+
 .cnt-sel {
   background: var(--ink-3);
   border: 1px solid var(--rule-hi);
