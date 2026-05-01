@@ -405,3 +405,24 @@ def get_cache_pdf(key: str, param_set_id: str) -> Response:
     if not pdf_bytes:
         raise HTTPException(404, "PDF cache not found")
     return Response(content=pdf_bytes, media_type="application/pdf")
+
+
+@app.delete("/cache/{key}/{param_set_id}")
+def delete_cache(key: str, param_set_id: str) -> dict[str, str]:
+    _analyze_cache.invalidate(key, param_set_id)
+    return {"status": "deleted"}
+
+
+@app.post("/cache/{key}/{param_set_id}/touch")
+def touch_cache(key: str, param_set_id: str) -> dict[str, str]:
+    json_path = _analyze_cache.path_for(key, param_set_id)
+    pdf_path = _analyze_cache.pdf_path_for(key, param_set_id)
+    if not json_path.exists():
+        raise HTTPException(404, "Cache not found")
+    import time
+    now = time.time()
+    for p in (json_path, pdf_path):
+        if p.exists():
+            import os as _os
+            _os.utime(p, (now, now))
+    return {"status": "touched"}

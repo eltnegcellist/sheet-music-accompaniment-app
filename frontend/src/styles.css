@@ -1189,6 +1189,7 @@ body {
   border-radius: var(--r-md);
   cursor: pointer;
   transition: border-color 0.2s, background 0.2s;
+  gap: 8px;
 }
 .cache-item:hover {
   border-color: var(--gold);
@@ -1201,10 +1202,46 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
 .cache-item__date {
   font-family: var(--mono);
   font-size: 11px;
   color: var(--text-4);
   flex-shrink: 0;
+}
+.cache-item__delete {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-4);
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 4px;
+  cursor: pointer;
+  border-radius: var(--r-sm);
+  transition: color 0.15s, background 0.15s;
+  opacity: 0;
+}
+.cache-item:hover .cache-item__delete {
+  opacity: 1;
+}
+.cache-item__delete:hover {
+  color: #e05;
+  background: rgba(220, 0, 60, 0.1);
+}
+.topbar__logo--clickable {
+  cursor: pointer;
+  border-radius: var(--r-sm);
+  transition: opacity 0.15s;
+}
+.topbar__logo--clickable:hover {
+  opacity: 0.75;
+}
+.logo-badge--clickable {
+  cursor: pointer;
+}
+.logo-badge--clickable:hover {
+  opacity: 0.75;
 }

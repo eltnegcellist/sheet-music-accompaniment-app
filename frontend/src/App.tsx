@@ -6,6 +6,8 @@ import {
   getCacheList,
   getCachedAnalysis,
   getCachedPdf,
+  deleteCache,
+  touchCache,
   type CacheEntry,
 } from "./api/analyze";
 import { Metronome } from "./audio/Metronome";
@@ -445,6 +447,7 @@ export default function App() {
         getCachedAnalysis(entry.key, entry.param_set_id),
         getCachedPdf(entry.key, entry.param_set_id),
       ]);
+      await touchCache(entry.key, entry.param_set_id).catch(() => {});
       analysisResult.music_xml = sanitizeForOsmd(analysisResult.music_xml);
       setPdfFile(pdfFileResult);
       setAnalysis(analysisResult);
@@ -461,17 +464,42 @@ export default function App() {
     }
   };
 
+  const handleDeleteCache = async (
+    e: React.MouseEvent,
+    entry: CacheEntry,
+  ) => {
+    e.stopPropagation();
+    try {
+      await deleteCache(entry.key, entry.param_set_id);
+      setCacheList((prev) =>
+        prev.filter(
+          (c) => !(c.key === entry.key && c.param_set_id === entry.param_set_id),
+        ),
+      );
+    } catch (err) {
+      console.error("キャッシュの削除に失敗しました:", err);
+    }
+  };
+
   return (
     <div className="app">
       {/* Always-visible logo badge (shown when topbar is collapsed). */}
-      <div className={`logo-badge${headerVisible ? " logo-badge--hidden" : ""}`}>
+      <div
+        className={`logo-badge${headerVisible ? " logo-badge--hidden" : ""}${isLoaded ? " logo-badge--clickable" : ""}`}
+        onClick={isLoaded ? handleBackToUpload : undefined}
+        title={isLoaded ? "アップロード画面に戻る" : undefined}
+      >
         <div className="logo-badge__glyph">♩</div>
         <span className="logo-badge__name">IMSLP Accompanist</span>
       </div>
 
       {/* Topbar (auto-hide). */}
       <header className={`topbar${headerVisible ? "" : " topbar--collapsed"}`}>
-        <div className="topbar__logo">
+        <div
+          className={`topbar__logo${isLoaded ? " topbar__logo--clickable" : ""}`}
+          onClick={isLoaded ? handleBackToUpload : undefined}
+          title={isLoaded ? "アップロード画面に戻る" : undefined}
+        >
           <div className="topbar__glyph">♩</div>
           <span className="topbar__name">IMSLP Accompanist</span>
         </div>
@@ -563,6 +591,15 @@ export default function App() {
                       <span className="cache-item__date">
                         {new Date(c.timestamp * 1000).toLocaleDateString()}
                       </span>
+                      <button
+                        type="button"
+                        className="cache-item__delete"
+                        onClick={(e) => handleDeleteCache(e, c)}
+                        title="キャッシュを削除"
+                        aria-label="キャッシュを削除"
+                      >
+                        ×
+                      </button>
                     </div>
                   ))}
                 </div>

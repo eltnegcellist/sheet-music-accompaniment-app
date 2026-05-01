@@ -74,3 +74,17 @@ export async function getCachedPdf(key: string, paramSetId: string): Promise<Fil
   const blob = await response.blob();
   return new File([blob], "cached_score.pdf", { type: "application/pdf" });
 }
+
+export async function deleteCache(key: string, paramSetId: string): Promise<void> {
+  const response = await fetch(`${BACKEND_URL}/cache/${key}/${paramSetId}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) throw new Error("Failed to delete cache entry");
+}
+
+export async function touchCache(key: string, paramSetId: string): Promise<void> {
+  const response = await fetch(`${BACKEND_URL}/cache/${key}/${paramSetId}/touch`, {
+    method: "POST",
+  });
+  if (!response.ok) throw new Error("Failed to touch cache entry");
+}
