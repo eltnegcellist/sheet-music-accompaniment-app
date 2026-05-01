@@ -152,7 +152,8 @@ export function SheetViewer({
     }
   }, [currentMeasureIndex, isPlaying, isVisible]);
 
-  const maxW = Math.round(900 * (zoomPct / 100));
+
+  const maxW = `calc((100vw - 48px) * ${zoomPct / 100})`;
 
   if (!musicXml) {
     return (
