@@ -548,15 +548,6 @@ export default function App() {
             </>
           )}
           <div className="topbar__spacer" />
-          <button
-            type="button"
-            className="lang-btn"
-            onClick={toggleLang}
-            title={T.langToggle}
-            aria-label={T.langToggle}
-          >
-            {T.langToggle}
-          </button>
           <div className="status-badge">
             {statusLed && (
               <div className={`status-badge__led status-badge__led--${statusLed}`} />
@@ -582,6 +573,23 @@ export default function App() {
                 disabled={busy}
                 onSelect={handleSelect}
               />
+              <div className="lang-switch">
+                <button
+                  type="button"
+                  className={`lang-switch__opt${lang === "ja" ? " lang-switch__opt--on" : ""}`}
+                  onClick={() => lang !== "ja" && toggleLang()}
+                >
+                  日本語
+                </button>
+                <span className="lang-switch__sep">|</span>
+                <button
+                  type="button"
+                  className={`lang-switch__opt${lang === "en" ? " lang-switch__opt--on" : ""}`}
+                  onClick={() => lang !== "en" && toggleLang()}
+                >
+                  English
+                </button>
+              </div>
               {cacheList.length > 0 && (
                 <div className="cache-list-container">
                   <h3 className="cache-list-title">{T.recentlyOpened}</h3>

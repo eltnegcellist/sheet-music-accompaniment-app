@@ -82,8 +82,6 @@ const ja = {
   sheetNoSanitize: "サニタイズなしで表示しました (詳細はコンソール参照)",
   sheetRenderFail: (msg: string) => `譜面のレンダリングに失敗しました: ${msg}`,
   sheetEmpty: "PDF を読み込むと譜面が表示されます。",
-  // Language toggle — shows label for the OTHER language
-  langToggle: "EN",
 };
 
 const en: typeof ja = {
@@ -156,7 +154,6 @@ const en: typeof ja = {
   sheetNoSanitize: "Displayed without sanitization (see console)",
   sheetRenderFail: (msg: string) => `Failed to render sheet: ${msg}`,
   sheetEmpty: "Load a PDF to display the sheet music.",
-  langToggle: "JA",
 };
 
 export const translations = { ja, en };
