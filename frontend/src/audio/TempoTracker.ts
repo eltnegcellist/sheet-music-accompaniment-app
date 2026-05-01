@@ -1,89 +1,131 @@
-/** Tracks BPM from onset events with rate-limited smoothing and catchup. */
-export class TempoTracker {
-  private onsetHistory: number[] = []; // timestamps in ms, max 16
-  private readonly HISTORY_MAX = 16;
+import type { NoteEvent } from "../types";
 
-  private estimatedBpm = 100;
+/** Convert scientific pitch notation (e.g. "C4", "D#5", "Bb3") to MIDI number. */
+function pitchToMidi(pitch: string): number | null {
+  const m = pitch.match(/^([A-G])([#b]?)(-?\d+)$/);
+  if (!m) return null;
+  const steps: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+  const pc = steps[m[1]] + (m[2] === "#" ? 1 : m[2] === "b" ? -1 : 0);
+  return (parseInt(m[3], 10) + 1) * 12 + pc;
+}
+
+/** Convert Hz to nearest MIDI note (A4 = 440 Hz = MIDI 69). */
+function hzToMidi(hz: number): number | null {
+  if (hz <= 0) return null;
+  const midi = Math.round(12 * Math.log2(hz / 440) + 69);
+  return midi >= 21 && midi <= 108 ? midi : null;
+}
+
+/** Fraction of detected MIDI notes matching a score window (±1 semitone, octave-insensitive). */
+function matchScore(detected: number[], scoreMidis: number[]): number {
+  if (detected.length === 0 || scoreMidis.length === 0) return 0;
+  let hits = 0;
+  for (let i = 0; i < detected.length && i < scoreMidis.length; i++) {
+    const diff = Math.abs((detected[i] % 12) - (scoreMidis[i] % 12));
+    if (diff <= 1 || diff === 11) hits++;
+  }
+  return hits / Math.max(detected.length, scoreMidis.length);
+}
+
+interface PitchOnset {
+  midi: number;
+  timeMs: number;
+}
+
+/**
+ * Estimates tempo by matching a rolling pitch buffer against score notes.
+ * Much more reliable than pure IOI-based detection because it uses actual
+ * beat durations from the score rather than assuming every onset = one beat.
+ */
+export class TempoTracker {
+  private scoreMidis: number[] = [];
+  private scoreNotes: NoteEvent[] = [];
+
+  private pitchBuffer: PitchOnset[] = [];
+  private readonly BUFFER_MS = 6000;
+
   private appliedBpm = 100;
-  private lastApplyMs = 0;
-  private readonly APPLY_INTERVAL_MS = 500;
-  private readonly MAX_RATE_PER_SEC = 0.08; // ±8% per second
-  private readonly CATCHUP_THRESHOLD = 0.30; // 30% divergence
-  private catchupStreak = 0;
+  private lastUpdateMs = 0;
+  private readonly UPDATE_INTERVAL_MS = 2000;
+  private readonly MAX_STEP_FRACTION = 0.05; // max 5% change per estimate
 
   onBpmChange?: (bpm: number) => void;
 
+  setScore(notes: NoteEvent[]): void {
+    this.scoreNotes = notes;
+    this.scoreMidis = notes.map((n) => pitchToMidi(n.pitch) ?? -1);
+  }
+
   reset(initialBpm: number): void {
-    this.onsetHistory = [];
-    this.estimatedBpm = initialBpm;
+    this.pitchBuffer = [];
     this.appliedBpm = initialBpm;
-    this.lastApplyMs = 0;
-    this.catchupStreak = 0;
+    this.lastUpdateMs = 0;
   }
 
-  handleOnset(timeMs: number): void {
-    this.onsetHistory.push(timeMs);
-    if (this.onsetHistory.length > this.HISTORY_MAX) this.onsetHistory.shift();
-    if (this.onsetHistory.length < 4) return;
+  /** Call on each onset with the detected pitch at that moment. */
+  addPitchOnset(hz: number, timeMs: number): void {
+    const midi = hzToMidi(hz);
+    if (midi === null) return;
 
-    const estimated = this.estimateFromHistory();
-    if (estimated === null) return;
+    this.pitchBuffer.push({ midi, timeMs });
+    const cutoff = timeMs - this.BUFFER_MS;
+    while (this.pitchBuffer.length > 0 && this.pitchBuffer[0].timeMs < cutoff) {
+      this.pitchBuffer.shift();
+    }
 
-    this.estimatedBpm = estimated;
-    this.maybeApply(timeMs);
+    if (timeMs - this.lastUpdateMs < this.UPDATE_INTERVAL_MS) return;
+    if (this.pitchBuffer.length < 4) return;
+    this.lastUpdateMs = timeMs;
+
+    const bpm = this.estimateFromBuffer();
+    if (bpm !== null) this.applyBpm(bpm);
   }
 
-  private estimateFromHistory(): number | null {
-    const h = this.onsetHistory;
-    if (h.length < 4) return null;
+  private estimateFromBuffer(): number | null {
+    const buf = this.pitchBuffer;
+    if (buf.length < 4 || this.scoreNotes.length < 4) return null;
 
-    // Use median of adjacent inter-onset intervals
-    const iois: number[] = [];
-    for (let i = 1; i < h.length; i++) iois.push(h[i] - h[i - 1]);
+    const realSpanMs = buf[buf.length - 1].timeMs - buf[0].timeMs;
+    if (realSpanMs < 2000) return null;
 
-    // Filter out implausible IOIs (< 150ms = >400 BPM, > 2000ms = <30 BPM)
-    const valid = iois.filter((d) => d >= 150 && d <= 2000);
-    if (valid.length < 2) return null;
+    const detectedMidis = buf.map((p) => p.midi);
+    const windowSize = Math.min(detectedMidis.length, 8);
+    const detected = detectedMidis.slice(-windowSize);
 
-    const sorted = [...valid].sort((a, b) => a - b);
-    const median = sorted[Math.floor(sorted.length / 2)];
+    let bestScore = 0.45; // minimum confidence threshold
+    let bestBeatSpan = 0;
 
-    const bpm = 60000 / median;
+    const maxStart = this.scoreNotes.length - windowSize;
+    for (let start = 0; start <= maxStart; start++) {
+      const window = this.scoreNotes.slice(start, start + windowSize);
+      const windowMidis = this.scoreMidis.slice(start, start + windowSize);
+      const score = matchScore(detected, windowMidis);
+      if (score > bestScore) {
+        bestScore = score;
+        const first = window[0];
+        const last = window[window.length - 1];
+        bestBeatSpan = (last.beat + last.durationBeats) - first.beat;
+      }
+    }
+
+    if (bestBeatSpan <= 0) return null;
+
+    // Use the real-time span of the detected window, not the full buffer
+    const detectedSpanMs = buf[buf.length - 1].timeMs - buf[buf.length - windowSize].timeMs;
+    if (detectedSpanMs < 1000) return null;
+
+    const bpm = (bestBeatSpan / (detectedSpanMs / 60000));
     if (bpm < 30 || bpm > 300) return null;
     return bpm;
   }
 
-  private maybeApply(nowMs: number): void {
-    const elapsed = nowMs - this.lastApplyMs;
-    if (elapsed < this.APPLY_INTERVAL_MS) return;
-    this.lastApplyMs = nowMs;
-
-    const divergence = Math.abs(this.estimatedBpm - this.appliedBpm) / this.appliedBpm;
-
-    if (divergence > this.CATCHUP_THRESHOLD) {
-      this.catchupStreak++;
-      if (this.catchupStreak >= 2) {
-        // Immediate jump for large sustained divergence (fermata / ritenuto)
-        this.appliedBpm = this.estimatedBpm;
-        this.catchupStreak = 0;
-        this.onBpmChange?.(Math.round(this.appliedBpm));
-        return;
-      }
-    } else {
-      this.catchupStreak = 0;
-    }
-
-    // Rate-limited smooth approach
-    const maxDelta = this.appliedBpm * this.MAX_RATE_PER_SEC * (elapsed / 1000);
-    const target = this.estimatedBpm;
-    this.appliedBpm = clamp(target, this.appliedBpm - maxDelta, this.appliedBpm + maxDelta);
+  private applyBpm(target: number): void {
+    const maxDelta = this.appliedBpm * this.MAX_STEP_FRACTION;
+    this.appliedBpm = target > this.appliedBpm
+      ? Math.min(target, this.appliedBpm + maxDelta)
+      : Math.max(target, this.appliedBpm - maxDelta);
     this.onBpmChange?.(Math.round(this.appliedBpm));
   }
 
   get currentAppliedBpm(): number { return this.appliedBpm; }
-  get currentEstimatedBpm(): number { return this.estimatedBpm; }
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
 }

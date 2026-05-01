@@ -25,7 +25,6 @@ export interface PlaybackState {
   syncEnabled: boolean;
   tempoFollow: boolean;
   autoStop: boolean;
-  autoStopPositionDetect: boolean;
 }
 
 const SOLO_INSTRUMENT_LABELS: Array<[SoloInstrumentChoice, string]> = [
@@ -335,7 +334,6 @@ export function PlaybackControls({
                   ...(!state.syncEnabled ? {} : {
                     tempoFollow: false,
                     autoStop: false,
-                    autoStopPositionDetect: false,
                   }),
                 })
               }
@@ -367,20 +365,6 @@ export function PlaybackControls({
                   >
                     <div className={`tog-track${state.autoStop ? " tog-track--on" : ""}`} />
                     <span className="tog-lbl">自動停止/再開</span>
-                  </div>
-                  <div
-                    className="tog-row"
-                    onClick={() =>
-                      update({ autoStopPositionDetect: !state.autoStopPositionDetect })
-                    }
-                  >
-                    <div
-                      className={`tog-track${state.autoStopPositionDetect ? " tog-track--on" : ""}`}
-                    />
-                    <span className="tog-lbl">
-                      位置推定して再開
-                      <span className="experimental-badge">EXPERIMENTAL</span>
-                    </span>
                   </div>
                 </div>
 

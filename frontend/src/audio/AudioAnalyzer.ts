@@ -21,7 +21,7 @@ export class AudioAnalyzer {
 
   // Silence / activity hysteresis
   private silenceTimerId: ReturnType<typeof setTimeout> | null = null;
-  private readonly SILENCE_HOLD_MS = 1500;
+  private readonly SILENCE_HOLD_MS = 3000;
   // Start assuming active so silence is detectable immediately without
   // requiring a prior onset event.
   private currentlyActive = true;
