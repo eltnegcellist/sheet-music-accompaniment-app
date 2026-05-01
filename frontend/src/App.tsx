@@ -32,7 +32,7 @@ import {
   type PlaybackState,
 } from "./components/PlaybackControls";
 import { SheetViewer } from "./components/SheetViewer";
-import { LangContext, translations, useLang, type Lang } from "./i18n";
+import { LangContext, translateWarning, translations, useLang, type Lang } from "./i18n";
 import { parseScore } from "./music/musicXmlParser";
 import { sanitizeForOsmd } from "./music/sanitize";
 import type { AnalyzeResponse } from "./types";
@@ -678,7 +678,7 @@ export default function App() {
         {visibleWarnings.length > 0 && !warningsDismissed && (
           <div className="warnings">
             {visibleWarnings.map((w, i) => (
-              <div key={i}>⚠ {w}</div>
+              <div key={i}>⚠ {translateWarning(w, lang)}</div>
             ))}
             <button
               type="button"
