@@ -32,6 +32,7 @@ import {
   type PlaybackState,
 } from "./components/PlaybackControls";
 import { SheetViewer } from "./components/SheetViewer";
+import { LangContext, translations, useLang, type Lang } from "./i18n";
 import { parseScore } from "./music/musicXmlParser";
 import { sanitizeForOsmd } from "./music/sanitize";
 import type { AnalyzeResponse } from "./types";
@@ -55,14 +56,21 @@ type StatusLed = "" | "on" | "busy" | "err";
 const CACHE_HIT_WARNING = "（キャッシュから復元しました）";
 
 export default function App() {
+  const [lang, setLang] = useState<Lang>(
+    () => (localStorage.getItem("lang") as Lang | null) ?? "ja",
+  );
+  const T = translations[lang];
+  const toggleLang = () =>
+    setLang((l) => {
+      const next = l === "ja" ? "en" : "ja";
+      localStorage.setItem("lang", next);
+      return next;
+    });
+
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [musicXmlFile, setMusicXmlFile] = useState<File | null>(null);
   const [soloPdfFile, setSoloPdfFile] = useState<File | null>(null);
   const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
-  const [statusText, setStatusText] = useState<string>(
-    "PDFをドロップして開始",
-  );
-  const [statusLed, setStatusLed] = useState<StatusLed>("");
   const [errorText, setErrorText] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [playback, setPlayback] = useState<PlaybackState>(DEFAULT_PLAYBACK);
@@ -193,42 +201,27 @@ export default function App() {
     ? `${analysis.time_signature.beats}/${analysis.time_signature.beat_type}`
     : "";
 
-  // Status badge text + LED follow scene state.
-  useEffect(() => {
-    if (errorText) {
-      setStatusLed("err");
-      setStatusText(errorText);
-      return;
-    }
-    if (busy) {
-      setStatusLed("busy");
-      setStatusText("OMR 解析中…");
-      return;
-    }
+  // Status badge — derived from scene state so language changes are reflected immediately.
+  const statusLed = useMemo((): StatusLed => {
+    if (errorText) return "err";
+    if (busy) return "busy";
+    if (analysis) return "on";
+    return "";
+  }, [errorText, busy, analysis]);
+
+  const statusText = useMemo(() => {
+    if (errorText) return errorText;
+    if (busy) return T.statusAnalyzing;
     if (analysis) {
-      setStatusLed("on");
       const accId = analysis.accompaniment_part_id ?? "?";
-      const soloId = analysis.solo_part_id ?? "なし";
-      const playing = isPlaying && currentMeasure != null;
-      setStatusText(
-        playing
-          ? `再生中 — 小節 ${currentMeasure} / ${measureCount}`
-          : `解析完了 · ${measureCount}小節 · ${accId}+${soloId} · ${tempoLabel} · ${timeSigLabel}`,
-      );
-      return;
+      const soloId = analysis.solo_part_id ?? T.soloNone;
+      if (isPlaying && currentMeasure != null) {
+        return T.statusPlaying(currentMeasure, measureCount);
+      }
+      return T.statusLoaded(measureCount, accId, soloId, tempoLabel, timeSigLabel);
     }
-    setStatusLed("");
-    setStatusText("PDFをドロップして開始");
-  }, [
-    analysis,
-    busy,
-    errorText,
-    isPlaying,
-    currentMeasure,
-    measureCount,
-    tempoLabel,
-    timeSigLabel,
-  ]);
+    return T.statusDrop;
+  }, [T, errorText, busy, analysis, isPlaying, currentMeasure, measureCount, tempoLabel, timeSigLabel]);
 
   const runAnalyze = async (
     pdf: File | undefined,
@@ -247,7 +240,7 @@ export default function App() {
       setAnalysis(result);
       setWarningsDismissed(false);
     } catch (err) {
-      setErrorText(`エラー: ${(err as Error).message}`);
+      setErrorText(`${T.errorPrefix}${(err as Error).message}`);
     } finally {
       setBusy(false);
     }
@@ -429,7 +422,7 @@ export default function App() {
     );
   }, [playback.pianoVolume]);
 
-  const fileLabel = pdfFile?.name ?? musicXmlFile?.name ?? "PDFを開く";
+  const fileLabel = pdfFile?.name ?? musicXmlFile?.name ?? T.fileLabel;
 
   useEffect(() => {
     getCacheList().then(setCacheList).catch(console.error);
@@ -458,7 +451,7 @@ export default function App() {
       setMusicXmlFile(null);
       setSoloPdfFile(null);
     } catch (err) {
-      setErrorText(`キャッシュの読み込みに失敗しました: ${(err as Error).message}`);
+      setErrorText(`${T.cacheLoadError}${(err as Error).message}`);
     } finally {
       setBusy(false);
     }
@@ -477,250 +470,264 @@ export default function App() {
         ),
       );
     } catch (err) {
-      console.error("キャッシュの削除に失敗しました:", err);
+      console.error("Failed to delete cache:", err);
     }
   };
 
+  const dateLocale = lang === "ja" ? "ja-JP" : "en-US";
+
   return (
-    <div className="app">
-      {/* Always-visible logo badge (shown when topbar is collapsed). */}
-      <div
-        className={`logo-badge${headerVisible ? " logo-badge--hidden" : ""}${isLoaded ? " logo-badge--clickable" : ""}`}
-        onClick={isLoaded ? handleBackToUpload : undefined}
-        title={isLoaded ? "アップロード画面に戻る" : undefined}
-      >
-        <div className="logo-badge__glyph">♩</div>
-        <span className="logo-badge__name">IMSLP Accompanist</span>
-      </div>
-
-      {/* Topbar (auto-hide). */}
-      <header className={`topbar${headerVisible ? "" : " topbar--collapsed"}`}>
+    <LangContext.Provider value={{ lang, T, toggleLang }}>
+      <div className="app">
+        {/* Always-visible logo badge (shown when topbar is collapsed). */}
         <div
-          className={`topbar__logo${isLoaded ? " topbar__logo--clickable" : ""}`}
+          className={`logo-badge${headerVisible ? " logo-badge--hidden" : ""}${isLoaded ? " logo-badge--clickable" : ""}`}
           onClick={isLoaded ? handleBackToUpload : undefined}
-          title={isLoaded ? "アップロード画面に戻る" : undefined}
+          title={isLoaded ? T.backToUpload : undefined}
         >
-          <div className="topbar__glyph">♩</div>
-          <span className="topbar__name">IMSLP Accompanist</span>
+          <div className="logo-badge__glyph">♩</div>
+          <span className="logo-badge__name">IMSLP Accompanist</span>
         </div>
-        <div className="topbar__sep" />
-        <div className={`file-chip${isLoaded ? " file-chip--loaded" : ""}`}>
-          <span className="file-chip__icon">{isLoaded ? "📄" : "＋"}</span>
-          <span className="file-chip__name">{fileLabel}</span>
-        </div>
-        {isLoaded && analysis && (
-          <>
-            <div className="topbar__sep" />
-            <button
-              type="button"
-              className="reanalyze-btn"
-              onClick={() => uploaderRef.current?.open()}
-              title="別のPDFをアップロード"
-            >
-              ＋ 別のPDFをアップロード
-            </button>
-            <button
-              type="button"
-              className="reanalyze-btn"
-              disabled={isPlaying || busy}
-              onClick={handleReanalyze}
-              title="キャッシュを破棄してAudiverisを再起動します"
-            >
-              ↺ もう一度PDFを再解析
-            </button>
-            <div className="topbar__sep" />
-            <div className="view-tabs">
-              <button
-                type="button"
-                className={`vtab${viewMode === "pdf" ? " vtab--on" : ""}`}
-                onClick={() => setViewMode("pdf")}
-                disabled={!pdfFile}
-              >
-                PDF
-                {pdfTotalPages > 0 && (
-                  <span className="vtab__pill">P.{pdfPage + 1}</span>
-                )}
-              </button>
-              <button
-                type="button"
-                className={`vtab${viewMode === "sheet" ? " vtab--on" : ""}`}
-                onClick={() => setViewMode("sheet")}
-              >
-                譜面 <span className="vtab__pill">OSMD</span>
-              </button>
-            </div>
-          </>
-        )}
-        <div className="topbar__spacer" />
-        <div className="status-badge">
-          {statusLed && (
-            <div className={`status-badge__led status-badge__led--${statusLed}`} />
-          )}
-          <span>{statusText}</span>
-        </div>
-      </header>
 
-      {/* Body. */}
-      <div className="body">
-        {scene === "upload" && (
+        {/* Topbar (auto-hide). */}
+        <header className={`topbar${headerVisible ? "" : " topbar--collapsed"}`}>
           <div
-            className="upload-container"
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              height: "100%",
-              overflowY: "auto",
-            }}
+            className={`topbar__logo${isLoaded ? " topbar__logo--clickable" : ""}`}
+            onClick={isLoaded ? handleBackToUpload : undefined}
+            title={isLoaded ? T.backToUpload : undefined}
           >
+            <div className="topbar__glyph">♩</div>
+            <span className="topbar__name">IMSLP Accompanist</span>
+          </div>
+          <div className="topbar__sep" />
+          <div className={`file-chip${isLoaded ? " file-chip--loaded" : ""}`}>
+            <span className="file-chip__icon">{isLoaded ? "📄" : "＋"}</span>
+            <span className="file-chip__name">{fileLabel}</span>
+          </div>
+          {isLoaded && analysis && (
+            <>
+              <div className="topbar__sep" />
+              <button
+                type="button"
+                className="reanalyze-btn"
+                onClick={() => uploaderRef.current?.open()}
+                title={T.uploadAnotherTitle}
+              >
+                {T.uploadAnother}
+              </button>
+              <button
+                type="button"
+                className="reanalyze-btn"
+                disabled={isPlaying || busy}
+                onClick={handleReanalyze}
+                title={T.reanalyzeTitle}
+              >
+                {T.reanalyze}
+              </button>
+              <div className="topbar__sep" />
+              <div className="view-tabs">
+                <button
+                  type="button"
+                  className={`vtab${viewMode === "pdf" ? " vtab--on" : ""}`}
+                  onClick={() => setViewMode("pdf")}
+                  disabled={!pdfFile}
+                >
+                  PDF
+                  {pdfTotalPages > 0 && (
+                    <span className="vtab__pill">P.{pdfPage + 1}</span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  className={`vtab${viewMode === "sheet" ? " vtab--on" : ""}`}
+                  onClick={() => setViewMode("sheet")}
+                >
+                  {T.tabSheet} <span className="vtab__pill">OSMD</span>
+                </button>
+              </div>
+            </>
+          )}
+          <div className="topbar__spacer" />
+          <button
+            type="button"
+            className="lang-btn"
+            onClick={toggleLang}
+            title={T.langToggle}
+            aria-label={T.langToggle}
+          >
+            {T.langToggle}
+          </button>
+          <div className="status-badge">
+            {statusLed && (
+              <div className={`status-badge__led status-badge__led--${statusLed}`} />
+            )}
+            <span>{statusText}</span>
+          </div>
+        </header>
+
+        {/* Body. */}
+        <div className="body">
+          {scene === "upload" && (
+            <div
+              className="upload-container"
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                height: "100%",
+                overflowY: "auto",
+              }}
+            >
+              <PdfUploader
+                ref={uploaderRef}
+                disabled={busy}
+                onSelect={handleSelect}
+              />
+              {cacheList.length > 0 && (
+                <div className="cache-list-container">
+                  <h3 className="cache-list-title">{T.recentlyOpened}</h3>
+                  <div className="cache-list">
+                    {cacheList.map((c) => (
+                      <div
+                        key={`${c.key}-${c.param_set_id}`}
+                        className="cache-item"
+                        onClick={() => loadFromCache(c)}
+                      >
+                        <span className="cache-item__title">{c.pdf_name}</span>
+                        <span className="cache-item__date">
+                          {new Date(c.timestamp * 1000).toLocaleDateString(dateLocale)}
+                        </span>
+                        <button
+                          type="button"
+                          className="cache-item__delete"
+                          onClick={(e) => handleDeleteCache(e, c)}
+                          title={T.deleteCache}
+                          aria-label={T.deleteCache}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          {scene === "analyzing" && <Analyzing />}
+
+          {/* Hidden file input is always mounted so the topbar file chip can
+              invoke the picker even when the upload zone isn't on screen. */}
+          {scene !== "upload" && (
             <PdfUploader
               ref={uploaderRef}
               disabled={busy}
               onSelect={handleSelect}
+              hidden
             />
-            {cacheList.length > 0 && (
-              <div className="cache-list-container">
-                <h3 className="cache-list-title">最近の曲から開く</h3>
-                <div className="cache-list">
-                  {cacheList.map((c) => (
-                    <div
-                      key={`${c.key}-${c.param_set_id}`}
-                      className="cache-item"
-                      onClick={() => loadFromCache(c)}
-                    >
-                      <span className="cache-item__title">{c.pdf_name}</span>
-                      <span className="cache-item__date">
-                        {new Date(c.timestamp * 1000).toLocaleDateString()}
-                      </span>
-                      <button
-                        type="button"
-                        className="cache-item__delete"
-                        onClick={(e) => handleDeleteCache(e, c)}
-                        title="キャッシュを削除"
-                        aria-label="キャッシュを削除"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
-                </div>
+          )}
+
+          {isLoaded && (
+            <div className="score-area">
+              {/* Both views stay mounted so OSMD can measure its container width
+                  correctly on first render — toggling display:none collapses the
+                  width to zero and OSMD produces a squashed layout. */}
+              <div
+                className={
+                  "view-panel" +
+                  (viewMode === "pdf" ? "" : " view-panel--hidden")
+                }
+              >
+                <PdfViewer
+                  pdfFile={pdfFile}
+                  measures={analysis?.measures ?? []}
+                  pageSizes={analysis?.page_sizes ?? []}
+                  currentMeasureIndex={currentMeasure}
+                  zoomPct={zoom}
+                  pageIndex={pdfPage}
+                  onPageChange={setPdfPage}
+                  onTotalPages={setPdfTotalPages}
+                />
               </div>
-            )}
+              <div
+                className={
+                  "view-panel" +
+                  (viewMode === "sheet" ? "" : " view-panel--hidden")
+                }
+              >
+                <SheetViewer
+                  musicXml={analysis?.music_xml ?? null}
+                  scoreTitle={analysis?.score_title ?? null}
+                  currentMeasureIndex={currentMeasure}
+                  isPlaying={isPlaying}
+                  isVisible={viewMode === "sheet"}
+                  zoomPct={zoom}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Warnings (above transport). */}
+        {visibleWarnings.length > 0 && !warningsDismissed && (
+          <div className="warnings">
+            {visibleWarnings.map((w, i) => (
+              <div key={i}>⚠ {w}</div>
+            ))}
+            <button
+              type="button"
+              className="warnings__close"
+              onClick={() => setWarningsDismissed(true)}
+              aria-label={T.close}
+              title={T.close}
+            >
+              ×
+            </button>
           </div>
         )}
-        {scene === "analyzing" && <Analyzing />}
 
-        {/* Hidden file input is always mounted so the topbar file chip can
-            invoke the picker even when the upload zone isn't on screen. */}
-        {scene !== "upload" && (
-          <PdfUploader
-            ref={uploaderRef}
-            disabled={busy}
-            onSelect={handleSelect}
-            hidden
+        {/* Transport. */}
+        {isLoaded && (
+          <PlaybackControls
+            state={playback}
+            onChange={setPlayback}
+            measureCount={measureCount}
+            firstMeasure={firstMeasure}
+            lastMeasure={lastMeasure}
+            hasSolo={!!soloScore}
+            isPlaying={isPlaying}
+            isReady={!!accompanimentScore && !busy}
+            onPlay={handlePlay}
+            onStop={handleStop}
+            onDownloadMusicXml={handleDownloadMusicXml}
+            canDownload={!!analysis}
+            timeSignature={analysis?.time_signature ?? null}
+            currentMeasure={currentMeasure}
+            expanded={footerVisible}
           />
         )}
 
+        {/* Zoom control. */}
         {isLoaded && (
-          <div className="score-area">
-            {/* Both views stay mounted so OSMD can measure its container width
-                correctly on first render — toggling display:none collapses the
-                width to zero and OSMD produces a squashed layout. */}
-            <div
-              className={
-                "view-panel" +
-                (viewMode === "pdf" ? "" : " view-panel--hidden")
-              }
-            >
-              <PdfViewer
-                pdfFile={pdfFile}
-                measures={analysis?.measures ?? []}
-                pageSizes={analysis?.page_sizes ?? []}
-                currentMeasureIndex={currentMeasure}
-                zoomPct={zoom}
-                pageIndex={pdfPage}
-                onPageChange={setPdfPage}
-                onTotalPages={setPdfTotalPages}
-              />
-            </div>
-            <div
-              className={
-                "view-panel" +
-                (viewMode === "sheet" ? "" : " view-panel--hidden")
-              }
-            >
-              <SheetViewer
-                musicXml={analysis?.music_xml ?? null}
-                scoreTitle={analysis?.score_title ?? null}
-                currentMeasureIndex={currentMeasure}
-                isPlaying={isPlaying}
-                isVisible={viewMode === "sheet"}
-                zoomPct={zoom}
-              />
-            </div>
+          <div className={`zoom-ctl${footerVisible ? "" : " zoom-ctl--hidden"}`}>
+            <span className="zoom-ctl__lbl">{T.zoomLabel}</span>
+            <input
+              type="range"
+              className="zoom-sl"
+              min={40}
+              max={160}
+              step={5}
+              value={zoom}
+              onChange={(e) => setZoom(+e.target.value)}
+            />
+            <span className="zoom-ctl__val">{zoom}%</span>
           </div>
         )}
       </div>
-
-      {/* Warnings (above transport). */}
-      {visibleWarnings.length > 0 && !warningsDismissed && (
-        <div className="warnings">
-          {visibleWarnings.map((w, i) => (
-            <div key={i}>⚠ {w}</div>
-          ))}
-          <button
-            type="button"
-            className="warnings__close"
-            onClick={() => setWarningsDismissed(true)}
-            aria-label="閉じる"
-            title="閉じる"
-          >
-            ×
-          </button>
-        </div>
-      )}
-
-      {/* Transport. */}
-      {isLoaded && (
-        <PlaybackControls
-          state={playback}
-          onChange={setPlayback}
-          measureCount={measureCount}
-          firstMeasure={firstMeasure}
-          lastMeasure={lastMeasure}
-          hasSolo={!!soloScore}
-          isPlaying={isPlaying}
-          isReady={!!accompanimentScore && !busy}
-          onPlay={handlePlay}
-          onStop={handleStop}
-          onDownloadMusicXml={handleDownloadMusicXml}
-          canDownload={!!analysis}
-          timeSignature={analysis?.time_signature ?? null}
-          currentMeasure={currentMeasure}
-          expanded={footerVisible}
-        />
-      )}
-
-      {/* Zoom control. */}
-      {isLoaded && (
-        <div className={`zoom-ctl${footerVisible ? "" : " zoom-ctl--hidden"}`}>
-          <span className="zoom-ctl__lbl">表示</span>
-          <input
-            type="range"
-            className="zoom-sl"
-            min={40}
-            max={160}
-            step={5}
-            value={zoom}
-            onChange={(e) => setZoom(+e.target.value)}
-          />
-          <span className="zoom-ctl__val">{zoom}%</span>
-        </div>
-      )}
-    </div>
+    </LangContext.Provider>
   );
 }
 
 function Analyzing() {
+  const { T } = useLang();
   const [sec, setSec] = useState(0);
   useEffect(() => {
     const t = window.setInterval(() => setSec((s) => s + 1), 1000);
@@ -729,10 +736,8 @@ function Analyzing() {
   return (
     <div className="analyzing">
       <div className="analyzing__ring" />
-      <div className="analyzing__title">OMR 解析中…</div>
-      <div className="analyzing__elapsed">
-        {sec}s 経過 — 数分かかる場合があります
-      </div>
+      <div className="analyzing__title">{T.analyzingTitle}</div>
+      <div className="analyzing__elapsed">{T.analyzingElapsed(sec)}</div>
     </div>
   );
 }

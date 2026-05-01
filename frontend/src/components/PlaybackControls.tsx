@@ -1,6 +1,7 @@
 import type { ChangeEvent } from "react";
 
 import type { SoloInstrumentName } from "../audio/ToneEngine";
+import { useLang } from "../i18n";
 import type { TimeSignature } from "../types";
 
 export type SoloVolumeMode = "normal" | "karaoke" | "off";
@@ -20,23 +21,6 @@ export interface PlaybackState {
   soloVolume: SoloVolumeMode;
   soloInstrument: SoloInstrumentChoice;
 }
-
-const SOLO_INSTRUMENT_LABELS: Array<[SoloInstrumentChoice, string]> = [
-  ["auto", "自動検出"],
-  ["violin", "ヴァイオリン"],
-  ["cello", "チェロ"],
-  ["flute", "フルート"],
-  ["clarinet", "クラリネット"],
-  ["trumpet", "トランペット"],
-  ["saxophone", "サックス"],
-  ["guitar", "ギター"],
-];
-
-const SOLO_VOLUMES: Array<{ k: SoloVolumeMode; l: string }> = [
-  { k: "normal", l: "普通" },
-  { k: "karaoke", l: "カラオケ" },
-  { k: "off", l: "無し" },
-];
 
 interface Props {
   state: PlaybackState;
@@ -74,6 +58,7 @@ export function PlaybackControls({
   currentMeasure,
   expanded,
 }: Props) {
+  const { T } = useLang();
   const update = (patch: Partial<PlaybackState>) =>
     onChange({ ...state, ...patch });
 
@@ -87,6 +72,23 @@ export function PlaybackControls({
     if (measureCount === 0) return;
     update({ startMeasure: firstMeasure, endMeasure: lastMeasure });
   };
+
+  const soloInstrumentLabels: Array<[SoloInstrumentChoice, string]> = [
+    ["auto", T.instrAuto],
+    ["violin", T.instrViolin],
+    ["cello", T.instrCello],
+    ["flute", T.instrFlute],
+    ["clarinet", T.instrClarinet],
+    ["trumpet", T.instrTrumpet],
+    ["saxophone", T.instrSax],
+    ["guitar", T.instrGuitar],
+  ];
+
+  const soloVolumes: Array<{ k: SoloVolumeMode; l: string }> = [
+    { k: "normal", l: T.soloVolNormal },
+    { k: "karaoke", l: T.soloVolKaraoke },
+    { k: "off", l: T.soloVolOff },
+  ];
 
   const cur = isPlaying ? currentMeasure : null;
   const measureMax = Math.max(1, lastMeasure);
@@ -102,19 +104,19 @@ export function PlaybackControls({
               className={`play-btn${isPlaying ? " play-btn--stop" : ""}`}
               disabled={!isReady}
               onClick={isPlaying ? onStop : onPlay}
-              aria-label={isPlaying ? "停止" : "再生"}
+              aria-label={isPlaying ? T.stopBtn : T.playBtn}
             >
               {isPlaying ? "■" : "▶"}
             </button>
             <div className="measure-ro">
-              <span className="measure-ro__lbl">小節</span>
+              <span className="measure-ro__lbl">{T.measureLabel}</span>
               <span className="measure-ro__val">
                 {cur != null ? String(cur).padStart(2, "0") : "—"}
               </span>
               <span className="measure-ro__tot">/ {measureCount || 0}</span>
             </div>
             {timeSignature && (
-              <div className="timesig" title="拍子">
+              <div className="timesig" title={T.timeSig}>
                 <span className="timesig__n">{timeSignature.beats}</span>
                 <div className="timesig__line" />
                 <span className="timesig__n">{timeSignature.beat_type}</span>
@@ -137,7 +139,7 @@ export function PlaybackControls({
                 value={state.bpm}
                 onChange={intInput("bpm")}
               />
-              <span className="sl-ctl__lbl">テンポ</span>
+              <span className="sl-ctl__lbl">{T.tempo}</span>
             </div>
           </div>
           <div className="tr-sep" />
@@ -156,7 +158,7 @@ export function PlaybackControls({
                 value={state.pianoVolume}
                 onChange={intInput("pianoVolume")}
               />
-              <span className="sl-ctl__lbl">伴奏音量</span>
+              <span className="sl-ctl__lbl">{T.accompVol}</span>
             </div>
           </div>
           <div className="tr-sep" />
@@ -164,14 +166,14 @@ export function PlaybackControls({
           <div className="tr-sec">
             <div className="range-ctl">
               <div className="range-ctl__head">
-                <span className="range-ctl__lbl">再生範囲</span>
+                <span className="range-ctl__lbl">{T.playRange}</span>
                 <button
                   type="button"
                   className="range-ctl__reset"
                   disabled={!isReady || measureCount === 0}
                   onClick={resetRange}
                 >
-                  リセット
+                  {T.reset}
                 </button>
               </div>
               <div className="range-ctl__row">
@@ -203,16 +205,16 @@ export function PlaybackControls({
             className="tr-sec"
             style={{ flexDirection: "column", alignItems: "flex-start", gap: 4 }}
           >
-            <span className="sl-ctl__lbl">カウントイン</span>
+            <span className="sl-ctl__lbl">{T.countIn}</span>
             <select
               className="cnt-sel"
               value={state.countInBars}
               onChange={(e) => update({ countInBars: +e.target.value })}
             >
-              <option value={0}>なし</option>
-              <option value={1}>1小節</option>
-              <option value={2}>2小節</option>
-              <option value={4}>4小節</option>
+              <option value={0}>{T.countInNone}</option>
+              <option value={1}>{T.countIn1}</option>
+              <option value={2}>{T.countIn2}</option>
+              <option value={4}>{T.countIn4}</option>
             </select>
           </div>
           <div className="tr-sep" />
@@ -224,7 +226,7 @@ export function PlaybackControls({
                 onClick={() => update({ loop: !state.loop })}
               >
                 <div className={`tog-track${state.loop ? " tog-track--on" : ""}`} />
-                <span className="tog-lbl">ループ</span>
+                <span className="tog-lbl">{T.loop}</span>
               </div>
               <div
                 className="tog-row"
@@ -233,7 +235,7 @@ export function PlaybackControls({
                 <div
                   className={`tog-track${state.metronome ? " tog-track--on" : ""}`}
                 />
-                <span className="tog-lbl">メトロノーム</span>
+                <span className="tog-lbl">{T.metronome}</span>
               </div>
             </div>
           </div>
@@ -242,9 +244,9 @@ export function PlaybackControls({
           <div className="tr-sec">
             <div className="solo-instr">
               <span className="solo-instr__lbl">
-                ソロ楽器
+                {T.soloInstr}
                 {!hasSolo && (
-                  <span style={{ marginLeft: 4, opacity: 0.5 }}>(なし)</span>
+                  <span style={{ marginLeft: 4, opacity: 0.5 }}>{T.soloInstrNone}</span>
                 )}
               </span>
               <select
@@ -257,7 +259,7 @@ export function PlaybackControls({
                   })
                 }
               >
-                {SOLO_INSTRUMENT_LABELS.map(([value, label]) => (
+                {soloInstrumentLabels.map(([value, label]) => (
                   <option key={value} value={value}>
                     {label}
                   </option>
@@ -269,9 +271,9 @@ export function PlaybackControls({
 
           <div className="tr-sec">
             <div className="solo-ctl">
-              <span className="solo-ctl__lbl">ソロ音量</span>
+              <span className="solo-ctl__lbl">{T.soloVol}</span>
               <div className="solo-pills">
-                {SOLO_VOLUMES.map((s) => (
+                {soloVolumes.map((s) => (
                   <button
                     type="button"
                     key={s.k}
@@ -293,7 +295,7 @@ export function PlaybackControls({
               className="act-btn"
               disabled={!canDownload}
               onClick={onDownloadMusicXml}
-              title="解析済みMusicXMLをダウンロード"
+              title={T.downloadMusicXml}
             >
               <span className="act-btn__ico">↓</span>
               <span className="act-btn__lbl">MusicXML</span>

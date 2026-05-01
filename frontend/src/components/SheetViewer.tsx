@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { OpenSheetMusicDisplay } from "opensheetmusicdisplay";
 
+import { useLang } from "../i18n";
 import { sanitizeForOsmd } from "../music/sanitize";
 
 interface Props {
@@ -28,6 +29,10 @@ export function SheetViewer({
   isVisible,
   zoomPct = 100,
 }: Props) {
+  const { T } = useLang();
+  const tRef = useRef(T);
+  tRef.current = T;
+
   const containerRef = useRef<HTMLDivElement | null>(null);
   const osmdRef = useRef<OpenSheetMusicDisplay | null>(null);
   const lastSyncedMeasureRef = useRef<number | null>(null);
@@ -45,7 +50,7 @@ export function SheetViewer({
 
     container.innerHTML = "";
     lastSyncedMeasureRef.current = null;
-    setStatus("譜面を生成中…");
+    setStatus(tRef.current.generatingSheet);
 
     const osmd = new OpenSheetMusicDisplay(container, {
       autoResize: true,
@@ -70,24 +75,18 @@ export function SheetViewer({
       } catch (err) {
         if (cancelled) return;
         console.warn("[osmd] sanitized render failed, retrying raw xml", err);
-        setStatus("譜面を生成中… (元XMLでリトライ)");
+        setStatus(tRef.current.generatingSheetRetry);
         try {
           // OSMD holds internal state from the failed attempt; discard it.
           container.innerHTML = "";
           await tryLoad(musicXml);
           if (!cancelled) {
-            setStatus(
-              "サニタイズなしで表示しました (詳細はコンソール参照)",
-            );
+            setStatus(tRef.current.sheetNoSanitize);
           }
         } catch (retryErr) {
           if (cancelled) return;
           console.error("[osmd] sanitized render also failed", retryErr);
-          setStatus(
-            `譜面のレンダリングに失敗しました: ${
-              (retryErr as Error).message
-            }`,
-          );
+          setStatus(tRef.current.sheetRenderFail((retryErr as Error).message));
         }
       }
     })();
@@ -159,7 +158,7 @@ export function SheetViewer({
     return (
       <div className="sheet-area" style={{ maxWidth: maxW }}>
         <div className="sheet-area__status">
-          PDF を読み込むと譜面が表示されます。
+          {T.sheetEmpty}
         </div>
       </div>
     );
