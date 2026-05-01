@@ -64,6 +64,7 @@ export function SheetViewer({
 
     const tryLoad = async (xml: string): Promise<void> => {
       await osmd.load(xml);
+      osmd.Zoom = zoomPct / 100;
       osmd.render();
     };
 
@@ -96,7 +97,7 @@ export function SheetViewer({
       osmdRef.current = null;
       lastSyncedMeasureRef.current = null;
     };
-  }, [musicXml]);
+  }, [musicXml, zoomPct]);
 
   useEffect(() => {
     if (isPlaying) return;
@@ -175,7 +176,7 @@ export function SheetViewer({
 
   if (!musicXml) {
     return (
-      <div className="sheet-area" style={{ maxWidth: maxW }}>
+      <div className="sheet-area">
         <div className="sheet-area__status">
           {T.sheetEmpty}
         </div>
@@ -184,7 +185,7 @@ export function SheetViewer({
   }
 
   return (
-    <div className="sheet-area" style={{ maxWidth: maxW }}>
+    <div className="sheet-area">
       {scoreTitle && <h3 className="sheet-area__title">{scoreTitle}</h3>}
       {status && <div className="sheet-area__status">{status}</div>}
       <div className="sheet-area__osmd" ref={containerRef} />

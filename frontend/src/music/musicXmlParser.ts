@@ -108,7 +108,7 @@ export function parseScore(
     const fermataShifts = new Map<number, number>();
     for (const n of allRawNotes) {
       if (!n.hasFermata) continue;
-      const extra = n.durationBeats * 0.75;
+      const extra = n.durationBeats * 1.5;
       const endBeat = Math.round((n.relativeBeats + n.durationBeats) * 1000) / 1000;
       fermataShifts.set(endBeat, Math.max(fermataShifts.get(endBeat) ?? 0, extra));
       fermataWindows.push({
@@ -360,7 +360,7 @@ export function parseMusicXml(
     });
 
     for (const n of raw.notes) {
-      const selfExtra = n.hasFermata ? n.durationBeats * 0.75 : 0;
+      const selfExtra = n.hasFermata ? n.durationBeats * 1.5 : 0;
       if (n.hasFermata) {
         measureFermataExtra += selfExtra;
         fermataBeats.push(elapsedBeats + n.relativeBeats + n.durationBeats);
