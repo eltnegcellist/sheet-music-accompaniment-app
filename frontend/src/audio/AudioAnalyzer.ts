@@ -1,3 +1,10 @@
+export interface LevelDetail {
+  rmsDb: number;
+  noiseFloorDb: number;
+  silenceThresholdDb: number;
+  onsetThresholdDb: number;
+}
+
 /** Real-time microphone analysis: noise floor, silence/activity, onsets, pitch. */
 export class AudioAnalyzer {
   private stream: MediaStream | null = null;
@@ -15,7 +22,9 @@ export class AudioAnalyzer {
   // Silence / activity hysteresis
   private silenceTimerId: ReturnType<typeof setTimeout> | null = null;
   private readonly SILENCE_HOLD_MS = 1500;
-  private currentlyActive = false;
+  // Start assuming active so silence is detectable immediately without
+  // requiring a prior onset event.
+  private currentlyActive = true;
 
   // Onset detection
   private lastOnsetMs = 0;
@@ -30,6 +39,7 @@ export class AudioAnalyzer {
   onActivity?: () => void;
   onPitch?: (hz: number | null) => void;
   onLevel?: (rmsDb: number) => void;
+  onLevelDetail?: (detail: LevelDetail) => void;
 
   get isRunning(): boolean {
     return this.rafId !== null;
@@ -75,7 +85,7 @@ export class AudioAnalyzer {
     this.filterNode = null;
     this.analyserNode = null;
     this.rmsHistory = [];
-    this.currentlyActive = false;
+    this.currentlyActive = true;
     this.prevRmsDb = -60;
     this.lastOnsetMs = 0;
   }
@@ -92,6 +102,7 @@ export class AudioAnalyzer {
 
     const silenceThresholdDb = this.noiseFloorDb + 10;
     const onsetThresholdDb = this.noiseFloorDb + 15;
+    this.onLevelDetail?.({ rmsDb, noiseFloorDb: this.noiseFloorDb, silenceThresholdDb, onsetThresholdDb });
 
     this.handleSilenceActivity(rmsDb, silenceThresholdDb);
     this.handleOnset(rmsDb, onsetThresholdDb);
