@@ -104,17 +104,22 @@ export function SheetViewer({
     lastSyncedMeasureRef.current = null;
   }, [isPlaying]);
 
-  // Re-render with updated zoom without requiring MusicXML reload.
+
+  // OSMD autoResize only tracks window resize events; when zoomPct changes we
+  // resize via CSS, so force a re-render to reflow systems to the new width.
   useEffect(() => {
     const osmd = osmdRef.current;
     if (!osmd) return;
 
-    try {
-      osmd.Zoom = zoomPct / 100;
-      osmd.render();
-    } catch (err) {
-      console.warn("[osmd] zoom update failed", err);
-    }
+    const rafId = window.requestAnimationFrame(() => {
+      try {
+        osmd.render();
+      } catch (err) {
+        console.warn("[osmd] resize re-render failed", err);
+      }
+    });
+
+    return () => window.cancelAnimationFrame(rafId);
   }, [zoomPct]);
 
   // Drive the cursor to the current measure while playing.
