@@ -159,6 +159,48 @@ const en: typeof ja = {
 export const translations = { ja, en };
 export type Translations = typeof ja;
 
+/** Translate a backend-generated warning string for display in the given language. */
+export function translateWarning(w: string, lang: Lang): string {
+  if (lang === "ja") return w;
+
+  // Static messages
+  if (w === "MusicXML のみで解析しました。PDF連動ハイライトは利用できません。")
+    return "Analyzed with MusicXML only. PDF measure highlighting is unavailable.";
+  if (w.startsWith("Audiveris をスキップしてアップロードされた MusicXML で解析しました"))
+    return "Analyzed with uploaded MusicXML, skipping Audiveris. Measure highlighting unavailable.";
+  if (w === "Uploaded MusicXML did not look valid; falling back to OMR.")
+    return w; // already English
+
+  // Dynamic: solo-only score errors
+  const soloFail = w.match(/^ソロ専用譜の解析に失敗しました \((.+)\)/);
+  if (soloFail)
+    return `Failed to analyze solo-only score (${soloFail[1]}); using full-score result only.`;
+
+  const soloPipeline = w.match(/^ソロ専用譜のパイプラインが中断しました \((.+)\)/);
+  if (soloPipeline)
+    return `Solo-only score pipeline aborted (${soloPipeline[1]}).`;
+
+  // "[ソロ譜] ..." prefix
+  const soloPrefix = w.match(/^\[ソロ譜\] (.*)/s);
+  if (soloPrefix)
+    return `[Solo score] ${soloPrefix[1]}`;
+
+  // MusicXML-based solo detection notice (long dynamic message)
+  const soloDetect = w.match(
+    /^MusicXML 解析の結果、(\d+)〜(\d+) 小節 \(PDF (\d+)〜(\d+) ページ\) で伴奏パートが (\d+) 小節連続して空のため、(前半|後半)をソロ専用譜と判定し再解析します。/,
+  );
+  if (soloDetect) {
+    const half = soloDetect[6] === "前半" ? "first half" : "second half";
+    return (
+      `Based on MusicXML analysis, measures ${soloDetect[1]}–${soloDetect[2]} ` +
+      `(PDF pages ${soloDetect[3]}–${soloDetect[4]}) have ${soloDetect[5]} consecutive ` +
+      `empty accompaniment measures. The ${half} was identified as the solo-only score; re-analyzing.`
+    );
+  }
+
+  return w; // unknown warning — show as-is
+}
+
 export const LangContext = createContext<{
   lang: Lang;
   T: Translations;
