@@ -131,11 +131,11 @@ export default function App() {
   // Cache state is signaled by a sentinel string in the warnings list (set by
   // the backend when it returns a cached payload); strip it here so it doesn't
   // surface as a user-facing warning while still reflecting it in the badge.
-  const visibleWarnings = useMemo(
-    () =>
-      (analysis?.warnings ?? []).filter((w) => w !== CACHE_HIT_WARNING),
-    [analysis],
-  );
+  const visibleWarnings = useMemo(() => {
+    const warnings = analysis?.warnings ?? [];
+    if (warnings.includes(CACHE_HIT_WARNING)) return [];
+    return warnings;
+  }, [analysis]);
 
   // Reset playback range when a new score loads.
   useEffect(() => {
