@@ -254,11 +254,11 @@ describe("parseMusicXml", () => {
   </measure>
 </part></score-partwise>`;
     const { notes, measures, fermataBeats } = parseMusicXml(score, "P1");
-    // D is stretched by 75%.
+    // D is stretched by 150% (2x the previous fermata extension).
     const d = notes.find((n) => n.pitch === "D4");
-    expect(d?.durationBeats).toBeCloseTo(1.75);
+    expect(d?.durationBeats).toBeCloseTo(2.5);
     // Measure 2 starts later by the fermata's extra duration.
-    expect(measures[1].startBeat).toBeCloseTo(2.75);
+    expect(measures[1].startBeat).toBeCloseTo(3.5);
     // Fermata release point is logged for metronome suppression.
     expect(fermataBeats).toHaveLength(1);
     expect(fermataBeats[0]).toBeCloseTo(2);
