@@ -103,6 +103,24 @@ export function SheetViewer({
     lastSyncedMeasureRef.current = null;
   }, [isPlaying]);
 
+
+  // OSMD autoResize only tracks window resize events; when zoomPct changes we
+  // resize via CSS, so force a re-render to reflow systems to the new width.
+  useEffect(() => {
+    const osmd = osmdRef.current;
+    if (!osmd) return;
+
+    const rafId = window.requestAnimationFrame(() => {
+      try {
+        osmd.render();
+      } catch (err) {
+        console.warn("[osmd] resize re-render failed", err);
+      }
+    });
+
+    return () => window.cancelAnimationFrame(rafId);
+  }, [zoomPct]);
+
   // Drive the cursor to the current measure while playing.
   useEffect(() => {
     const osmd = osmdRef.current;
@@ -152,7 +170,8 @@ export function SheetViewer({
     }
   }, [currentMeasureIndex, isPlaying, isVisible]);
 
-  const maxW = Math.round(900 * (zoomPct / 100));
+
+  const maxW = `calc((100vw - 48px) * ${zoomPct / 100})`;
 
   if (!musicXml) {
     return (
