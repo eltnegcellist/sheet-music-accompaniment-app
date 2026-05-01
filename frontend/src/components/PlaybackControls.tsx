@@ -1,9 +1,7 @@
 import type { ChangeEvent } from "react";
 
-import type { LevelDetail } from "../audio/AudioAnalyzer";
 import type { SoloInstrumentName } from "../audio/ToneEngine";
 import type { TimeSignature } from "../types";
-import { SyncDebugPanel, type SyncEvent } from "./SyncDebugPanel";
 
 export type SoloVolumeMode = "normal" | "karaoke" | "off";
 
@@ -21,10 +19,6 @@ export interface PlaybackState {
   pianoVolume: number;
   soloVolume: SoloVolumeMode;
   soloInstrument: SoloInstrumentChoice;
-  // Sync feature flags — all default false, existing flow unaffected when false
-  syncEnabled: boolean;
-  tempoFollow: boolean;
-  autoStop: boolean;
 }
 
 const SOLO_INSTRUMENT_LABELS: Array<[SoloInstrumentChoice, string]> = [
@@ -61,14 +55,6 @@ interface Props {
   currentMeasure: number | null;
   /** When true, expand the transport from a 64px play pill to the full bar. */
   expanded: boolean;
-  // Sync feature optional props
-  micLevel?: number;
-  detectedBpm?: number | null;
-  micError?: string | null;
-  levelDetail?: LevelDetail | null;
-  pitchHz?: number | null;
-  syncState?: string;
-  syncEvents?: SyncEvent[];
 }
 
 export function PlaybackControls({
@@ -87,13 +73,6 @@ export function PlaybackControls({
   timeSignature,
   currentMeasure,
   expanded,
-  micLevel,
-  detectedBpm,
-  micError,
-  levelDetail,
-  pitchHz,
-  syncState = "idle",
-  syncEvents = [],
 }: Props) {
   const update = (patch: Partial<PlaybackState>) =>
     onChange({ ...state, ...patch });
@@ -320,84 +299,6 @@ export function PlaybackControls({
               <span className="act-btn__lbl">MusicXML</span>
             </button>
           </div>
-        </div>
-
-        {/* Row 3: sync master toggle + sub-options (only when syncEnabled) */}
-        <div className="transport__row transport__row--sync">
-          <div className="sync-master">
-            <div
-              className="tog-row"
-              onClick={() =>
-                update({
-                  syncEnabled: !state.syncEnabled,
-                  // Reset sub-options when disabling
-                  ...(!state.syncEnabled ? {} : {
-                    tempoFollow: false,
-                    autoStop: false,
-                  }),
-                })
-              }
-            >
-              <div className={`tog-track${state.syncEnabled ? " tog-track--on" : ""}`} />
-              <span className="tog-lbl">🎙 ソロ演奏との同期機能（マイクを使います）</span>
-            </div>
-          </div>
-
-          {state.syncEnabled && (
-            <>
-              <div className="sync-warning">
-                ⚠ ヘッドホン推奨：スピーカーから出る伴奏音がマイクに入ると、無音検出やテンポ追従が正しく動作しません
-              </div>
-              {/* Sub-options row */}
-              <div className="sync-sub">
-                <div className="tr-sep" />
-                <div className="tog-group">
-                  <div
-                    className="tog-row"
-                    onClick={() => update({ tempoFollow: !state.tempoFollow })}
-                  >
-                    <div className={`tog-track${state.tempoFollow ? " tog-track--on" : ""}`} />
-                    <span className="tog-lbl">テンポ追従</span>
-                  </div>
-                  <div
-                    className="tog-row"
-                    onClick={() => update({ autoStop: !state.autoStop })}
-                  >
-                    <div className={`tog-track${state.autoStop ? " tog-track--on" : ""}`} />
-                    <span className="tog-lbl">自動停止/再開</span>
-                  </div>
-                </div>
-
-                <div className="tr-sep" />
-
-                <div className="mic-meter">
-                  <div className="mic-meter__bar-wrap">
-                    <div
-                      className="mic-meter__bar"
-                      style={{ width: `${Math.round((micLevel ?? 0) * 100)}%` }}
-                    />
-                  </div>
-                  {state.tempoFollow && detectedBpm != null && (
-                    <span className="mic-meter__bpm">♩≈{detectedBpm}</span>
-                  )}
-                </div>
-
-                {micError && (
-                  <div className="mic-error">⚠ {micError}</div>
-                )}
-              </div>
-
-              {/* Debug panel row */}
-              <div className="sync-debug-row">
-                <SyncDebugPanel
-                  levelDetail={levelDetail ?? null}
-                  pitchHz={pitchHz ?? null}
-                  syncState={syncState}
-                  events={syncEvents}
-                />
-              </div>
-            </>
-          )}
         </div>
       </div>
     </div>
