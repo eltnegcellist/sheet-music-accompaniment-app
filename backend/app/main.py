@@ -396,7 +396,13 @@ def get_cache_json(key: str, param_set_id: str) -> AnalyzeResponse:
     cached = _analyze_cache.get(key, param_set_id)
     if not cached:
         raise HTTPException(404, "Cache not found")
-    return AnalyzeResponse.model_validate(cached)
+
+    cached_payload = dict(cached)
+    cached_warnings = list(cached_payload.get("warnings") or [])
+    if "（キャッシュから復元しました）" not in cached_warnings:
+        cached_warnings.append("（キャッシュから復元しました）")
+    cached_payload["warnings"] = cached_warnings
+    return AnalyzeResponse.model_validate(cached_payload)
 
 
 @app.get("/cache/{key}/{param_set_id}/pdf")
