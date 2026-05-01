@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 import workerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
+import { useLang } from "../i18n";
 import type { MeasureBox } from "../types";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
@@ -31,6 +32,7 @@ export function PdfViewer({
   onPageChange,
   onTotalPages,
 }: Props) {
+  const { T } = useLang();
   const pageCanvasRef = useRef<HTMLCanvasElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
   const [pdf, setPdf] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
@@ -135,7 +137,7 @@ export function PdfViewer({
             disabled={pageIndex === 0}
             onClick={() => setPage(Math.max(0, pageIndex - 1))}
           >
-            ← 前ページ
+            {T.prevPage}
           </button>
           <span className="pager__info">
             {pageIndex + 1} / {totalPages}
@@ -146,7 +148,7 @@ export function PdfViewer({
             disabled={pageIndex >= totalPages - 1}
             onClick={() => setPage(Math.min(totalPages - 1, pageIndex + 1))}
           >
-            次ページ →
+            {T.nextPage}
           </button>
         </div>
       )}

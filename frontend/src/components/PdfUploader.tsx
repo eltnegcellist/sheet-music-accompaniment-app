@@ -1,5 +1,7 @@
 import { useCallback, useImperativeHandle, useRef, useState, forwardRef } from "react";
 
+import { useLang } from "../i18n";
+
 interface Props {
   disabled?: boolean;
   onSelect: (pdf?: File, musicXml?: File, soloPdf?: File) => void;
@@ -53,6 +55,7 @@ export const PdfUploader = forwardRef<PdfUploaderHandle, Props>(
   function PdfUploader({ disabled, onSelect, hidden }, ref) {
     const inputRef = useRef<HTMLInputElement>(null);
     const [drag, setDrag] = useState(false);
+    const { T } = useLang();
 
     useImperativeHandle(ref, () => ({
       open: () => inputRef.current?.click(),
@@ -145,16 +148,14 @@ export const PdfUploader = forwardRef<PdfUploaderHandle, Props>(
           >
             𝄞
           </div>
-          <div className="drop-card__title">楽譜PDFをドロップ</div>
+          <div className="drop-card__title">{T.dropTitle}</div>
           <div className="drop-card__sub" style={{ marginTop: 8 }}>
-            クリックしてファイルを選択
+            {T.clickToSelect}
             <br />
-            <em>.pdf</em> のみ、または <em>.pdf + .musicxml</em> で OMR をスキップ
+            <em>.pdf</em> {T.pdfOnly} <em>.pdf + .musicxml</em>{T.skipOmr}
           </div>
         </div>
-        <div className="upload__hint">
-          IMSLP などから取得した伴奏パート譜に対応
-        </div>
+        <div className="upload__hint">{T.uploaderHint}</div>
         {input}
       </div>
     );

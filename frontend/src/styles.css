@@ -212,6 +212,28 @@ body {
   white-space: nowrap;
 }
 
+/* Language toggle button */
+.lang-btn {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--rule-hi);
+  color: var(--text-3);
+  font-size: 10.5px;
+  font-weight: 600;
+  font-family: var(--mono);
+  letter-spacing: 0.04em;
+  padding: 3px 8px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+  margin-right: 8px;
+}
+.lang-btn:hover {
+  color: var(--gold);
+  border-color: var(--gold);
+  background: rgba(212, 175, 55, 0.08);
+}
+
 /* View tabs */
 .view-tabs {
   display: flex;
