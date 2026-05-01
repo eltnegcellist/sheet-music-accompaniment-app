@@ -346,65 +346,70 @@ export function PlaybackControls({
           </div>
 
           {state.syncEnabled && (
-            <div className="sync-sub">
-              <div className="tr-sep" />
-              <div className="tog-group">
-                <div
-                  className="tog-row"
-                  onClick={() => update({ tempoFollow: !state.tempoFollow })}
-                >
-                  <div className={`tog-track${state.tempoFollow ? " tog-track--on" : ""}`} />
-                  <span className="tog-lbl">テンポ追従</span>
-                </div>
-                <div
-                  className="tog-row"
-                  onClick={() => update({ autoStop: !state.autoStop })}
-                >
-                  <div className={`tog-track${state.autoStop ? " tog-track--on" : ""}`} />
-                  <span className="tog-lbl">自動停止/再開</span>
-                </div>
-                <div
-                  className="tog-row"
-                  onClick={() =>
-                    update({ autoStopPositionDetect: !state.autoStopPositionDetect })
-                  }
-                >
+            <>
+              {/* Sub-options row */}
+              <div className="sync-sub">
+                <div className="tr-sep" />
+                <div className="tog-group">
                   <div
-                    className={`tog-track${state.autoStopPositionDetect ? " tog-track--on" : ""}`}
-                  />
-                  <span className="tog-lbl">
-                    位置推定して再開
-                    <span className="experimental-badge">EXPERIMENTAL</span>
-                  </span>
-                </div>
-              </div>
-
-              <div className="tr-sep" />
-
-              {/* Mic level bar + detected BPM */}
-              <div className="mic-meter">
-                <div className="mic-meter__bar-wrap">
+                    className="tog-row"
+                    onClick={() => update({ tempoFollow: !state.tempoFollow })}
+                  >
+                    <div className={`tog-track${state.tempoFollow ? " tog-track--on" : ""}`} />
+                    <span className="tog-lbl">テンポ追従</span>
+                  </div>
                   <div
-                    className="mic-meter__bar"
-                    style={{ width: `${Math.round((micLevel ?? 0) * 100)}%` }}
-                  />
+                    className="tog-row"
+                    onClick={() => update({ autoStop: !state.autoStop })}
+                  >
+                    <div className={`tog-track${state.autoStop ? " tog-track--on" : ""}`} />
+                    <span className="tog-lbl">自動停止/再開</span>
+                  </div>
+                  <div
+                    className="tog-row"
+                    onClick={() =>
+                      update({ autoStopPositionDetect: !state.autoStopPositionDetect })
+                    }
+                  >
+                    <div
+                      className={`tog-track${state.autoStopPositionDetect ? " tog-track--on" : ""}`}
+                    />
+                    <span className="tog-lbl">
+                      位置推定して再開
+                      <span className="experimental-badge">EXPERIMENTAL</span>
+                    </span>
+                  </div>
                 </div>
-                {state.tempoFollow && detectedBpm != null && (
-                  <span className="mic-meter__bpm">♩≈{detectedBpm}</span>
+
+                <div className="tr-sep" />
+
+                <div className="mic-meter">
+                  <div className="mic-meter__bar-wrap">
+                    <div
+                      className="mic-meter__bar"
+                      style={{ width: `${Math.round((micLevel ?? 0) * 100)}%` }}
+                    />
+                  </div>
+                  {state.tempoFollow && detectedBpm != null && (
+                    <span className="mic-meter__bpm">♩≈{detectedBpm}</span>
+                  )}
+                </div>
+
+                {micError && (
+                  <div className="mic-error">⚠ {micError}</div>
                 )}
               </div>
 
-              {micError && (
-                <div className="mic-error">⚠ {micError}</div>
-              )}
-
-              <SyncDebugPanel
-                levelDetail={levelDetail ?? null}
-                pitchHz={pitchHz ?? null}
-                syncState={syncState}
-                events={syncEvents}
-              />
-            </div>
+              {/* Debug panel row */}
+              <div className="sync-debug-row">
+                <SyncDebugPanel
+                  levelDetail={levelDetail ?? null}
+                  pitchHz={pitchHz ?? null}
+                  syncState={syncState}
+                  events={syncEvents}
+                />
+              </div>
+            </>
           )}
         </div>
       </div>

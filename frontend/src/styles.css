@@ -902,11 +902,11 @@ body {
 
 /* ── Sync feature UI ─────────────────────────────── */
 .transport__row--sync {
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 6px;
   padding-top: 6px;
   border-top: 1px solid var(--rule);
-  align-items: center;
 }
 
 .sync-master {
@@ -919,6 +919,10 @@ body {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.sync-debug-row {
+  width: 100%;
 }
 
 .mic-meter {
