@@ -397,14 +397,14 @@ export function PlaybackControls({
               {micError && (
                 <div className="mic-error">⚠ {micError}</div>
               )}
-            </div>
 
-            <SyncDebugPanel
-              levelDetail={levelDetail ?? null}
-              pitchHz={pitchHz ?? null}
-              syncState={syncState}
-              events={syncEvents}
-            />
+              <SyncDebugPanel
+                levelDetail={levelDetail ?? null}
+                pitchHz={pitchHz ?? null}
+                syncState={syncState}
+                events={syncEvents}
+              />
+            </div>
           )}
         </div>
       </div>
