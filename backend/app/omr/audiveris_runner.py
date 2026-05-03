@@ -38,16 +38,23 @@ class OmrResult:
 
 
 def _audiveris_command(pdf_path: Path, output_dir: Path) -> list[str]:
-    # The .deb installer puts the launcher on PATH; honor that first so we
-    # don't hard-depend on a particular install layout.
-    launcher = shutil.which("Audiveris")
+    # Resolution order:
+    #   1. AUDIVERIS_LAUNCHER env (Tauri sidecar passes the bundled path).
+    #   2. `Audiveris` on PATH (Docker .deb install lands here).
+    #   3. AUDIVERIS_HOME/**/bin/Audiveris (legacy / manual installs).
+    explicit = os.environ.get("AUDIVERIS_LAUNCHER")
+    if explicit and Path(explicit).exists():
+        launcher = explicit
+    else:
+        launcher = shutil.which("Audiveris")
     if launcher is None:
         home = Path(os.environ.get("AUDIVERIS_HOME", "/opt/Audiveris"))
         candidates = list(home.glob("**/bin/Audiveris"))
         if not candidates:
             raise AudiverisError(
-                f"Audiveris launcher not found on PATH or under {home}. "
-                "Install the Audiveris .deb or set AUDIVERIS_HOME."
+                "Audiveris launcher not found. Set AUDIVERIS_LAUNCHER to the "
+                "bundled binary, install the Audiveris .deb so it lands on "
+                f"PATH, or place it under AUDIVERIS_HOME ({home})."
             )
         launcher = str(candidates[0])
     # Keep the CLI to the minimum set that was known to work: adding
