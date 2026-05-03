@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
 from .cache import AnalyzeCache, hash_pdf_bytes
+from .runtime_paths import resource_root
 from .music.accompaniment import (
     find_accompaniment_part,
     find_solo_part,
@@ -44,7 +45,7 @@ app = FastAPI(title="IMSLP Accompanist")
 # Active param set for /analyze. Configurable so tests / staging can pin
 # the legacy v1_baseline (no postprocess) while production runs v3.
 _PARAM_SET_ID = os.environ.get("PIPELINE_PARAM_SET", "v5_real_pdf")
-_PARAMS_DIR = Path(__file__).resolve().parents[1] / "params"
+_PARAMS_DIR = resource_root() / "params"
 
 # Disk-backed cache so repeat uploads of the same PDF don't re-run Audiveris.
 # `ANALYZE_CACHE_DIR` overrides the location for tests / production.
