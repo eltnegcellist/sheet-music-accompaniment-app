@@ -10,6 +10,7 @@ those cases.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +18,32 @@ from pathlib import Path
 from ..music.parser import TempoInfo, match_tempo_word_bpm
 
 logger = logging.getLogger(__name__)
+
+
+_TESSERACT_CONFIGURED = False
+
+
+def _configure_tesseract() -> None:
+    """Apply TESSERACT_CMD / TESSDATA_PREFIX from the environment, once.
+
+    The Tauri sidecar exports both env vars so the bundled Tesseract binary
+    and language data are used instead of whatever happens to be on PATH.
+    Outside Tauri this is a no-op and pytesseract picks up the system
+    install as before.
+    """
+    global _TESSERACT_CONFIGURED
+    if _TESSERACT_CONFIGURED:
+        return
+    try:
+        import pytesseract  # type: ignore[import-not-found]
+    except ImportError:
+        return
+    cmd = os.environ.get("TESSERACT_CMD")
+    if cmd and Path(cmd).exists():
+        pytesseract.pytesseract.tesseract_cmd = cmd
+    # TESSDATA_PREFIX is read by tesseract itself via its env, so we only
+    # need to make sure it is exported (the sidecar already does this).
+    _TESSERACT_CONFIGURED = True
 
 
 @dataclass
@@ -67,6 +94,7 @@ def _ocr_top_strip_lines(pdf_path: Path) -> list[str]:
     except ImportError as exc:
         logger.info("OCR unavailable (missing dep): %s", exc)
         return []
+    _configure_tesseract()
 
     try:
         raw_text = pytesseract.image_to_string(top_strip, lang="ita+eng")
@@ -88,6 +116,7 @@ def _ocr_top_strip_line_boxes(pdf_path: Path) -> tuple[list[_OcrLine], int]:
     except ImportError as exc:
         logger.info("OCR unavailable (missing dep): %s", exc)
         return [], 0
+    _configure_tesseract()
 
     try:
         data = pytesseract.image_to_data(
