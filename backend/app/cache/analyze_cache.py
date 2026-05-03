@@ -30,11 +30,15 @@ logger = logging.getLogger(__name__)
 
 
 def _default_cache_dir() -> Path:
+    # ANALYZE_CACHE_DIR pins the cache to an explicit location for tests
+    # and bespoke deployments; otherwise we land under the host-provided
+    # writable root (Tauri sets APP_DATA_DIR; Docker leaves it unset and
+    # we fall back to the CWD, matching the legacy /app/cache layout).
     env = os.environ.get("ANALYZE_CACHE_DIR")
     if env:
         return Path(env)
-    # Inside Docker /app is the working dir, so this lands in /app/cache.
-    return Path(os.environ.get("APP_DATA_DIR", ".")) / "cache" / "analyze"
+    from ..runtime_paths import app_data_root
+    return app_data_root() / "cache" / "analyze"
 
 
 def hash_pdf_bytes(*chunks: bytes) -> str:
