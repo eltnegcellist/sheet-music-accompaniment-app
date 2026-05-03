@@ -27,6 +27,12 @@ backend/output/
 backend/tests/fixtures/real_pdf/*.pdf
 backend/tests/fixtures/real_pdf/.cache/
 
+# Tauri
+frontend/src-tauri/target/
+frontend/src-tauri/bin/
+frontend/src-tauri/resources/runtime/
+frontend/src-tauri/Cargo.lock
+
 # Editor
 .idea/
 .vscode/
