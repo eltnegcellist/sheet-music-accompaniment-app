@@ -72,9 +72,18 @@ def _load_active_params() -> tuple[str, dict | None]:
         return _PARAM_SET_ID, None
     return resolved.param_set_id(), resolved.data
 
+# When ALLOWED_ORIGINS is set (e.g. by the Tauri sidecar) we honour it as a
+# comma-separated allowlist; otherwise stay open so Docker / `npm run dev`
+# keep working without extra config.
+_origins_env = os.environ.get("ALLOWED_ORIGINS")
+_allowed_origins = (
+    [o.strip() for o in _origins_env.split(",") if o.strip()]
+    if _origins_env
+    else ["*"]
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )

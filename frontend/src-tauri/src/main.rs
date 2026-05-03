@@ -56,6 +56,13 @@ fn spawn_sidecar(app: &tauri::AppHandle) -> tauri::Result<CommandChild> {
             ("TESSDATA_PREFIX".to_string(), tessdata.to_string_lossy().into_owned()),
             ("TESSERACT_CMD".to_string(), tess_bin.to_string_lossy().into_owned()),
             ("PIPELINE_PARAM_SET".to_string(), "v5_real_pdf".into()),
+            // Lock the FastAPI CORS allowlist down to the WebView origins
+            // and the Vite dev server so the sidecar refuses cross-origin
+            // calls from arbitrary local processes.
+            (
+                "ALLOWED_ORIGINS".to_string(),
+                "tauri://localhost,https://tauri.localhost,http://localhost:5173".into(),
+            ),
         ])
         .spawn()?;
 
