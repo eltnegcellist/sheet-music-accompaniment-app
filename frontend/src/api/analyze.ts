@@ -1,11 +1,5 @@
 import type { AnalyzeResponse } from "../types";
 
-declare global {
-  interface Window {
-    __BACKEND_URL__?: string;
-  }
-}
-
 function resolveBackendUrl(): string {
   // Tauri injects window.__BACKEND_URL__ once the Python sidecar has
   // emitted its READY line with the OS-assigned port. Vite's env var
