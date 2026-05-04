@@ -75,6 +75,33 @@ def _emit_ready(host: str, port: int) -> None:
     sys.stdout.flush()
 
 
+def _bind_to_parent_lifetime() -> None:
+    """Ask the kernel to SIGTERM us when the Tauri host dies (Linux).
+
+    Tauri's Command API doesn't expose a pre-exec hook so we install
+    PR_SET_PDEATHSIG from inside the child. The signal is delivered by
+    the kernel even on `kill -9` of the parent, which closes the orphan
+    sidecar window we'd otherwise have on hard crashes. macOS and
+    Windows have no direct equivalent; their orphan handling is a
+    follow-up (kqueue watcher / Job Object respectively).
+    """
+    if sys.platform != "linux":
+        return
+    try:
+        import ctypes
+
+        PR_SET_PDEATHSIG = 1
+        SIGTERM = 15
+        libc = ctypes.CDLL("libc.so.6", use_errno=True)
+        if libc.prctl(PR_SET_PDEATHSIG, SIGTERM, 0, 0, 0) != 0:
+            err = ctypes.get_errno()
+            sys.stderr.write(
+                f"[server] WARN: prctl(PR_SET_PDEATHSIG) failed errno={err}\n"
+            )
+    except OSError as exc:
+        sys.stderr.write(f"[server] WARN: parent-death wiring failed: {exc}\n")
+
+
 def _check_bundled_binaries() -> None:
     """Warn early if env-pointed bundled binaries are missing.
 
@@ -114,6 +141,7 @@ def _install_signal_handlers(server) -> None:
 def main(argv: list[str] | None = None) -> NoReturn:
     args = _parse_args(sys.argv[1:] if argv is None else argv)
     _apply_env(args)
+    _bind_to_parent_lifetime()
     _check_bundled_binaries()
 
     # uvicorn / FastAPI imports are deferred until after env is populated
