@@ -64,6 +64,40 @@ npm install
 npm run dev -- --host 0.0.0.0
 ```
 
+#### Option C: Tauri desktop app (experimental)
+
+The repository ships a Tauri shell that bundles the FastAPI backend
+as a sidecar process so end users can install a single desktop app
+instead of running Docker. See `docs/tauri_migration_plan.md` for the
+full migration plan.
+
+Prerequisites: Rust toolchain (`rustup`), Python 3.11+, Node.js 20+,
+and platform deps (`webkit2gtk` on Linux, Xcode CLT on macOS, MSVC
+build tools on Windows).
+
+```bash
+# 1. Build the Python sidecar binary into frontend/src-tauri/bin/
+pip install pyinstaller
+pip install -e backend
+scripts/build_sidecar.sh
+
+# 2. (one-time) Generate bundle icons from a 1024x1024 PNG source
+cd frontend
+npx @tauri-apps/cli icon path/to/source.png -o src-tauri/icons
+
+# 3. Run the desktop app in dev mode
+npm install
+npm run tauri:dev
+
+# 4. Or build installers for the current platform
+npm run tauri:build
+```
+
+The sidecar still expects bundled Audiveris + JRE + Tesseract under
+`frontend/src-tauri/resources/runtime/{audiveris,jre,tessdata}` and
+a `tesseract` binary under `frontend/src-tauri/resources/tesseract/`.
+Step 1 of the migration plan covers how to assemble those.
+
 ### Accuracy notes (important)
 - OMR quality depends heavily on **Audiveris** and source image quality.
 - **Perfect recognition is difficult**, especially for noisy/old scanned sheets.
@@ -108,6 +142,37 @@ cd frontend
 npm install
 npm run dev -- --host 0.0.0.0
 ```
+
+#### 方法 C: Tauri デスクトップ版（実験的）
+
+FastAPI バックエンドを Sidecar として同梱した Tauri 版があります。
+Docker なしでデスクトップアプリ 1 本を配布できる構成への移行プランは
+`docs/tauri_migration_plan.md` を参照してください。
+
+前提: Rust（`rustup`）、Python 3.11+、Node.js 20+、各 OS の開発ツール
+（Linux は `webkit2gtk`、macOS は Xcode CLT、Windows は MSVC ビルドツール）。
+
+```bash
+# 1. Python サイドカーを frontend/src-tauri/bin/ にビルド
+pip install pyinstaller
+pip install -e backend
+scripts/build_sidecar.sh
+
+# 2. （初回のみ）1024x1024 の PNG からアイコン生成
+cd frontend
+npx @tauri-apps/cli icon path/to/source.png -o src-tauri/icons
+
+# 3. デスクトップ版を開発モードで起動
+npm install
+npm run tauri:dev
+
+# 4. 現在の OS 向けインストーラをビルド
+npm run tauri:build
+```
+
+サイドカーは Audiveris/JRE/Tesseract の同梱が前提で、配置は
+`frontend/src-tauri/resources/runtime/{audiveris,jre,tessdata}` および
+`frontend/src-tauri/resources/tesseract/`。同梱手順は移行プランの Step 1 に記載。
 
 ### 認識精度に関する重要事項
 - 楽譜読み込み精度は **Audiveris（外部ソフトウェア）に強く依存**します。
