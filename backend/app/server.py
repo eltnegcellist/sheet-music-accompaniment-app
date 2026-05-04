@@ -75,6 +75,30 @@ def _emit_ready(host: str, port: int) -> None:
     sys.stdout.flush()
 
 
+def _check_bundled_binaries() -> None:
+    """Warn early if env-pointed bundled binaries are missing.
+
+    A missing AUDIVERIS_LAUNCHER or TESSERACT_CMD only manifests when
+    the user uploads a PDF, which can be many minutes after launch in
+    a Tauri build. Surfacing the misconfiguration on stderr at boot
+    makes packaging bugs much faster to diagnose.
+    """
+    pairs = [
+        ("AUDIVERIS_LAUNCHER", os.environ.get("AUDIVERIS_LAUNCHER")),
+        ("TESSERACT_CMD", os.environ.get("TESSERACT_CMD")),
+        ("JAVA_HOME", os.environ.get("JAVA_HOME")),
+    ]
+    for name, value in pairs:
+        if not value:
+            continue
+        target = value if name != "JAVA_HOME" else f"{value}/bin/java"
+        if not os.path.exists(target):
+            sys.stderr.write(
+                f"[server] WARN: {name}={value!r} but {target} does not exist\n"
+            )
+            sys.stderr.flush()
+
+
 def _install_signal_handlers(server) -> None:
     def _graceful(signum, _frame):  # noqa: ANN001
         server.should_exit = True
@@ -90,6 +114,7 @@ def _install_signal_handlers(server) -> None:
 def main(argv: list[str] | None = None) -> NoReturn:
     args = _parse_args(sys.argv[1:] if argv is None else argv)
     _apply_env(args)
+    _check_bundled_binaries()
 
     # uvicorn / FastAPI imports are deferred until after env is populated
     # so module-level reads in app.main see the values from --param-set.
