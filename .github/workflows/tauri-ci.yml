@@ -1,0 +1,135 @@
+name: tauri-ci
+
+on:
+  push:
+    branches: [main, "claude/**"]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "scripts/build_sidecar.sh"
+      - ".github/workflows/tauri-ci.yml"
+  pull_request:
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "scripts/build_sidecar.sh"
+      - ".github/workflows/tauri-ci.yml"
+  workflow_dispatch:
+
+# Cancel in-flight runs for the same branch when a newer commit lands.
+concurrency:
+  group: tauri-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Cheap fan-out compile check across the three target OSes. A full
+  # `tauri build` needs bundle icons and per-platform signing certs we
+  # haven't wired up yet, so this stops short at `cargo check` after
+  # the frontend has produced its dist/ output (required by the Tauri
+  # config's distDir).
+  rust-check:
+    name: cargo check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-14, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            frontend/src-tauri/target
+          key: cargo-${{ matrix.os }}-${{ hashFiles('frontend/src-tauri/Cargo.toml') }}
+          restore-keys: cargo-${{ matrix.os }}-
+
+      - name: Install Linux GTK deps
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.0-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend (Vite)
+        working-directory: frontend
+        run: npm run build
+
+      - name: cargo check
+        working-directory: frontend/src-tauri
+        run: cargo check --locked || cargo check
+
+  # Linux-only: actually run PyInstaller and confirm the sidecar starts,
+  # serves /health, and exits cleanly. macOS/Windows variants come later
+  # once we have signing certs and the bundled JRE/Audiveris layout.
+  sidecar-smoke:
+    name: PyInstaller sidecar smoke (linux)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install backend + PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install -e backend
+
+      - name: Build sidecar
+        run: bash scripts/build_sidecar.sh
+
+      - name: Smoke test — sidecar prints READY and serves /health
+        run: |
+          set -e
+          BIN="$(ls frontend/src-tauri/bin/accompanist-server-*-unknown-linux-gnu)"
+          test -x "$BIN"
+
+          mkdir -p /tmp/sidecar-data
+          "$BIN" --host 127.0.0.1 --port 0 --app-data /tmp/sidecar-data \
+              > /tmp/sidecar.out 2> /tmp/sidecar.err &
+          PID=$!
+
+          for _ in $(seq 1 40); do
+            if grep -q '^READY ' /tmp/sidecar.out 2>/dev/null; then break; fi
+            sleep 0.5
+          done
+
+          PORT="$(sed -n 's/.*"port": *\([0-9][0-9]*\).*/\1/p' /tmp/sidecar.out | head -n1)"
+          if [ -z "$PORT" ]; then
+            echo "READY line never appeared. stdout:"; cat /tmp/sidecar.out
+            echo "stderr:"; cat /tmp/sidecar.err
+            kill $PID 2>/dev/null || true
+            exit 1
+          fi
+          echo "sidecar bound to port $PORT"
+
+          curl --fail --silent --max-time 5 "http://127.0.0.1:$PORT/health"
+          echo
+
+          kill $PID
+          wait $PID 2>/dev/null || true
