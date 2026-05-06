@@ -64,11 +64,11 @@ hiddenimports = [
 # Excludes — keep the bundle small.
 # ---------------------------------------------------------------------------
 excludes = [
-    "music21.corpus",          # ~50MB of bundled scores, unused.
-    "music21.audioSearch",
-    "music21.demos",
-    "music21.alpha",
-    "music21.figuredBass",
+    # music21 sub-packages cannot be excluded individually: __init__.py
+    # imports corpus, test, alpha, audioSearch, demos, figuredBass, etc
+    # unconditionally and the package raises ImportError if any are
+    # missing. We accept the ~120MB bundle cost; trimming would need a
+    # forked music21 or a runtime hook.
     "matplotlib",              # pulled by music21 only for plot helpers.
     "tkinter",
     "IPython",

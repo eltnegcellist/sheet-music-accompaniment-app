@@ -146,14 +146,19 @@ def main(argv: list[str] | None = None) -> NoReturn:
 
     # uvicorn / FastAPI imports are deferred until after env is populated
     # so module-level reads in app.main see the values from --param-set.
+    # Importing the FastAPI app object directly (vs the "app.main:app"
+    # string form) is what makes PyInstaller's static analysis bundle
+    # the whole app graph — uvicorn's import_from_string doesn't see
+    # past the frozen module table.
     import uvicorn
+    from app.main import app as fastapi_app
 
     sock = _bind_socket(args.host, args.port)
     actual_host, actual_port = sock.getsockname()[:2]
     _emit_ready(actual_host, actual_port)
 
     config = uvicorn.Config(
-        "app.main:app",
+        fastapi_app,
         log_level=args.log_level,
         access_log=False,
         # Host/port are unused when we hand uvicorn a pre-bound socket but
