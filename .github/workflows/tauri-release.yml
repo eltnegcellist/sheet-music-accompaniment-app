@@ -76,6 +76,12 @@ jobs:
         working-directory: frontend
         run: npm install
 
+      # Pre-bundle gate: confirm sidecar + JRE + Audiveris + Tesseract
+      # are wired up correctly. Cheaper to fail here than to debug a
+      # broken .AppImage post-bundle.
+      - name: Validate bundle layout
+        run: bash scripts/validate_bundle.sh
+
       # Note: --no-bundle would skip artifact creation; we want the
       # AppImage and .deb so omit it.
       - name: tauri build
