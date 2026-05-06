@@ -377,3 +377,64 @@ fn main() {
 | 5. CI / 署名 / インストーラ | 5–10 日 | macOS notarization、Windows コード署名証明書取得 |
 
 合計: 順調なら 2〜3 週間、署名証明書の手配がボトルネック。
+
+## 付録 C: 実装中に踏んだ落とし穴
+
+PyInstaller + Tauri Sidecar 構成で遭遇した実問題を記録。再発時の参照用。
+
+### C-1. uvicorn の文字列 import が PyInstaller で壊れる
+
+`uvicorn.Config("app.main:app", ...)` のような **文字列形式** は uvicorn 内部の `import_from_string` が PyInstaller の凍結モジュールテーブルを覗けず、`ModuleNotFoundError: No module named 'app'` で死ぬ。
+
+対処: FastAPI app オブジェクトを直接渡す。
+```python
+from app.main import app as fastapi_app
+config = uvicorn.Config(fastapi_app, ...)
+```
+PyInstaller の静的解析が import 連鎖を辿るので必要モジュールがすべて bundle に入る。`backend/app/server.py` 参照。
+
+### C-2. music21 のサブパッケージは個別除外できない
+
+bundle サイズ圧縮のため `music21.corpus`、`music21.test`、`music21.alpha` を spec の `excludes` に入れると、`music21/__init__.py` が unconditional に `from music21 import test/alpha/corpus/figuredBass/...` を実行するので import 段階で `ImportError` で落ちる。
+
+対処: 諦めて music21 全体を同梱する（+~120MB）。`backend/pyinstaller.spec` に注記済。trim したい場合は forked music21 か runtime hook が必要。
+
+### C-3. PyInstaller の cryptography hook が apt 系の system パッケージと衝突
+
+`apt` の `python3-cryptography` と `pip` の `cryptography` が同 `sys.path` 上に混在すると `pyo3_runtime.PanicException: Python API call failed` で hook が死ぬ。
+
+対処: PyInstaller は **clean な venv** で実行する（`scripts/build_sidecar.sh` は `${PYTHON:-python3}` を尊重するので `PYTHON=/path/to/venv/bin/python` で切り替え可）。CI の `actions/setup-python@v5` は専用 toolcache を持つので衝突しない。
+
+### C-4. Tauri externalBin はディレクトリではなく単一ファイルを要求する
+
+PyInstaller の `--onedir` 出力（高速起動のため `--onefile` より優先）は `dist/<name>/<name>` というディレクトリ構造になるが、Tauri の `Command::new_sidecar(...)` は単一ファイルパスを spawn しようとする。
+
+対処: `bin/<name>-<triple>.app/` にディレクトリを置き、同階層に薄い shell ラッパ `bin/<name>-<triple>` を生成して `exec "$DIR/$name-$triple.app/$name" "$@"` を呼ぶ。`scripts/build_sidecar.sh` 参照。
+
+### C-5. tsc の事前エラーで `tauri build` が壊れる
+
+`package.json` の `build` スクリプトが `tsc -b && vite build` だと、無関係の TS6133（unused-vars）等で `tauri:build` がコケる。
+
+対処: `build:vite` スクリプト（`vite build` のみ）を追加し、`tauri.conf.json` の `beforeBuildCommand` をそちらに向ける。型チェックは `npm run build` を別途叩く運用に分離。
+
+### C-6. Tauri の `actions/setup-node` cache は lockfile が必要
+
+`cache: npm` + `cache-dependency-path: frontend/package-lock.json` の組み合わせは lockfile が存在しないとセットアップで即死。`@tauri-apps/cli` を package.json に追加した後は **必ず `npm install --package-lock-only` で lockfile を更新してコミット**する。
+
+### C-7. PyInstaller の onedir bundle のラッパは `BASH_SOURCE[0]` 解決に注意
+
+bundled wrapper が `dirname "${BASH_SOURCE[0]}"` を相対パスのまま使うと exec 先のフルパス解決に失敗することがある。CWD 非依存にするため `cd "$(dirname "${BASH_SOURCE[0]}")" && pwd` で絶対化してから使う。`scripts/build_sidecar.sh` のラッパテンプレ参照。
+
+### C-8. macOS / Windows の Audiveris は upstream バイナリが無い
+
+GitHub releases の Audiveris は Linux .deb のみ。mac/win は `git clone --branch <ref>` した上で `./gradlew installDist` でローカルビルドする必要がある（10〜20 分）。`scripts/fetch_runtime_macos.sh` / `scripts/fetch_runtime_windows.ps1` 参照。CI で実行する場合 Gradle daemon が GitHub-hosted runner の SLA を超えるリスクあり。
+
+### C-9. macOS / Windows での孤児プロセス対策
+
+Linux は `prctl(PR_SET_PDEATHSIG, SIGTERM)` 一発で済むが、macOS と Windows には等価がない。
+
+対処: server.py 起動時に親 PID を記録し、daemon thread で 1Hz polling。
+- macOS: `os.kill(parent_pid, 0)` の `ProcessLookupError` で死亡検知
+- Windows: `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION) + GetExitCodeProcess`、`STILL_ACTIVE != 259` で死亡検知
+
+`backend/app/server.py:_spawn_parent_pid_watcher()` 参照。1 秒のラグはあるが Tauri が hard crash しない限り問題にならない。
