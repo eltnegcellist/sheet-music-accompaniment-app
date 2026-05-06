@@ -110,7 +110,8 @@ jobs:
             tests/test_api_smoke.py \
             tests/test_server_entry.py \
             tests/test_runtime_paths.py \
-            tests/test_audiveris_launcher.py
+            tests/test_audiveris_launcher.py \
+            tests/test_tesseract_config.py
 
   # Linux-only: actually run PyInstaller and confirm the sidecar starts,
   # serves /health, and exits cleanly. macOS/Windows variants come later
