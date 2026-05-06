@@ -35,8 +35,10 @@ if [[ "$TRIPLE" == *windows* ]]; then EXT=".exe"; fi
 
 echo "[sidecar] building for triple: $TRIPLE"
 
+PYTHON="${PYTHON:-python3}"
+
 rm -rf build dist
-pyinstaller --clean --noconfirm pyinstaller.spec
+"$PYTHON" -m PyInstaller --clean --noconfirm pyinstaller.spec
 
 OUT_DIR="$ROOT/frontend/src-tauri/bin"
 mkdir -p "$OUT_DIR"
