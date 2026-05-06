@@ -76,17 +76,25 @@ def _emit_ready(host: str, port: int) -> None:
 
 
 def _bind_to_parent_lifetime() -> None:
-    """Ask the kernel to SIGTERM us when the Tauri host dies (Linux).
+    """Make sure we die when the Tauri host dies, on every platform.
 
-    Tauri's Command API doesn't expose a pre-exec hook so we install
-    PR_SET_PDEATHSIG from inside the child. The signal is delivered by
-    the kernel even on `kill -9` of the parent, which closes the orphan
-    sidecar window we'd otherwise have on hard crashes. macOS and
-    Windows have no direct equivalent; their orphan handling is a
-    follow-up (kqueue watcher / Job Object respectively).
+    Linux: prctl(PR_SET_PDEATHSIG, SIGTERM) — the kernel signals us
+    immediately when the parent disappears, even on `kill -9`.
+
+    macOS / Windows: no kernel-level equivalent is exposed via plain
+    libc/Win32, so we spawn a daemon thread that polls the parent PID
+    once a second and SIGTERMs ourselves when it's gone. The 1s lag
+    is acceptable because the hostile case (host crashed) is rare and
+    the orphan would otherwise live indefinitely.
     """
-    if sys.platform != "linux":
+    if sys.platform == "linux":
+        _install_prctl_pdeathsig()
         return
+    if sys.platform in ("darwin", "win32"):
+        _spawn_parent_pid_watcher()
+
+
+def _install_prctl_pdeathsig() -> None:
     try:
         import ctypes
 
@@ -100,6 +108,53 @@ def _bind_to_parent_lifetime() -> None:
             )
     except OSError as exc:
         sys.stderr.write(f"[server] WARN: parent-death wiring failed: {exc}\n")
+
+
+def _spawn_parent_pid_watcher() -> None:
+    parent_pid = os.getppid()
+    if parent_pid <= 1:
+        return  # already orphaned, nothing to watch
+
+    def _is_alive(pid: int) -> bool:
+        if sys.platform == "win32":
+            import ctypes
+
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            STILL_ACTIVE = 259
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+            handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if not handle:
+                return False
+            try:
+                code = ctypes.c_ulong(0)
+                ok = kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+                return bool(ok) and code.value == STILL_ACTIVE
+            finally:
+                kernel32.CloseHandle(handle)
+        # macOS / other POSIX: signal 0 probes existence + permissions.
+        try:
+            os.kill(pid, 0)
+        except (ProcessLookupError, PermissionError):
+            return False
+        except OSError:
+            return False
+        return True
+
+    def _watch() -> None:
+        import time
+
+        while True:
+            time.sleep(1.0)
+            if not _is_alive(parent_pid):
+                try:
+                    os.kill(os.getpid(), signal.SIGTERM)
+                except OSError:
+                    os._exit(0)
+                return
+
+    import threading
+
+    threading.Thread(target=_watch, daemon=True, name="parent-watcher").start()
 
 
 def _check_bundled_binaries() -> None:
