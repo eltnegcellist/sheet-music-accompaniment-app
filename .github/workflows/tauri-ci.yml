@@ -132,8 +132,22 @@ jobs:
           fi
           echo "sidecar bound to port $PORT"
 
-          curl --fail --silent --max-time 5 "http://127.0.0.1:$PORT/health"
-          echo
+          # /health: liveness check
+          HEALTH="$(curl --fail --silent --max-time 5 "http://127.0.0.1:$PORT/health")"
+          echo "/health -> $HEALTH"
+          [ "$HEALTH" = '{"status":"ok"}' ] || { echo "unexpected /health body"; exit 1; }
+
+          # /cache: confirms FastAPI routes beyond /health are reachable
+          # and that the cache directory was created under --app-data.
+          CACHE="$(curl --fail --silent --max-time 5 "http://127.0.0.1:$PORT/cache")"
+          echo "/cache -> $CACHE"
+          # Empty list serialises as "[]" — anything else (including a 500
+          # converted to text by curl) means something went wrong.
+          [ "$CACHE" = "[]" ] || { echo "unexpected /cache body"; exit 1; }
+
+          # The cache subdirectory is created lazily on first write so we
+          # don't assert on it here — /cache returning [] without
+          # raising is enough to prove the cache layer is wired up.
 
           kill $PID
           wait $PID 2>/dev/null || true
