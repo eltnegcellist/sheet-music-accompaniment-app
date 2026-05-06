@@ -105,7 +105,12 @@ jobs:
         # backend/tests suite has a pre-existing failure (test_v3_vs_v4_lift)
         # unrelated to this branch, so gating on it would block green CI.
         working-directory: backend
-        run: pytest -q tests/test_api_smoke.py tests/test_server_entry.py tests/test_runtime_paths.py
+        run: |
+          pytest -q \
+            tests/test_api_smoke.py \
+            tests/test_server_entry.py \
+            tests/test_runtime_paths.py \
+            tests/test_audiveris_launcher.py
 
   # Linux-only: actually run PyInstaller and confirm the sidecar starts,
   # serves /health, and exits cleanly. macOS/Windows variants come later
