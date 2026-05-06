@@ -100,12 +100,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e "backend[dev]"
 
-      - name: Run API smoke tests
-        # Scoped to the file added for the Tauri migration: the wider
+      - name: Run API + sidecar entry smoke tests
+        # Scoped to the files added for the Tauri migration: the wider
         # backend/tests suite has a pre-existing failure (test_v3_vs_v4_lift)
         # unrelated to this branch, so gating on it would block green CI.
         working-directory: backend
-        run: pytest -q tests/test_api_smoke.py
+        run: pytest -q tests/test_api_smoke.py tests/test_server_entry.py
 
   # Linux-only: actually run PyInstaller and confirm the sidecar starts,
   # serves /health, and exits cleanly. macOS/Windows variants come later
