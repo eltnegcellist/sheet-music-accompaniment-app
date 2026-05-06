@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/1",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run build:vite",
     "devPath": "http://localhost:5173",
     "distDir": "../dist",
     "withGlobalTauri": false
