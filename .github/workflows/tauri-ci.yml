@@ -82,6 +82,31 @@ jobs:
         working-directory: frontend/src-tauri
         run: cargo check --locked || cargo check
 
+  # Fast Python unit + API surface tests. Runs before sidecar-smoke so
+  # regressions surface in seconds rather than minutes.
+  backend-tests:
+    name: pytest backend
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install backend + test deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "backend[dev]"
+
+      - name: Run API smoke tests
+        # Scoped to the file added for the Tauri migration: the wider
+        # backend/tests suite has a pre-existing failure (test_v3_vs_v4_lift)
+        # unrelated to this branch, so gating on it would block green CI.
+        working-directory: backend
+        run: pytest -q tests/test_api_smoke.py
+
   # Linux-only: actually run PyInstaller and confirm the sidecar starts,
   # serves /health, and exits cleanly. macOS/Windows variants come later
   # once we have signing certs and the bundled JRE/Audiveris layout.
