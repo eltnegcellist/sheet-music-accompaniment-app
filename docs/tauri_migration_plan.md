@@ -2,6 +2,29 @@
 
 現状の Docker 構成（FastAPI バックエンド + Audiveris/Java + Tesseract + React/Vite フロント）を、Tauri デスクトップアプリ（ローカルサーバー同梱型）へ段階的に移行するための開発プラン。
 
+## 実装ステータス（`claude/tauri-migration-plan-h3fwK` ブランチ）
+
+| Step | 状態 | 主要コミット / 成果物 |
+| --- | --- | --- |
+| 1-2 リソースパス抽象化 | ✅ 完了 | `backend/app/runtime_paths.py` |
+| 1-2 _PARAMS_DIR / cache root の env 化 | ✅ 完了 | `backend/app/main.py`, `backend/app/cache/analyze_cache.py` |
+| 1-3 PyInstaller spec | ✅ 完了 | `backend/pyinstaller.spec`（music21 全体同梱） |
+| 1-4 Audiveris/JRE 同梱手順 | ✅ Linux／✅ macOS／✅ Windows | `scripts/fetch_runtime_{linux.sh,macos.sh,windows.ps1}` |
+| 1-5 サイドカーエントリ + ヘルス | ✅ 完了 | `backend/app/server.py`（READY 出力、`--port 0` 対応、prctl/PID watcher、bundled-binary 起動時チェック） |
+| 2 フロント接続改修 | ✅ 完了 | `frontend/src/api/analyze.ts`、`frontend/src/vite-env.d.ts` |
+| 2-3 CORS narrowing | ✅ 完了（env 駆動） | `backend/app/main.py`、Tauri 側で `ALLOWED_ORIGINS` を渡す |
+| 3 Tauri 初期化 | ✅ 完了 | `frontend/src-tauri/{Cargo.toml,build.rs,tauri.conf.json,src/main.rs}` |
+| 4 Sidecar 連携 | ✅ 完了 | `frontend/src-tauri/src/main.rs`（spawn / READY パース / `window.eval` 注入 / `backend-ready` イベント / クリーンアップ） |
+| 4-3 孤児プロセス対策 | ✅ Linux(prctl)／✅ macOS/Windows(PID watcher) | `backend/app/server.py:_bind_to_parent_lifetime()` |
+| 5 サイドカー単体ビルド | ✅ Linux 検証済 | `scripts/build_sidecar.sh`（READY → /health 動作確認済） |
+| 5 CI コンパイル検証 | ✅ ubuntu/macos/windows | `.github/workflows/tauri-ci.yml` |
+| 5 Linux バンドル CI | ✅ workflow_dispatch | `.github/workflows/tauri-release.yml` |
+| 5 macOS / Windows バンドル CI | ⏳ 未着手 | self-hosted runner と署名証明書が必要 |
+| 5 アイコン整備 | ⏳ プレースホルダのみ | リリース時に `npx @tauri-apps/cli icon` で生成 |
+| 5 macOS notarization / Windows 署名 | ⏳ 未着手 | 証明書手配後 |
+
+`README.md` の "Option C / 方法 C" にユーザー向けの開発フローを記載済。
+
 ## 0. 前提と現状確認
 
 | 項目 | 現状 | 移行先 |
