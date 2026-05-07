@@ -117,11 +117,15 @@ fn main() {
         .on_window_event(|event| {
             if matches!(event.event(), WindowEvent::Destroyed) {
                 // Pull the child out of the mutex in an inner scope so the
-                // MutexGuard is dropped before the State<'_, _> wrapper goes
-                // out of scope at the end of the closure body.
+                // MutexGuard is dropped before the State<'_, _> wrapper
+                // goes out of scope. The trailing `let x = ...; x` form is
+                // what rustc itself recommends (E0597) — without it the
+                // temporary's lifetime is extended to the block's end and
+                // outlives the borrow on `state`.
                 let child = {
                     let state = event.window().state::<SidecarState>();
-                    state.child.lock().unwrap().take()
+                    let taken = state.child.lock().unwrap().take();
+                    taken
                 };
                 if let Some(child) = child {
                     let _ = child.kill();
@@ -134,7 +138,8 @@ fn main() {
             if let RunEvent::ExitRequested { .. } = event {
                 let child = {
                     let state = app.state::<SidecarState>();
-                    state.child.lock().unwrap().take()
+                    let taken = state.child.lock().unwrap().take();
+                    taken
                 };
                 if let Some(child) = child {
                     let _ = child.kill();
