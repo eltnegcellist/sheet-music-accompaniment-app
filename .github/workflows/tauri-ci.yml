@@ -78,6 +78,21 @@ jobs:
         # warnings in app code currently break tsc but not Vite.
         run: npx vite build
 
+      # tauri-build validates that every externalBin in tauri.conf.json
+      # has a per-target-triple file on disk. The full PyInstaller build
+      # (~3min, sidecar-smoke job covers it) is overkill here, so just
+      # plant an empty file at the expected path. We're not linking it.
+      - name: Stub sidecar binary for tauri-build
+        shell: bash
+        working-directory: frontend/src-tauri
+        run: |
+          triple="$(rustc -vV | sed -n 's|host: ||p')"
+          ext=""
+          [[ "$triple" == *windows* ]] && ext=".exe"
+          mkdir -p bin
+          : > "bin/accompanist-server-${triple}${ext}"
+          ls -l bin/
+
       - name: cargo check
         working-directory: frontend/src-tauri
         run: cargo check --locked || cargo check
