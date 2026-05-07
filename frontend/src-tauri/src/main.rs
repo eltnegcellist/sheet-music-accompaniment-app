@@ -1,6 +1,7 @@
 // Prevent the extra console window on Windows in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 use serde::Deserialize;
@@ -50,7 +51,7 @@ fn spawn_sidecar(app: &tauri::AppHandle) -> tauri::Result<CommandChild> {
             "--port", "0",
             "--app-data", app_data.to_string_lossy().as_ref(),
         ])
-        .envs([
+        .envs(HashMap::from([
             ("AUDIVERIS_LAUNCHER".to_string(), audiveris.to_string_lossy().into_owned()),
             ("JAVA_HOME".to_string(), java_home.to_string_lossy().into_owned()),
             ("TESSDATA_PREFIX".to_string(), tessdata.to_string_lossy().into_owned()),
@@ -63,7 +64,7 @@ fn spawn_sidecar(app: &tauri::AppHandle) -> tauri::Result<CommandChild> {
                 "ALLOWED_ORIGINS".to_string(),
                 "tauri://localhost,https://tauri.localhost,http://localhost:5173".into(),
             ),
-        ])
+        ]))
         .spawn()?;
 
     let app_handle = app.clone();
@@ -115,8 +116,14 @@ fn main() {
         })
         .on_window_event(|event| {
             if matches!(event.event(), WindowEvent::Destroyed) {
-                let state = event.window().state::<SidecarState>();
-                if let Some(child) = state.child.lock().unwrap().take() {
+                // Pull the child out of the mutex in an inner scope so the
+                // MutexGuard is dropped before the State<'_, _> wrapper goes
+                // out of scope at the end of the closure body.
+                let child = {
+                    let state = event.window().state::<SidecarState>();
+                    state.child.lock().unwrap().take()
+                };
+                if let Some(child) = child {
                     let _ = child.kill();
                 }
             }
@@ -125,8 +132,11 @@ fn main() {
         .expect("error while building tauri application")
         .run(|app, event| {
             if let RunEvent::ExitRequested { .. } = event {
-                let state = app.state::<SidecarState>();
-                if let Some(child) = state.child.lock().unwrap().take() {
+                let child = {
+                    let state = app.state::<SidecarState>();
+                    state.child.lock().unwrap().take()
+                };
+                if let Some(child) = child {
                     let _ = child.kill();
                 }
             }
