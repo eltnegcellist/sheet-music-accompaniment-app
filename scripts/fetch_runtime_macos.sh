@@ -80,13 +80,15 @@ rm -rf "$RES/runtime/jre"
 # by tar/jlink, and Tauri's build.rs walker hits EACCES when it stats
 # symlinks under jre/legal/ (modules' LICENSE/ADDITIONAL_LICENSE_INFO/
 # ASSEMBLY_EXCEPTION are relative symlinks into ../java.base/). Strip
-# xattrs and move legal/ aside so cargo:rerun-if-changed never visits it.
-# `tauri build` callers can restore .legal-bundle/ before notarization
-# to satisfy Adoptium's redistribution terms.
+# xattrs and move legal/ outside resources/ so Tauri's bundle.resources
+# glob never visits it. `tauri build` callers can copy the staged
+# legal-bundle/ directory back before notarization to satisfy
+# Adoptium's redistribution terms.
 xattr -rc "$RES/runtime" 2>/dev/null || true
+LEGAL_STAGE="$ROOT/frontend/src-tauri/legal-bundle"
 if [[ -d "$RES/runtime/jre/legal" ]]; then
-  rm -rf "$RES/runtime/jre/.legal-bundle"
-  mv "$RES/runtime/jre/legal" "$RES/runtime/jre/.legal-bundle"
+  rm -rf "$LEGAL_STAGE"
+  mv "$RES/runtime/jre/legal" "$LEGAL_STAGE"
 fi
 
 # ---------------------------------------------------------------------------
