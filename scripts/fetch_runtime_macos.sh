@@ -68,7 +68,7 @@ echo "[runtime] running jlink (JDK_HOME=$JDK_HOME)"
 rm -rf "$RES/runtime/jre"
 "$JDK_HOME/bin/jlink" \
     --module-path "$JDK_HOME/jmods" \
-    --add-modules java.base,java.desktop,java.logging,java.management,java.naming,java.prefs,java.sql,java.xml,jdk.unsupported,jdk.crypto.ec,jdk.localedata \
+    --add-modules java.base,java.desktop,java.logging,java.management,java.naming,java.prefs,java.scripting,java.security.jgss,java.sql,java.xml,jdk.crypto.ec,jdk.localedata,jdk.unsupported,jdk.zipfs \
     --include-locales=en,ja \
     --no-header-files \
     --no-man-pages \
