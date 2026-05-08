@@ -59,11 +59,15 @@ if [[ "$EXT" == ".exe" ]]; then
   # exe; emit a clear failure rather than a half-broken wrapper.
   cp "$TARGET_DIR/accompanist-server.exe" "$WRAPPER"
 else
-  cat > "$WRAPPER" <<'EOF'
+  # Tauri's externalBin loader copies this single file into
+  # target/{debug,release}/ but leaves the companion .app/ directory
+  # behind, so a wrapper that resolves the bundle relative to its own
+  # location breaks. Bake the absolute path of TARGET_DIR in at build
+  # time. This is dev-only — production (tauri build) needs either a
+  # --onefile spec or Tauri resource bundling for the .app/ tree.
+  cat > "$WRAPPER" <<EOF
 #!/usr/bin/env bash
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TRIPLE_DIR="$(basename "${BASH_SOURCE[0]}").app"
-exec "$DIR/$TRIPLE_DIR/accompanist-server" "$@"
+exec "$TARGET_DIR/accompanist-server" "\$@"
 EOF
   chmod +x "$WRAPPER"
 fi
