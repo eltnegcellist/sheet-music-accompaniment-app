@@ -76,6 +76,19 @@ rm -rf "$RES/runtime/jre"
     --compress=zip-6 \
     --output "$RES/runtime/jre"
 
+# macOS 26 (Tahoe) attaches com.apple.provenance to every file written
+# by tar/jlink, and Tauri's build.rs walker hits EACCES when it stats
+# symlinks under jre/legal/ (modules' LICENSE/ADDITIONAL_LICENSE_INFO/
+# ASSEMBLY_EXCEPTION are relative symlinks into ../java.base/). Strip
+# xattrs and move legal/ aside so cargo:rerun-if-changed never visits it.
+# `tauri build` callers can restore .legal-bundle/ before notarization
+# to satisfy Adoptium's redistribution terms.
+xattr -rc "$RES/runtime" 2>/dev/null || true
+if [[ -d "$RES/runtime/jre/legal" ]]; then
+  rm -rf "$RES/runtime/jre/.legal-bundle"
+  mv "$RES/runtime/jre/legal" "$RES/runtime/jre/.legal-bundle"
+fi
+
 # ---------------------------------------------------------------------------
 # 2. Audiveris from source. The upstream Gradle build produces an install
 #    layout under build/install/audiveris-app/ that mirrors the Linux .deb.
