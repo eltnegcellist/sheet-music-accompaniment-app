@@ -28,6 +28,10 @@
       "fs": {
         "all": false,
         "scope": ["$APPDATA/**", "$APPLOCALDATA/**"]
+      },
+      "protocol": {
+        "asset": true,
+        "assetScope": ["**"]
       }
     },
     "bundle": {
