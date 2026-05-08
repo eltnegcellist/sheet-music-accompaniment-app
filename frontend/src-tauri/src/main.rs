@@ -25,10 +25,20 @@ fn default_host() -> String {
 }
 
 fn spawn_sidecar(app: &tauri::AppHandle) -> tauri::Result<CommandChild> {
-    let resource_dir = app
-        .path_resolver()
-        .resource_dir()
-        .expect("resource_dir not available");
+    // Tauri 1.x's path_resolver().resource_dir() returns the dev exe's
+    // parent directory (target/{debug,release}) in dev mode, not the
+    // source resources/ tree where fetch_runtime_*.sh stages the JRE,
+    // Audiveris, and tesseract. Bake CARGO_MANIFEST_DIR in for dev so
+    // the sidecar's env vars point at real files; production keeps the
+    // standard resolver because tauri.conf.json's bundle.resources
+    // glob copies the tree into Contents/Resources at build time.
+    let resource_dir = if cfg!(debug_assertions) {
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources")
+    } else {
+        app.path_resolver()
+            .resource_dir()
+            .expect("resource_dir not available")
+    };
     let app_data = app
         .path_resolver()
         .app_data_dir()
