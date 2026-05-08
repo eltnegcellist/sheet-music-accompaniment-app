@@ -51,7 +51,7 @@ echo "[runtime] running jlink to produce a minimal runtime"
 rm -rf "$RES/runtime/jre"
 "$WORK/jdk/bin/jlink" \
     --module-path "$WORK/jdk/jmods" \
-    --add-modules java.base,java.desktop,java.logging,java.sql,java.xml,jdk.unsupported,jdk.crypto.ec,jdk.localedata \
+    --add-modules java.base,java.desktop,java.logging,java.management,java.naming,java.prefs,java.sql,java.xml,jdk.unsupported,jdk.crypto.ec,jdk.localedata \
     --include-locales=en,ja \
     --no-header-files \
     --no-man-pages \

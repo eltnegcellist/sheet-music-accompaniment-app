@@ -56,7 +56,7 @@ try {
     if (Test-Path $jreOut) { Remove-Item -Recurse -Force $jreOut }
     $jlinkArgs = @(
         "--module-path", (Join-Path $jdkHome "jmods"),
-        "--add-modules", "java.base,java.desktop,java.logging,java.sql,java.xml,jdk.unsupported,jdk.crypto.ec,jdk.localedata",
+        "--add-modules", "java.base,java.desktop,java.logging,java.management,java.naming,java.prefs,java.sql,java.xml,jdk.unsupported,jdk.crypto.ec,jdk.localedata",
         "--include-locales=en,ja",
         "--no-header-files",
         "--no-man-pages",
