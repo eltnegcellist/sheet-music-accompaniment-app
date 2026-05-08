@@ -8,7 +8,7 @@
 #
 #   frontend/src-tauri/resources/
 #     runtime/
-#       jre/                     <- Eclipse Temurin 17 JRE (jlink-trimmed)
+#       jre/                     <- Eclipse Temurin 25 JRE (jlink-trimmed)
 #       audiveris/               <- Audiveris install tree (bin/ + lib/)
 #       tessdata/                <- Tesseract language packs (eng.traineddata, ita.traineddata)
 #     tesseract/
@@ -26,8 +26,11 @@ trap 'rm -rf "$WORK"' EXIT
 
 mkdir -p "$RES/runtime" "$RES/tesseract"
 
-JRE_VERSION="17.0.13+11"
-JRE_URL="https://github.com/adoptium/temurin17-binaries/releases/download/jdk-${JRE_VERSION//+/%2B}/OpenJDK17U-jre_x64_linux_hotspot_${JRE_VERSION//+/_}.tar.gz"
+# Audiveris 5.10.2's build.gradle requires Java 25, so the bundled runtime
+# must be at least JDK 25 GA. We fetch the JDK (not the JRE) artifact so
+# jlink + jmods are available for trimming.
+JRE_FEATURE="${JRE_FEATURE:-25}"
+JRE_URL="https://api.adoptium.net/v3/binary/latest/${JRE_FEATURE}/ga/linux/x64/jdk/hotspot/normal/eclipse"
 AUDIVERIS_VERSION="5.10.2"
 AUDIVERIS_DEB_URL="https://github.com/Audiveris/audiveris/releases/download/${AUDIVERIS_VERSION}/Audiveris-${AUDIVERIS_VERSION}.deb"
 
@@ -35,23 +38,26 @@ AUDIVERIS_DEB_URL="https://github.com/Audiveris/audiveris/releases/download/${AU
 # 1. Trimmed JRE via jlink. Pulls the full JDK once, runs jlink, keeps only
 #    the resulting custom runtime; saves ~150MB vs shipping the whole JRE.
 # ---------------------------------------------------------------------------
-echo "[runtime] fetching Temurin JRE $JRE_VERSION"
-curl -fsSL "$JRE_URL" -o "$WORK/jre.tgz"
-mkdir -p "$WORK/jre"
-tar -xzf "$WORK/jre.tgz" -C "$WORK/jre" --strip-components=1
+echo "[runtime] fetching latest Temurin JDK $JRE_FEATURE GA"
+curl -fsSL "$JRE_URL" -o "$WORK/jdk.tgz"
+mkdir -p "$WORK/jdk"
+tar -xzf "$WORK/jdk.tgz" -C "$WORK/jdk" --strip-components=1
+if [[ ! -x "$WORK/jdk/bin/jlink" ]]; then
+  echo "ERROR: jlink not found in extracted JDK at $WORK/jdk" >&2
+  exit 1
+fi
 
 echo "[runtime] running jlink to produce a minimal runtime"
 rm -rf "$RES/runtime/jre"
-"$WORK/jre/bin/jlink" \
-    --module-path "$WORK/jre/jmods" \
+"$WORK/jdk/bin/jlink" \
+    --module-path "$WORK/jdk/jmods" \
     --add-modules java.base,java.desktop,java.logging,java.sql,java.xml,jdk.unsupported,jdk.crypto.ec,jdk.localedata \
     --include-locales=en,ja \
     --no-header-files \
     --no-man-pages \
     --strip-debug \
-    --compress=2 \
-    --output "$RES/runtime/jre" 2>/dev/null \
-    || cp -r "$WORK/jre" "$RES/runtime/jre"  # fall back to full JRE if jlink fails
+    --compress=zip-6 \
+    --output "$RES/runtime/jre"
 
 # ---------------------------------------------------------------------------
 # 2. Audiveris — extract the .deb without installing it system-wide so we

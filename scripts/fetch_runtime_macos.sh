@@ -7,7 +7,7 @@
 #
 #   frontend/src-tauri/resources/
 #     runtime/
-#       jre/                     <- Temurin 17 JRE (jlink-trimmed)
+#       jre/                     <- Temurin 25 JRE (jlink-trimmed)
 #       audiveris/               <- Audiveris install (built locally)
 #       tessdata/                <- Tesseract language packs
 #     tesseract/
@@ -36,21 +36,32 @@ case "$ARCH" in
   *) echo "Unsupported macOS arch: $ARCH" >&2; exit 1 ;;
 esac
 
-JRE_VERSION="17.0.13+11"
-JRE_URL="https://github.com/adoptium/temurin17-binaries/releases/download/jdk-${JRE_VERSION//+/%2B}/OpenJDK17U-jdk_${JRE_ARCH}_mac_hotspot_${JRE_VERSION//+/_}.tar.gz"
+# Audiveris 5.10.2's build.gradle pins sourceCompatibility to Java 25,
+# so we must ship a JDK 25 toolchain. Use the Adoptium API "latest GA"
+# endpoint so we don't have to chase point releases.
+JRE_FEATURE="${JRE_FEATURE:-25}"
+case "$JRE_ARCH" in
+  aarch64) ADOPTIUM_ARCH="aarch64" ;;
+  x64)     ADOPTIUM_ARCH="x64" ;;
+esac
+JRE_URL="https://api.adoptium.net/v3/binary/latest/${JRE_FEATURE}/ga/mac/${ADOPTIUM_ARCH}/jdk/hotspot/normal/eclipse"
 AUDIVERIS_REF="${AUDIVERIS_REF:-5.10.2}"
 
 # ---------------------------------------------------------------------------
 # 1. Trimmed JRE via jlink. macOS Temurin tarball has a Contents/Home/
 #    layout from the .pkg, so we strip the wrapper before invoking jlink.
 # ---------------------------------------------------------------------------
-echo "[runtime] fetching Temurin JDK $JRE_VERSION ($JRE_ARCH)"
+echo "[runtime] fetching latest Temurin JDK $JRE_FEATURE GA ($JRE_ARCH)"
 curl -fsSL "$JRE_URL" -o "$WORK/jdk.tgz"
 mkdir -p "$WORK/jdk-extract"
 tar -xzf "$WORK/jdk.tgz" -C "$WORK/jdk-extract"
 JDK_HOME="$(find "$WORK/jdk-extract" -type d -name "Home" -path "*Contents*" | head -n1)"
 if [[ -z "$JDK_HOME" ]]; then
-  JDK_HOME="$(find "$WORK/jdk-extract" -maxdepth 2 -type d -name "jdk-*" | head -n1)"
+  JDK_HOME="$(find "$WORK/jdk-extract" -maxdepth 3 -type d -name "jdk-*" | head -n1)"
+fi
+if [[ -z "$JDK_HOME" || ! -x "$JDK_HOME/bin/jlink" ]]; then
+  echo "ERROR: could not locate JDK home under $WORK/jdk-extract" >&2
+  exit 1
 fi
 
 echo "[runtime] running jlink (JDK_HOME=$JDK_HOME)"
@@ -62,7 +73,7 @@ rm -rf "$RES/runtime/jre"
     --no-header-files \
     --no-man-pages \
     --strip-debug \
-    --compress=2 \
+    --compress=zip-6 \
     --output "$RES/runtime/jre"
 
 # ---------------------------------------------------------------------------

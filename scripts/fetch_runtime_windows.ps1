@@ -1,21 +1,20 @@
 # Assemble the bundled runtime tree for Windows x64. Run on a Windows
-# machine with PowerShell 5.1+ (or pwsh), git, and a working JDK 17 in
-# %JAVA_HOME% so we can both jlink the runtime and run gradlew for
-# Audiveris. The upstream project does not publish a portable Audiveris
-# for Windows, so we build it from source.
+# machine with PowerShell 5.1+ (or pwsh) and git. Audiveris 5.10.2's
+# build.gradle requires Java 25, so this script downloads a Temurin 25
+# JDK into a temp dir and points JAVA_HOME there for the gradle build —
+# you don't need a system JDK preinstalled.
 #
 # Output layout (matches frontend/src-tauri/src/main.rs env wiring):
 #
 #   frontend/src-tauri/resources/
 #     runtime/
-#       jre/                     <- Temurin 17 JRE (jlink-trimmed)
+#       jre/                     <- Temurin 25 JRE (jlink-trimmed)
 #       audiveris/               <- Audiveris install (built locally)
 #       tessdata/                <- Tesseract language packs
 #     tesseract/
 #       tesseract.exe            <- Tesseract binary (UB Mannheim build)
 #
 # Prerequisites:
-#     winget install Microsoft.OpenJDK.17 (or set JAVA_HOME to your JDK)
 #     winget install Git.Git
 #     winget install UB-Mannheim.TesseractOCR
 #
@@ -25,7 +24,7 @@
 [CmdletBinding()]
 param(
     [string]$AudiverisRef = "5.10.2",
-    [string]$JreVersion = "17.0.13+11"
+    [string]$JreFeature = "25"
 )
 
 $ErrorActionPreference = "Stop"
@@ -42,14 +41,15 @@ try {
     # ---------------------------------------------------------------------
     # 1. Trimmed JRE via jlink.
     # ---------------------------------------------------------------------
-    $jreUrlVersion = $JreVersion -replace '\+', '%2B'
-    $jreFileVersion = $JreVersion -replace '\+', '_'
-    $jdkUrl = "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-$jreUrlVersion/OpenJDK17U-jdk_x64_windows_hotspot_$jreFileVersion.zip"
+    $jdkUrl = "https://api.adoptium.net/v3/binary/latest/$JreFeature/ga/windows/x64/jdk/hotspot/normal/eclipse"
     $jdkZip = Join-Path $work "jdk.zip"
-    Write-Host "[runtime] fetching Temurin JDK $JreVersion"
-    Invoke-WebRequest -Uri $jdkUrl -OutFile $jdkZip
+    Write-Host "[runtime] fetching latest Temurin JDK $JreFeature GA"
+    Invoke-WebRequest -Uri $jdkUrl -OutFile $jdkZip -MaximumRedirection 5
     Expand-Archive -Path $jdkZip -DestinationPath (Join-Path $work "jdk") -Force
     $jdkHome = (Get-ChildItem -Path (Join-Path $work "jdk") -Directory | Select-Object -First 1).FullName
+    if (-not (Test-Path (Join-Path $jdkHome "bin/jlink.exe"))) {
+        throw "jlink.exe not found under $jdkHome"
+    }
 
     Write-Host "[runtime] running jlink (JDK_HOME=$jdkHome)"
     $jreOut = Join-Path $res "runtime/jre"
@@ -61,7 +61,7 @@ try {
         "--no-header-files",
         "--no-man-pages",
         "--strip-debug",
-        "--compress=2",
+        "--compress=zip-6",
         "--output", $jreOut
     )
     & (Join-Path $jdkHome "bin/jlink.exe") @jlinkArgs
