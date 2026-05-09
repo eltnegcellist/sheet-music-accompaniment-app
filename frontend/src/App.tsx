@@ -425,7 +425,32 @@ export default function App() {
   const fileLabel = pdfFile?.name ?? musicXmlFile?.name ?? T.fileLabel;
 
   useEffect(() => {
-    getCacheList().then(setCacheList).catch(console.error);
+    // Initial fetch. In Tauri this races the sidecar's READY line
+    // (which injects window.__BACKEND_URL__), so the very first call
+    // can hit the localhost:8000 fallback and 404. We refresh below
+    // when the Rust side fires the `backend-ready` event.
+    getCacheList().then(setCacheList).catch(() => {});
+
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    (async () => {
+      try {
+        const { listen } = await import("@tauri-apps/api/event");
+        unlisten = await listen("backend-ready", () => {
+          if (!cancelled) {
+            getCacheList().then(setCacheList).catch(console.error);
+          }
+        });
+      } catch {
+        // Not running in Tauri (e.g. `npm run dev` standalone). The
+        // initial fetch above is the canonical path in that case.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, []);
 
   const loadFromCache = async (entry: CacheEntry) => {
