@@ -27,7 +27,11 @@ RES="$ROOT/frontend/src-tauri/resources"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-mkdir -p "$RES/runtime" "$RES/tesseract"
+mkdir -p "$RES/runtime"
+# Old layout (resources/tesseract/) is replaced by runtime/tesseract/
+# below. Clean it so leftovers from a previous run do not bloat the
+# bundle or leave stale dylibs that load at runtime.
+rm -rf "$RES/tesseract"
 
 ARCH="${ARCH:-$(uname -m)}"
 case "$ARCH" in
@@ -115,20 +119,23 @@ rm -rf "$RES/runtime/audiveris"
 cp -R "$INSTALL_DIR" "$RES/runtime/audiveris"
 
 # ---------------------------------------------------------------------------
-# 3. Tesseract: copy the Homebrew binary plus eng/ita language data.
+# 3. Tesseract: bundle the Homebrew binary together with libtesseract,
+#    libleptonica and their transitive deps via bundle_macho_macos.sh,
+#    so the produced .app does not depend on Homebrew at runtime.
+#    Output layout: resources/runtime/tesseract/{bin/tesseract,lib/*}.
 # ---------------------------------------------------------------------------
-echo "[runtime] copying tesseract from Homebrew"
+echo "[runtime] bundling tesseract from Homebrew"
 TESS_BIN="$(command -v tesseract || true)"
 if [[ -z "$TESS_BIN" ]]; then
   echo "ERROR: tesseract is not installed. Run: brew install tesseract" >&2
   exit 1
 fi
-cp "$TESS_BIN" "$RES/tesseract/tesseract"
-chmod +x "$RES/tesseract/tesseract"
+rm -rf "$RES/runtime/tesseract"
+"$ROOT/scripts/bundle_macho_macos.sh" "$RES/runtime/tesseract" "$TESS_BIN"
+xattr -rc "$RES/runtime/tesseract" 2>/dev/null || true
 
 mkdir -p "$RES/runtime/tessdata"
-TESSDATA_SRC="$(dirname "$(readlink "$TESS_BIN" 2>/dev/null || echo "$TESS_BIN")")/../share/tessdata"
-[[ -d "$TESSDATA_SRC" ]] || TESSDATA_SRC="$(brew --prefix tesseract 2>/dev/null)/share/tessdata"
+TESSDATA_SRC="$(brew --prefix tesseract 2>/dev/null)/share/tessdata"
 for lang in eng ita; do
   if [[ -f "$TESSDATA_SRC/$lang.traineddata" ]]; then
     cp "$TESSDATA_SRC/$lang.traineddata" "$RES/runtime/tessdata/"
@@ -163,19 +170,13 @@ find "$RES" -maxdepth 3 -type d | sort
 
 # ---------------------------------------------------------------------------
 # Notes on shipping a Mac bundle:
-# * runtime/poppler is fully self-contained (bundle_macho_macos.sh).
-#   runtime/jre is jlink-built so its libs are also self-contained.
-#   The Audiveris launcher under runtime/audiveris/bin/Audiveris loads
-#   the bundled JRE explicitly, so its dylibs are JRE-internal too.
-# * resources/tesseract/tesseract is NOT yet self-contained — it still
-#   resolves libtesseract.X.dylib and libleptonica.X.dylib from
-#   Homebrew at runtime. For a true distributable build, run it
-#   through bundle_macho_macos.sh as well (and update main.rs's
-#   TESSERACT_CMD path accordingly).
-# * Every embedded .dylib needs to be codesigned individually before
-#   notarization. Use `codesign --deep` only as a last resort — Apple's
-#   recent docs prefer per-file signing scripts. See
-#   scripts/sign_and_notarize_macos.sh for the canonical sequence.
-# * The bundled JRE invalidates Hardened Runtime unless the entitlement
-#   `com.apple.security.cs.allow-jit` is added; the entitlements file
-#   lives at frontend/src-tauri/entitlements.plist.
+# * Every binary tree under runtime/ is fully self-contained:
+#     - runtime/jre        : jlink-built, JVM-internal dylibs only
+#     - runtime/audiveris  : loads the bundled JRE explicitly
+#     - runtime/poppler    : relinked via bundle_macho_macos.sh
+#     - runtime/tesseract  : relinked via bundle_macho_macos.sh
+#   So the produced .app does not depend on Homebrew on the end
+#   user's Mac.
+# * The build is unsigned (野良 distribution); ad-hoc signing happens
+#   in scripts/sign_adhoc_macos.sh after `tauri:build`. End users
+#   bypass Gatekeeper manually — see docs/macos_unsigned_distribution.md.

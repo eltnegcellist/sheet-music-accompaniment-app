@@ -53,7 +53,14 @@ fn spawn_sidecar(app: &tauri::AppHandle) -> tauri::Result<CommandChild> {
     let audiveris = resource_dir.join("runtime/audiveris/bin/Audiveris");
     let java_home = resource_dir.join("runtime/jre");
     let tessdata = resource_dir.join("runtime/tessdata");
-    let tess_bin = if cfg!(target_os = "windows") {
+    // macOS uses the self-contained runtime/tesseract/{bin,lib} layout
+    // produced by scripts/bundle_macho_macos.sh; Linux and Windows still
+    // ship the system/UB-Mannheim binary at the original resources/tesseract/
+    // location since their fetch_runtime_*.sh scripts have not been
+    // migrated to the relinked layout yet.
+    let tess_bin = if cfg!(target_os = "macos") {
+        resource_dir.join("runtime/tesseract/bin/tesseract")
+    } else if cfg!(target_os = "windows") {
         resource_dir.join("tesseract/tesseract.exe")
     } else {
         resource_dir.join("tesseract/tesseract")

@@ -105,15 +105,21 @@ ls "$APP/Contents/Resources/resources/runtime/poppler/bin"
 
 ### Tesseract が動かない（OCR が一切走らない）
 
-現状 `resources/tesseract/tesseract` は dylib を Homebrew から動的
-ロードしているため、ビルドした Mac 以外では動かない。配布対象が
-ビルド機 1 台ならそのままで OK だが、他の Mac に DMG を渡すなら
-`bundle_macho_macos.sh` を tesseract にも適用する必要がある:
+`runtime/tesseract/{bin,lib}` が `.app` 内に正しくバンドル
+されているか確認:
 
 ```sh
-scripts/bundle_macho_macos.sh "$RES/runtime/tesseract" \
-    "$(brew --prefix tesseract)/bin/tesseract"
+APP="frontend/src-tauri/target/release/bundle/macos/IMSLP Accompanist.app"
+ls "$APP/Contents/Resources/resources/runtime/tesseract/bin"
+# tesseract が見える
+ls "$APP/Contents/Resources/resources/runtime/tesseract/lib"
+# libtesseract.X.dylib, libleptonica.X.dylib, …
 ```
 
-加えて `main.rs` の `tess_bin` パスを `runtime/tesseract/bin/tesseract`
-に更新。これは他人の Mac に配布する前にやるべき残タスク。
+それでも動かない場合は `otool -L` でロード対象パスを確認:
+
+```sh
+otool -L "$APP/Contents/Resources/resources/runtime/tesseract/bin/tesseract"
+# @loader_path/../lib/lib*.dylib に書き換わっていれば OK
+# /opt/homebrew/... が残っていたら fetch_runtime_macos.sh を再実行
+```
