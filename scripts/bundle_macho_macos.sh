@@ -39,8 +39,6 @@ DEST_BIN="$DEST/bin"
 DEST_LIB="$DEST/lib"
 mkdir -p "$DEST_BIN" "$DEST_LIB"
 
-declare -A copied_libs=()
-
 is_external() {
   case "$1" in
     /opt/homebrew/*) return 0;;
@@ -51,7 +49,9 @@ is_external() {
 
 # Walk a Mach-O file's dylib deps recursively. $2 is the install-name
 # prefix to write into $1's load commands ("@loader_path/../lib" for
-# binaries, "@loader_path" for sibling dylibs).
+# binaries, "@loader_path" for sibling dylibs). Dedup is by destination
+# file existence, which keeps this script bash-3.2 compatible (macOS
+# /bin/bash) — associative arrays are bash 4+ only.
 walk() {
   local target="$1"
   local prefix="$2"
@@ -61,10 +61,9 @@ walk() {
     is_external "$dep" || continue
     base="$(basename "$dep")"
     dest="$DEST_LIB/$base"
-    if [[ -z "${copied_libs[$base]:-}" ]]; then
+    if [[ ! -f "$dest" ]]; then
       cp "$dep" "$dest"        # cp follows symlinks; we get the real file
       chmod +w "$dest"
-      copied_libs["$base"]=1
       install_name_tool -id "$base" "$dest"
       walk "$dest" "@loader_path"
     fi
@@ -90,4 +89,6 @@ while IFS= read -r -d '' f; do
   codesign --force --sign - --timestamp=none "$f" 2>/dev/null || true
 done < <(find "$DEST" -type f \( -perm -u=x -o -name "*.dylib" \) -print0)
 
-echo "[bundle] $DEST: $(ls "$DEST_BIN" | wc -l | tr -d ' ') bins, ${#copied_libs[@]} libs"
+bins_count="$(find "$DEST_BIN" -type f | wc -l | tr -d ' ')"
+libs_count="$(find "$DEST_LIB" -type f | wc -l | tr -d ' ')"
+echo "[bundle] $DEST: $bins_count bins, $libs_count libs"
