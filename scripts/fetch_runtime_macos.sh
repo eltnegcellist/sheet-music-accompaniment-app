@@ -137,14 +137,45 @@ for lang in eng ita; do
   fi
 done
 
+# ---------------------------------------------------------------------------
+# 4. Poppler: bundle pdftoppm/pdfinfo/etc. plus their transitive Homebrew
+#    dylib deps so pdf2image (used by tempo OCR + the splitter fallback)
+#    works on machines without Homebrew. bundle_macho_macos.sh walks
+#    otool -L recursively and rewrites install names to @loader_path.
+# ---------------------------------------------------------------------------
+echo "[runtime] bundling Poppler from Homebrew"
+POPPLER_PREFIX="$(brew --prefix poppler 2>/dev/null || true)"
+if [[ -z "$POPPLER_PREFIX" || ! -d "$POPPLER_PREFIX/bin" ]]; then
+  echo "ERROR: poppler is not installed. Run: brew install poppler" >&2
+  exit 1
+fi
+rm -rf "$RES/runtime/poppler"
+"$ROOT/scripts/bundle_macho_macos.sh" "$RES/runtime/poppler" \
+    "$POPPLER_PREFIX/bin/pdftoppm" \
+    "$POPPLER_PREFIX/bin/pdfinfo" \
+    "$POPPLER_PREFIX/bin/pdfseparate" \
+    "$POPPLER_PREFIX/bin/pdfunite" \
+    "$POPPLER_PREFIX/bin/pdftocairo"
+xattr -rc "$RES/runtime/poppler" 2>/dev/null || true
+
 echo "[runtime] done. Layout:"
 find "$RES" -maxdepth 3 -type d | sort
 
 # ---------------------------------------------------------------------------
 # Notes on shipping a Mac bundle:
-# * Every embedded .dylib in runtime/audiveris and runtime/jre needs to be
-#   codesigned individually before notarization. Use `codesign --deep` only
-#   as a last resort — Apple's recent docs prefer per-file signing scripts.
+# * runtime/poppler is fully self-contained (bundle_macho_macos.sh).
+#   runtime/jre is jlink-built so its libs are also self-contained.
+#   The Audiveris launcher under runtime/audiveris/bin/Audiveris loads
+#   the bundled JRE explicitly, so its dylibs are JRE-internal too.
+# * resources/tesseract/tesseract is NOT yet self-contained — it still
+#   resolves libtesseract.X.dylib and libleptonica.X.dylib from
+#   Homebrew at runtime. For a true distributable build, run it
+#   through bundle_macho_macos.sh as well (and update main.rs's
+#   TESSERACT_CMD path accordingly).
+# * Every embedded .dylib needs to be codesigned individually before
+#   notarization. Use `codesign --deep` only as a last resort — Apple's
+#   recent docs prefer per-file signing scripts. See
+#   scripts/sign_and_notarize_macos.sh for the canonical sequence.
 # * The bundled JRE invalidates Hardened Runtime unless the entitlement
-#   `com.apple.security.cs.allow-jit` is added; record it in
-#   src-tauri/entitlements.plist before `tauri:build`.
+#   `com.apple.security.cs.allow-jit` is added; the entitlements file
+#   lives at frontend/src-tauri/entitlements.plist.

@@ -58,6 +58,18 @@ fn spawn_sidecar(app: &tauri::AppHandle) -> tauri::Result<CommandChild> {
     } else {
         resource_dir.join("tesseract/tesseract")
     };
+    let poppler_bin = resource_dir.join("runtime/poppler/bin");
+
+    // Prepend bundled Poppler to inherited PATH so pdf2image's
+    // pdftoppm/pdfinfo/pdfseparate/pdfunite lookups succeed without
+    // Homebrew on the user's machine. Tauri's Command does not clear
+    // the parent env, so other PATH entries remain available.
+    let parent_path = std::env::var("PATH").unwrap_or_default();
+    let path_value = if parent_path.is_empty() {
+        poppler_bin.to_string_lossy().into_owned()
+    } else {
+        format!("{}:{}", poppler_bin.to_string_lossy(), parent_path)
+    };
 
     let (mut rx, child) = Command::new_sidecar("accompanist-server")
         .expect("failed to create sidecar command")
@@ -72,6 +84,7 @@ fn spawn_sidecar(app: &tauri::AppHandle) -> tauri::Result<CommandChild> {
             ("TESSDATA_PREFIX".to_string(), tessdata.to_string_lossy().into_owned()),
             ("TESSERACT_CMD".to_string(), tess_bin.to_string_lossy().into_owned()),
             ("PIPELINE_PARAM_SET".to_string(), "v5_real_pdf".into()),
+            ("PATH".to_string(), path_value),
             // Lock the FastAPI CORS allowlist down to the WebView origins
             // and the Vite dev server so the sidecar refuses cross-origin
             // calls from arbitrary local processes.
