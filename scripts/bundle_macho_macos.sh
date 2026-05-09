@@ -47,27 +47,75 @@ is_external() {
   esac
 }
 
+# Print every LC_RPATH path embedded in $1 (one per line).
+get_rpaths() {
+  otool -l "$1" \
+    | awk '/cmd LC_RPATH/{flag=1; next} flag && /^[[:space:]]*path /{print $2; flag=0}'
+}
+
+# Resolve an @rpath/<suffix> dependency against $1's LC_RPATH list.
+# Prints the absolute on-disk path of the first match, or returns 1.
+resolve_rpath_dep() {
+  local binary="$1"
+  local dep="$2"
+  local suffix="${dep#@rpath/}"
+  local rp candidate
+  while IFS= read -r rp; do
+    [[ -z "$rp" ]] && continue
+    case "$rp" in
+      @loader_path*)     rp="$(cd "$(dirname "$binary")" && pwd)/${rp#@loader_path/}";;
+      @executable_path*) rp="$(cd "$(dirname "$binary")" && pwd)/${rp#@executable_path/}";;
+    esac
+    candidate="$rp/$suffix"
+    if [[ -f "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done < <(get_rpaths "$binary")
+  return 1
+}
+
+# Copy an external dylib into DEST_LIB and recurse into it. Idempotent
+# via dest-file existence check (bash 3.2 compatible).
+absorb_lib() {
+  local src="$1"
+  local base="$2"
+  local dest="$DEST_LIB/$base"
+  if [[ ! -f "$dest" ]]; then
+    cp "$src" "$dest"
+    chmod +w "$dest"
+    install_name_tool -id "$base" "$dest"
+    walk "$dest" "@loader_path"
+  fi
+}
+
 # Walk a Mach-O file's dylib deps recursively. $2 is the install-name
 # prefix to write into $1's load commands ("@loader_path/../lib" for
-# binaries, "@loader_path" for sibling dylibs). Dedup is by destination
-# file existence, which keeps this script bash-3.2 compatible (macOS
-# /bin/bash) — associative arrays are bash 4+ only.
+# binaries, "@loader_path" for sibling dylibs). Handles both absolute
+# Homebrew/local-prefix references and @rpath/ references resolved
+# through the binary's LC_RPATH list.
 walk() {
   local target="$1"
   local prefix="$2"
-  local dep base dest
+  local dep base resolved
   while IFS= read -r dep; do
     [[ -z "$dep" ]] && continue
-    is_external "$dep" || continue
-    base="$(basename "$dep")"
-    dest="$DEST_LIB/$base"
-    if [[ ! -f "$dest" ]]; then
-      cp "$dep" "$dest"        # cp follows symlinks; we get the real file
-      chmod +w "$dest"
-      install_name_tool -id "$base" "$dest"
-      walk "$dest" "@loader_path"
-    fi
-    install_name_tool -change "$dep" "$prefix/$base" "$target"
+    case "$dep" in
+      @rpath/*)
+        if resolved="$(resolve_rpath_dep "$target" "$dep")"; then
+          is_external "$resolved" || continue
+          base="$(basename "$resolved")"
+          absorb_lib "$resolved" "$base"
+          install_name_tool -change "$dep" "$prefix/$base" "$target"
+        fi
+        ;;
+      /*)
+        is_external "$dep" || continue
+        base="$(basename "$dep")"
+        absorb_lib "$dep" "$base"
+        install_name_tool -change "$dep" "$prefix/$base" "$target"
+        ;;
+    esac
   done < <(otool -L "$target" | tail -n +2 | awk '{print $1}')
 }
 
