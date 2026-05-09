@@ -50,18 +50,22 @@ fn spawn_sidecar(app: &tauri::AppHandle) -> tauri::Result<CommandChild> {
         .expect("app_data_dir not available");
     std::fs::create_dir_all(&app_data).ok();
 
-    let audiveris = resource_dir.join("runtime/audiveris/bin/Audiveris");
+    let audiveris = if cfg!(target_os = "windows") {
+        resource_dir.join("runtime/audiveris/bin/Audiveris.bat")
+    } else {
+        resource_dir.join("runtime/audiveris/bin/Audiveris")
+    };
     let java_home = resource_dir.join("runtime/jre");
     let tessdata = resource_dir.join("runtime/tessdata");
-    // macOS uses the self-contained runtime/tesseract/{bin,lib} layout
-    // produced by scripts/bundle_macho_macos.sh; Linux and Windows still
-    // ship the system/UB-Mannheim binary at the original resources/tesseract/
-    // location since their fetch_runtime_*.sh scripts have not been
-    // migrated to the relinked layout yet.
-    let tess_bin = if cfg!(target_os = "macos") {
+    // macOS and Windows ship the self-contained runtime/tesseract/bin/
+    // layout produced by their respective fetch_runtime_*.{sh,ps1}
+    // scripts. Linux still ships the system binary at the original
+    // resources/tesseract/ location since fetch_runtime_linux.sh has
+    // not been migrated to the relinked layout.
+    let tess_bin = if cfg!(target_os = "windows") {
+        resource_dir.join("runtime/tesseract/bin/tesseract.exe")
+    } else if cfg!(target_os = "macos") {
         resource_dir.join("runtime/tesseract/bin/tesseract")
-    } else if cfg!(target_os = "windows") {
-        resource_dir.join("tesseract/tesseract.exe")
     } else {
         resource_dir.join("tesseract/tesseract")
     };
@@ -69,13 +73,16 @@ fn spawn_sidecar(app: &tauri::AppHandle) -> tauri::Result<CommandChild> {
 
     // Prepend bundled Poppler to inherited PATH so pdf2image's
     // pdftoppm/pdfinfo/pdfseparate/pdfunite lookups succeed without
-    // Homebrew on the user's machine. Tauri's Command does not clear
-    // the parent env, so other PATH entries remain available.
+    // Homebrew/UB-Mannheim on the user's machine. Tauri's Command
+    // does not clear the parent env, so other PATH entries remain
+    // available. Use the platform's PATH separator (`;` on Windows,
+    // `:` elsewhere).
+    let path_sep = if cfg!(target_os = "windows") { ";" } else { ":" };
     let parent_path = std::env::var("PATH").unwrap_or_default();
     let path_value = if parent_path.is_empty() {
         poppler_bin.to_string_lossy().into_owned()
     } else {
-        format!("{}:{}", poppler_bin.to_string_lossy(), parent_path)
+        format!("{}{}{}", poppler_bin.to_string_lossy(), path_sep, parent_path)
     };
 
     let (mut rx, child) = Command::new_sidecar("accompanist-server")
