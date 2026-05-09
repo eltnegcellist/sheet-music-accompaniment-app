@@ -6,10 +6,15 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:vite": "vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "dependencies": {
+    "@tauri-apps/api": "^1.6.0",
     "opensheetmusicdisplay": "^1.9.7",
     "pdfjs-dist": "^4.7.76",
     "react": "^18.3.1",
@@ -17,6 +22,7 @@
     "tone": "^15.0.4"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^1.6.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",

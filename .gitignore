@@ -27,6 +27,15 @@ backend/output/
 backend/tests/fixtures/real_pdf/*.pdf
 backend/tests/fixtures/real_pdf/.cache/
 
+# Tauri
+frontend/src-tauri/target/
+frontend/src-tauri/bin/
+frontend/src-tauri/resources/runtime/
+frontend/src-tauri/resources/tesseract/
+frontend/src-tauri/legal-bundle/
+# Cargo.lock for src-tauri *is* committed: it's a binary crate, so
+# pinning the lockfile makes CI and contributor builds reproducible.
+
 # Editor
 .idea/
 .vscode/

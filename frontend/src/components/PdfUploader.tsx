@@ -17,10 +17,44 @@ export interface PdfUploaderHandle {
 const SOLO_NAME_RE =
   /(solo|独奏|ソロ|violin|vln|vn|cello|vc|flute|fl|ob|oboe|clarinet|cl|sax|trumpet|tp)/i;
 
+// Tauri's WKWebView opens HTML <input type="file"> as a window-attached
+// sheet that can render behind the main window on macOS Tahoe. Detect
+// the Tauri runtime so we can route through @tauri-apps/api/dialog,
+// which always brings the picker to the front.
+const isTauri =
+  typeof window !== "undefined" &&
+  typeof (window as { __TAURI__?: unknown }).__TAURI__ !== "undefined";
+
+async function pickViaTauri(): Promise<File[]> {
+  const [{ open }, { convertFileSrc }] = await Promise.all([
+    import("@tauri-apps/api/dialog"),
+    import("@tauri-apps/api/tauri"),
+  ]);
+  const selected = await open({
+    multiple: true,
+    filters: [
+      { name: "Score", extensions: ["pdf", "xml", "musicxml", "mxl"] },
+    ],
+  });
+  if (!selected) return [];
+  const paths = Array.isArray(selected) ? selected : [selected];
+  const files = await Promise.all(
+    paths.map(async (path) => {
+      const resp = await fetch(convertFileSrc(path));
+      const blob = await resp.blob();
+      const name = path.split(/[\\/]/).pop() ?? "file";
+      return new File([blob], name, {
+        type: blob.type || "application/octet-stream",
+      });
+    }),
+  );
+  return files;
+}
+
 /** Picks accompaniment PDF / MusicXML / solo PDF from a flat FileList using
  *  filename heuristics. Multiple PDFs → the one matching the solo regex (or
  *  the smaller file) is the solo-only score. */
-function pickFiles(files: FileList | null): {
+function pickFiles(files: ArrayLike<File> | null | undefined): {
   pdf?: File;
   xml?: File;
   soloPdf?: File;
@@ -57,17 +91,28 @@ export const PdfUploader = forwardRef<PdfUploaderHandle, Props>(
     const [drag, setDrag] = useState(false);
     const { T } = useLang();
 
-    useImperativeHandle(ref, () => ({
-      open: () => inputRef.current?.click(),
-    }));
-
     const handleFiles = useCallback(
-      (files: FileList | null) => {
+      (files: ArrayLike<File> | null | undefined) => {
         const { pdf, xml, soloPdf } = pickFiles(files);
         if (pdf || xml) onSelect(pdf, xml, soloPdf);
       },
       [onSelect],
     );
+
+    const openPicker = useCallback(() => {
+      if (disabled) return;
+      if (isTauri) {
+        pickViaTauri()
+          .then((files) => handleFiles(files))
+          .catch((err) => {
+            console.error("[PdfUploader] tauri dialog failed", err);
+          });
+      } else {
+        inputRef.current?.click();
+      }
+    }, [disabled, handleFiles]);
+
+    useImperativeHandle(ref, () => ({ open: openPicker }), [openPicker]);
 
     const input = (
       <input
@@ -91,7 +136,7 @@ export const PdfUploader = forwardRef<PdfUploaderHandle, Props>(
       <div className="upload">
         <div
           className={`drop-card${drag ? " drop-card--drag" : ""}`}
-          onClick={() => inputRef.current?.click()}
+          onClick={openPicker}
           onDragOver={(e) => {
             e.preventDefault();
             setDrag(true);

@@ -1,0 +1,21 @@
+[package]
+name = "imslp-accompanist"
+version = "0.1.0"
+description = "IMSLP Accompanist desktop app"
+authors = ["IMSLP Accompanist contributors"]
+edition = "2021"
+rust-version = "1.70"
+
+[build-dependencies]
+tauri-build = { version = "1.5", features = [] }
+
+[dependencies]
+tauri = { version = "1.6", features = ["shell-sidecar", "dialog-open", "dialog-save", "protocol-asset"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[features]
+# Default Tauri features. `custom-protocol` is enabled at release build time
+# by `tauri build` to disable the dev server check.
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

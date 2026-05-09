@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
 from .cache import AnalyzeCache, hash_pdf_bytes
+from .runtime_paths import resource_root
 from .music.accompaniment import (
     find_accompaniment_part,
     find_solo_part,
@@ -44,7 +45,7 @@ app = FastAPI(title="IMSLP Accompanist")
 # Active param set for /analyze. Configurable so tests / staging can pin
 # the legacy v1_baseline (no postprocess) while production runs v3.
 _PARAM_SET_ID = os.environ.get("PIPELINE_PARAM_SET", "v5_real_pdf")
-_PARAMS_DIR = Path(__file__).resolve().parents[1] / "params"
+_PARAMS_DIR = resource_root() / "params"
 
 # Disk-backed cache so repeat uploads of the same PDF don't re-run Audiveris.
 # `ANALYZE_CACHE_DIR` overrides the location for tests / production.
@@ -71,9 +72,18 @@ def _load_active_params() -> tuple[str, dict | None]:
         return _PARAM_SET_ID, None
     return resolved.param_set_id(), resolved.data
 
+# When ALLOWED_ORIGINS is set (e.g. by the Tauri sidecar) we honour it as a
+# comma-separated allowlist; otherwise stay open so Docker / `npm run dev`
+# keep working without extra config.
+_origins_env = os.environ.get("ALLOWED_ORIGINS")
+_allowed_origins = (
+    [o.strip() for o in _origins_env.split(",") if o.strip()]
+    if _origins_env
+    else ["*"]
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
