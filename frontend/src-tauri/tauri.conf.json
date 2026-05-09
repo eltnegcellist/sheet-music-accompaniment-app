@@ -50,7 +50,7 @@
       "identifier": "app.imslp.accompanist",
       "longDescription": "Extract and play piano accompaniment parts from IMSLP sheet music PDFs.",
       "macOS": {
-        "entitlements": "entitlements.plist",
+        "entitlements": null,
         "exceptionDomain": "",
         "frameworks": [],
         "providerShortName": null,

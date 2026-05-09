@@ -1,22 +1,20 @@
 #!/usr/bin/env bash
-# Wrap the (signed/stapled) .app into a distributable DMG using
+# Wrap the (ad-hoc signed) .app into a distributable DMG using
 # hdiutil directly. We sidestep Tauri 1.x's bundle_dmg.sh because
 # it has known instability on macOS Tahoe (compression / xattr edge
-# cases that cause the bundling step to fail mid-build).
+# cases that abort the build mid-bundle).
+#
+# This produces an unsigned (野良) DMG. End users will see a
+# Gatekeeper warning on first launch; see
+# docs/macos_unsigned_distribution.md for the bypass.
 #
 # Run order:
-#     npm run tauri:build --prefix frontend     # builds the .app
-#     scripts/post_bundle_macos.sh              # restores legal/
-#     scripts/sign_and_notarize_macos.sh        # signs + notarizes .app
+#     scripts/fetch_runtime_macos.sh            # stage runtime tree
+#     scripts/build_sidecar.sh --onefile        # PyInstaller sidecar
+#     npm run tauri:build --prefix frontend     # build the .app
+#     scripts/post_bundle_macos.sh              # restore legal/
+#     scripts/sign_adhoc_macos.sh               # ad-hoc sign
 #     scripts/build_dmg_macos.sh                # this script
-#
-# Required env (only when signing/notarizing the DMG itself):
-#     SIGN_IDENTITY    Developer ID Application identity
-#     NOTARY_PROFILE   notarytool keychain profile
-#
-# Without these env vars the script produces an unsigned DMG, which
-# is fine for sharing internally but will be Gatekeeper-rejected on
-# end users' machines. For real distribution always sign + notarize.
 
 set -euo pipefail
 
@@ -42,9 +40,8 @@ rm -f "$DMG"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 
-# Drop the .app and an /Applications symlink into the stage dir.
-# hdiutil's UDZO format compresses well and is the conventional
-# DMG flavor for distributable Mac apps.
+# Drop the .app and an /Applications symlink into the stage dir so
+# the user's drag-to-install workflow is the conventional one.
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
 
@@ -56,23 +53,8 @@ hdiutil create \
     -format UDZO \
     "$DMG"
 
-if [[ -n "${SIGN_IDENTITY:-}" ]]; then
-  echo "[dmg] signing with $SIGN_IDENTITY"
-  codesign --sign "$SIGN_IDENTITY" --timestamp "$DMG"
-
-  if [[ -n "${NOTARY_PROFILE:-}" ]]; then
-    echo "[dmg] notarizing"
-    xcrun notarytool submit "$DMG" \
-        --keychain-profile "$NOTARY_PROFILE" \
-        --wait
-    xcrun stapler staple "$DMG"
-    xcrun stapler validate "$DMG"
-  else
-    echo "[dmg] NOTARY_PROFILE unset; DMG is signed but not notarized." >&2
-  fi
-else
-  echo "[dmg] SIGN_IDENTITY unset; DMG is unsigned (internal-use only)." >&2
-fi
-
 echo "[done]"
 ls -lh "$DMG"
+echo
+echo "Distribute: $DMG"
+echo "End-user install instructions: docs/macos_unsigned_distribution.md"
