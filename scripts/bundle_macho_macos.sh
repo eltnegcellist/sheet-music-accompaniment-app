@@ -54,17 +54,24 @@ get_rpaths() {
 }
 
 # Resolve an @rpath/<suffix> dependency against $1's LC_RPATH list.
+# $2 is the directory of the *original* (pre-copy) binary — used to
+# anchor @loader_path / @executable_path-relative rpaths. Without
+# this, an rpath like "@loader_path/../lib" on a binary we just
+# copied into DEST_BIN would resolve into the (still-empty) DEST_LIB
+# instead of the Homebrew Cellar lib dir, and the dep lookup would
+# silently fail.
 # Prints the absolute on-disk path of the first match, or returns 1.
 resolve_rpath_dep() {
   local binary="$1"
-  local dep="$2"
+  local source_dir="$2"
+  local dep="$3"
   local suffix="${dep#@rpath/}"
   local rp candidate
   while IFS= read -r rp; do
     [[ -z "$rp" ]] && continue
     case "$rp" in
-      @loader_path*)     rp="$(cd "$(dirname "$binary")" && pwd)/${rp#@loader_path/}";;
-      @executable_path*) rp="$(cd "$(dirname "$binary")" && pwd)/${rp#@executable_path/}";;
+      @loader_path*)     rp="$source_dir/${rp#@loader_path/}";;
+      @executable_path*) rp="$source_dir/${rp#@executable_path/}";;
     esac
     candidate="$rp/$suffix"
     if [[ -f "$candidate" ]]; then
@@ -85,24 +92,26 @@ absorb_lib() {
     cp "$src" "$dest"
     chmod +w "$dest"
     install_name_tool -id "$base" "$dest"
-    walk "$dest" "@loader_path"
+    walk "$dest" "@loader_path" "$(cd "$(dirname "$src")" && pwd)"
   fi
 }
 
-# Walk a Mach-O file's dylib deps recursively. $2 is the install-name
-# prefix to write into $1's load commands ("@loader_path/../lib" for
-# binaries, "@loader_path" for sibling dylibs). Handles both absolute
-# Homebrew/local-prefix references and @rpath/ references resolved
-# through the binary's LC_RPATH list.
+# Walk a Mach-O file's dylib deps recursively.
+# $1: the binary we're modifying (lives in DEST_BIN/DEST_LIB).
+# $2: install-name prefix to write into load commands
+#     ("@loader_path/../lib" for binaries, "@loader_path" for sibling dylibs).
+# $3: directory of the original (pre-copy) binary, used to anchor
+#     @loader_path-relative LC_RPATH entries.
 walk() {
   local target="$1"
   local prefix="$2"
+  local source_dir="$3"
   local dep base resolved
   while IFS= read -r dep; do
     [[ -z "$dep" ]] && continue
     case "$dep" in
       @rpath/*)
-        if resolved="$(resolve_rpath_dep "$target" "$dep")"; then
+        if resolved="$(resolve_rpath_dep "$target" "$source_dir" "$dep")"; then
           is_external "$resolved" || continue
           base="$(basename "$resolved")"
           absorb_lib "$resolved" "$base"
@@ -126,9 +135,10 @@ for bin_path in "$@"; do
   fi
   base="$(basename "$bin_path")"
   dest="$DEST_BIN/$base"
+  source_dir="$(cd "$(dirname "$bin_path")" && pwd)"
   cp "$bin_path" "$dest"
   chmod +w "$dest"
-  walk "$dest" "@loader_path/../lib"
+  walk "$dest" "@loader_path/../lib" "$source_dir"
 done
 
 # install_name_tool invalidates the existing codesignature. Ad-hoc
