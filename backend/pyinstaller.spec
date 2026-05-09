@@ -3,21 +3,37 @@
 
 Run from the `backend/` directory:
 
-    pyinstaller --clean --noconfirm pyinstaller.spec
+    pyinstaller --clean --noconfirm pyinstaller.spec                    # onedir
+    PYINSTALLER_MODE=onefile pyinstaller --clean --noconfirm pyinstaller.spec
 
-Output:
-    dist/accompanist-server/                 (onedir bundle, fast cold start)
+Output (PYINSTALLER_MODE=onedir, default):
+    dist/accompanist-server/                 (directory bundle, fast cold start)
         accompanist-server[.exe]
         _internal/
             params/                          (YAML param sets)
             ...
 
-The onedir layout matters for sidecar startup latency: onefile would
-extract ~100MB of Python + lxml + music21 to a temp dir on every spawn,
-which adds 3-5s on cold boots. Tauri ships the directory as-is.
+Output (PYINSTALLER_MODE=onefile):
+    dist/accompanist-server[.exe]            (single self-extracting binary)
+
+The onedir layout is preferred for `tauri dev` — Tauri's externalBin
+loader reuses the directory in place and cold start is instantaneous
+because nothing is unpacked. For `tauri build`, externalBin only
+copies a single file into the bundled .app, leaving the onedir
+sibling tree behind. Use onefile mode in that case to ship a binary
+that bootstraps itself; cold start jumps to ~3-5s on first launch
+while PyInstaller unpacks ~100MB to a temp dir, but subsequent
+launches reuse that cache.
 """
 
+import os
 from pathlib import Path
+
+PYINSTALLER_MODE = os.environ.get("PYINSTALLER_MODE", "onedir")
+if PYINSTALLER_MODE not in ("onedir", "onefile"):
+    raise SystemExit(
+        f"PYINSTALLER_MODE must be 'onedir' or 'onefile', got {PYINSTALLER_MODE!r}"
+    )
 
 block_cipher = None
 
@@ -94,30 +110,50 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
-exe = EXE(
-    pyz,
-    a.scripts,
-    [],
-    exclude_binaries=True,
-    name="accompanist-server",
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=False,                 # UPX trips antivirus heuristics on Windows.
-    console=True,              # We need stdout for the READY line.
-    disable_windowed_traceback=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
-)
+if PYINSTALLER_MODE == "onefile":
+    exe = EXE(
+        pyz,
+        a.scripts,
+        a.binaries,
+        a.zipfiles,
+        a.datas,
+        [],
+        name="accompanist-server",
+        debug=False,
+        bootloader_ignore_signals=False,
+        strip=False,
+        upx=False,             # UPX trips antivirus heuristics on Windows.
+        console=True,          # We need stdout for the READY line.
+        disable_windowed_traceback=False,
+        target_arch=None,
+        codesign_identity=None,
+        entitlements_file=None,
+    )
+else:
+    exe = EXE(
+        pyz,
+        a.scripts,
+        [],
+        exclude_binaries=True,
+        name="accompanist-server",
+        debug=False,
+        bootloader_ignore_signals=False,
+        strip=False,
+        upx=False,
+        console=True,
+        disable_windowed_traceback=False,
+        target_arch=None,
+        codesign_identity=None,
+        entitlements_file=None,
+    )
 
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=False,
-    upx_exclude=[],
-    name="accompanist-server",
-)
+    coll = COLLECT(
+        exe,
+        a.binaries,
+        a.zipfiles,
+        a.datas,
+        strip=False,
+        upx=False,
+        upx_exclude=[],
+        name="accompanist-server",
+    )

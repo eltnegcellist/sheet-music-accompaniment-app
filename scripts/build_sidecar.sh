@@ -1,11 +1,24 @@
 #!/usr/bin/env bash
 # Build the FastAPI sidecar with PyInstaller and drop the resulting
-# directory into frontend/src-tauri/bin/ under the per-target name
+# binary into frontend/src-tauri/bin/ under the per-target name
 # Tauri's externalBin loader expects.
 #
 # Usage:
-#     scripts/build_sidecar.sh                 # auto-detect target triple
-#     scripts/build_sidecar.sh --release       # ditto, with --strip
+#     scripts/build_sidecar.sh                  # onedir (fast cold start, dev)
+#     scripts/build_sidecar.sh --onefile        # single binary (tauri build)
+#
+# Mode trade-off:
+#   * onedir:  PyInstaller emits dist/accompanist-server/ ; we wrap it
+#              with a thin shell script so Tauri externalBin sees a
+#              single file. The .app/ companion directory must sit
+#              next to the wrapper, which is fine for `tauri dev`
+#              (the wrapper bakes in the absolute source path) but
+#              breaks for `tauri build` (the .app/ isn't bundled).
+#   * onefile: PyInstaller emits a self-extracting single binary.
+#              Tauri externalBin ships it directly into the .app's
+#              MacOS/ at build time. Cold start is +3-5s on first
+#              launch only (extracted to /var/folders/.../_MEIxxxx
+#              and cached).
 #
 # Requires:
 #     * Python 3.11+ in PATH
@@ -13,6 +26,20 @@
 #     * The backend deps installed (`pip install -e backend`).
 
 set -euo pipefail
+
+MODE="onedir"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --onefile|--release) MODE="onefile" ;;
+    --onedir)            MODE="onedir" ;;
+    -h|--help)
+      sed -n '1,/^set -euo pipefail$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//; /^!/d'
+      exit 0
+      ;;
+    *) echo "Unknown argument: $1" >&2; exit 2 ;;
+  esac
+  shift
+done
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT/backend"
@@ -33,43 +60,41 @@ fi
 EXT=""
 if [[ "$TRIPLE" == *windows* ]]; then EXT=".exe"; fi
 
-echo "[sidecar] building for triple: $TRIPLE"
+echo "[sidecar] building ($MODE) for triple: $TRIPLE"
 
 PYTHON="${PYTHON:-python3}"
 
 rm -rf build dist
-"$PYTHON" -m PyInstaller --clean --noconfirm pyinstaller.spec
+PYINSTALLER_MODE="$MODE" "$PYTHON" -m PyInstaller --clean --noconfirm pyinstaller.spec
 
 OUT_DIR="$ROOT/frontend/src-tauri/bin"
 mkdir -p "$OUT_DIR"
-
-# Tauri's externalBin loader expects a single file at
-#   bin/<name>-<target-triple>[.exe]
-# Our PyInstaller onedir bundle is a directory, so we rename the
-# directory and create a thin wrapper at the expected path that execs
-# the inner binary. The wrapper keeps Tauri's sidecar loader happy
-# while preserving the onedir layout for fast cold start.
-TARGET_DIR="$OUT_DIR/accompanist-server-$TRIPLE.app"
-rm -rf "$TARGET_DIR"
-mv dist/accompanist-server "$TARGET_DIR"
-
 WRAPPER="$OUT_DIR/accompanist-server-$TRIPLE$EXT"
-if [[ "$EXT" == ".exe" ]]; then
-  # On Windows we expect the user to swap to onefile or copy the inner
-  # exe; emit a clear failure rather than a half-broken wrapper.
-  cp "$TARGET_DIR/accompanist-server.exe" "$WRAPPER"
+
+if [[ "$MODE" == "onefile" ]]; then
+  # Drop any leftover onedir companion from a previous build so Tauri's
+  # bundler doesn't accidentally pick it up alongside the new wrapper.
+  rm -rf "$OUT_DIR/accompanist-server-$TRIPLE.app"
+  cp "dist/accompanist-server$EXT" "$WRAPPER"
+  chmod +x "$WRAPPER"
+  echo "[sidecar] wrote $WRAPPER (onefile, $(du -h "$WRAPPER" | cut -f1))"
 else
-  # Tauri's externalBin loader copies this single file into
-  # target/{debug,release}/ but leaves the companion .app/ directory
-  # behind, so a wrapper that resolves the bundle relative to its own
-  # location breaks. Bake the absolute path of TARGET_DIR in at build
-  # time. This is dev-only — production (tauri build) needs either a
-  # --onefile spec or Tauri resource bundling for the .app/ tree.
-  cat > "$WRAPPER" <<EOF
+  TARGET_DIR="$OUT_DIR/accompanist-server-$TRIPLE.app"
+  rm -rf "$TARGET_DIR"
+  mv dist/accompanist-server "$TARGET_DIR"
+
+  if [[ "$EXT" == ".exe" ]]; then
+    cp "$TARGET_DIR/accompanist-server.exe" "$WRAPPER"
+  else
+    # Bake the absolute path of TARGET_DIR in so the wrapper still
+    # resolves the bundle after Tauri relocates it to target/debug/.
+    # Dev-only: the absolute path doesn't survive `tauri build` →
+    # use --onefile for production.
+    cat > "$WRAPPER" <<EOF
 #!/usr/bin/env bash
 exec "$TARGET_DIR/accompanist-server" "\$@"
 EOF
-  chmod +x "$WRAPPER"
+    chmod +x "$WRAPPER"
+  fi
+  echo "[sidecar] wrote $WRAPPER (onedir wrapper → $TARGET_DIR)"
 fi
-
-echo "[sidecar] wrote $WRAPPER"
