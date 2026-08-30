@@ -10,30 +10,30 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
 from .cache import AnalyzeCache, hash_pdf_bytes
-from .runtime_paths import resource_root
 from .music.accompaniment import (
     find_accompaniment_part,
     find_solo_part,
     get_part_name,
 )
 from .music.merger import merge_layout_with_musicxml
-from .music.solo_merger import merge_solo_into_full
-from .music.solo_section_detector import (
-    find_solo_only_measure_range,
-    measure_range_to_page_range,
-)
-from .pdf import count_pages, slice_pdf
 from .music.parser import (
     extract_divisions_and_tempo,
     extract_tempo_info,
     extract_time_signature,
     list_measures_with_bbox,
 )
+from .music.solo_merger import merge_solo_into_full
+from .music.solo_section_detector import (
+    find_solo_only_measure_range,
+    measure_range_to_page_range,
+)
 from .ocr.tempo_ocr import extract_tempo_from_pdf
-from .omr.audiveris_runner import AudiverisError, OmrResult
+from .omr.result import OmrError, OmrResult
+from .pdf import slice_pdf
 from .pipeline.params_loader import ParamsError, load_params
 from .pipeline.run import run_omr_via_pipeline
 from .pipeline.scoring_facade import evaluate_musicxml_metrics
+from .runtime_paths import resource_root
 from .schemas import AnalyzeResponse, MeasureBox, TimeSignatureModel
 
 logger = logging.getLogger("accompanist")
@@ -71,6 +71,7 @@ def _load_active_params() -> tuple[str, dict | None]:
         )
         return _PARAM_SET_ID, None
     return resolved.param_set_id(), resolved.data
+
 
 # When ALLOWED_ORIGINS is set (e.g. by the Tauri sidecar) we honour it as a
 # comma-separated allowlist; otherwise stay open so Docker / `npm run dev`
@@ -218,8 +219,8 @@ async def analyze(
                     param_set_id=active_param_set_id,
                     params=params,
                 )
-            except AudiverisError as exc:
-                logger.exception("Audiveris failed")
+            except OmrError as exc:
+                logger.exception("OMR failed")
                 raise HTTPException(500, f"OMR failed: {exc}") from exc
             except RuntimeError as exc:
                 logger.exception("Pipeline aborted")
@@ -291,7 +292,7 @@ async def analyze(
                     warnings.extend(
                         f"[ソロ譜] {w}" for w in solo_only_result.warnings
                     )
-                except AudiverisError as exc:
+                except OmrError as exc:
                     logger.warning("Solo-only OMR failed: %s", exc)
                     warnings.append(
                         f"ソロ専用譜の解析に失敗しました ({exc}); 全体譜の解析結果のみ使用します。"

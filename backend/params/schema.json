@@ -59,6 +59,7 @@
       "required": ["audiveris", "multi_trial"],
       "additionalProperties": false,
       "properties": {
+        "engine": {"enum": ["audiveris", "homr"]},
         "audiveris": {
           "type": "object",
           "required": ["timeout_sec", "jvm_xmx"],
@@ -67,6 +68,16 @@
             "timeout_sec": {"type": "integer", "minimum": 1},
             "jvm_xmx": {"type": "string"},
             "plugins_disabled": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "homr": {
+          "type": "object",
+          "required": ["dpi", "timeout_sec", "coreml_encoder"],
+          "additionalProperties": false,
+          "properties": {
+            "dpi": {"type": "integer", "minimum": 72, "maximum": 600},
+            "timeout_sec": {"type": "integer", "minimum": 1},
+            "coreml_encoder": {"type": ["boolean", "null"]}
           }
         },
         "multi_trial": {

@@ -1,0 +1,17 @@
+# Experimental homr OMR path. Audiveris remains the production default until
+# representative scores show a clear accuracy and runtime improvement.
+meta:
+  id: v6_homr
+  version: 6
+  parent: v5_real_pdf
+  description: "v5 postprocess with homr 0.7 OMR (experimental)"
+
+omr:
+  engine: homr
+  homr:
+    dpi: 300
+    timeout_sec: 3600
+    # The transformer encoder's CoreML compilation has a noticeable startup
+    # cost. Keep it off initially; homr still uses CoreML for segmentation on
+    # Apple Silicon when available.
+    coreml_encoder: false

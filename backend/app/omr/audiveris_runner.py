@@ -17,24 +17,16 @@ import os
 import shutil
 import subprocess
 import zipfile
-from dataclasses import dataclass, field
 from pathlib import Path
 
 from .layout_parser import MeasureLayout, parse_omr_project
+from .result import OmrError, OmrResult
 
 logger = logging.getLogger(__name__)
 
 
-class AudiverisError(RuntimeError):
+class AudiverisError(OmrError):
     """Raised when Audiveris fails to produce expected output."""
-
-
-@dataclass
-class OmrResult:
-    music_xml: str
-    measures: list[MeasureLayout]
-    page_sizes: list[tuple[float, float]] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
 
 
 def _audiveris_command(pdf_path: Path, output_dir: Path) -> list[str]:

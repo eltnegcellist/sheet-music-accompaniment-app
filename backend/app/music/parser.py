@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from lxml import etree
 
-from ..omr.audiveris_runner import OmrResult
+from ..omr.result import OmrResult
 
 logger = logging.getLogger(__name__)
 

@@ -185,6 +185,8 @@ export function translateWarning(w: string, lang: Lang): string {
     return "Analyzed with MusicXML only. PDF measure highlighting is unavailable.";
   if (w.startsWith("Audiveris をスキップしてアップロードされた MusicXML で解析しました"))
     return "Analyzed with uploaded MusicXML, skipping Audiveris. Measure highlighting unavailable.";
+  if (w === "homrで解析しました。PDF連動小節ハイライトは現在利用できません。")
+    return "Analyzed with homr. PDF-linked measure highlighting is currently unavailable.";
   if (w === "Uploaded MusicXML did not look valid; falling back to OMR.")
     return w; // already English
 

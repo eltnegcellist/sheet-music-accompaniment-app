@@ -23,10 +23,15 @@ preprocess:
     on_fail: drop
 
 omr:
+  engine: audiveris
   audiveris:
     timeout_sec: 1800
     jvm_xmx: "2g"
     plugins_disabled: []
+  homr:
+    dpi: 300
+    timeout_sec: 3600
+    coreml_encoder: false
   multi_trial:
     enabled: false
     matrix: {}

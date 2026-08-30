@@ -183,6 +183,26 @@ cd backend && pip install -e ".[dev]" && pytest
 cd frontend && npm install && npm test
 ```
 
+### Experimental homr recognition
+
+An opt-in adapter for **homr 0.7.0** is available for accuracy evaluation.
+Audiveris remains the default, and the released DMG does not yet bundle homr
+or its model files.
+
+```bash
+cd backend
+python3.11 -m pip install -e ".[dev,homr]"
+homr --init
+PIPELINE_PARAM_SET=v6_homr uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+The adapter rasterizes PDF pages individually at 300 DPI to bound memory use,
+then recognizes all images in one homr process. On Apple Silicon, homr can use
+CoreML for segmentation. The experimental preset initially leaves the
+transformer encoder on CPU because CoreML encoder compilation adds startup
+overhead. See [docs/homr_migration.md](docs/homr_migration.md) for limitations
+and the promotion plan.
+
 ### License and corresponding source
 
 IMSLP Accompanist is free software licensed under the
@@ -254,6 +274,14 @@ macOS デスクトップアプリです。IMSLP などのパブリックドメ�
 - **Windows**: ⏳ 未対応 / 検証中。
 - **Linux**: デスクトップアプリ未提供。Web 版（Docker / セルフ
   ホスト）で利用できます。
+
+### homr による実験的な楽譜認識
+
+認識精度の比較用として **homr 0.7.0** を選択できるアダプターを追加
+しています。現時点では Audiveris が標準で、配布中の DMG に homr 本体や
+モデルはまだ同梱していません。開発環境で `v6_homr` パラメータセットを
+選ぶと試験できます。導入方法・制約・評価方針は
+[docs/homr_migration.md](docs/homr_migration.md) を参照してください。
 
 ### ライセンスと対応するソースコード
 

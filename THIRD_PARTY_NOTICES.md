@@ -17,6 +17,16 @@ Source: <https://github.com/Audiveris/audiveris/tree/5.10.2>
 The exact Audiveris license text is included in distributed builds as
 `AUDIVERIS-LICENSE`.
 
+## homr 0.7.0 (optional experimental OMR engine)
+
+When the optional homr backend is installed, score recognition can instead be
+performed by homr 0.7.0. homr is licensed under the GNU Affero General Public
+License version 3.
+Source: <https://github.com/liebharc/homr/tree/v0.7.0>
+
+homr is not yet included in the published desktop DMG. Its Python dependency
+and model files must be installed separately for experimental use.
+
 ## Audio samples
 
 The Salamander Grand Piano V2 recordings by Alexander Holm are licensed under

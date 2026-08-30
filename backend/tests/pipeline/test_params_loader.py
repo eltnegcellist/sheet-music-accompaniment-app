@@ -11,7 +11,6 @@ from pathlib import Path
 
 import pytest
 import yaml
-
 from app.pipeline.params_loader import (
     ParamsError,
     deep_merge,
@@ -66,6 +65,14 @@ def test_v2_inherits_then_overrides():
     # Overridden in v2
     assert r.data["preprocess"]["staff_norm"]["enabled"] is True
     assert r.data["preprocess"]["quality_gate"]["on_fail"] == "retry_alt_params"
+
+
+def test_v6_selects_homr_and_inherits_postprocess():
+    r = load_params("v6_homr", PARAMS_DIR, schema_path=SCHEMA)
+    assert r.id == "v6_homr"
+    assert r.data["omr"]["engine"] == "homr"
+    assert r.data["omr"]["homr"]["dpi"] == 300
+    assert r.data["postprocess"]["fix_key_accidentals"]["enabled"] is True
 
 
 def test_resolved_sha_is_stable_across_loads():

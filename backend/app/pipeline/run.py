@@ -10,22 +10,22 @@ from __future__ import annotations
 import io
 import logging
 import uuid
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any
 
-from ..omr.audiveris_runner import OmrResult, run_audiveris, run_audiveris_chunked
+from ..omr.engine import OmrDriver, configured_driver, configured_engine
+from ..omr.result import OmrResult
+from . import stages as _stages  # noqa: F401 — populates default_registry
 from .artifacts import FileArtifactStore
 from .contracts import ArtifactRef
 from .controller import Pipeline
 from .debug import EventLogger
 from .full_run import run_postprocess_and_evaluate
 from .registry import default_registry
-from .stages.omr import make_test_stage  # noqa: F401 — re-exported for tests
-from . import stages as _stages  # noqa: F401 — populates default_registry
+from .stages.omr import make_test_stage
 
 logger = logging.getLogger("pipeline")
-
-AudiverisDriver = Callable[[Path, Path], OmrResult]
 
 
 def run_omr_via_pipeline(
@@ -34,12 +34,12 @@ def run_omr_via_pipeline(
     *,
     job_id: str | None = None,
     param_set_id: str = "v1_baseline",
-    driver: AudiverisDriver = run_audiveris_chunked,
+    driver: OmrDriver | None = None,
     params: Mapping[str, Any] | None = None,
 ) -> OmrResult:
     """Run the OMR stage end-to-end and return the legacy `OmrResult`.
 
-    `output_dir` is honoured for backwards compatibility — Audiveris drops
+    `output_dir` is honoured for backwards compatibility — the OMR engine drops
     its working files there. The Pipeline's own artifacts live under it
     as a sub-tree so we don't grow yet another temp directory.
 
@@ -57,21 +57,29 @@ def run_omr_via_pipeline(
     # `input_pdf` artifact kind.
     store.put(ArtifactRef(kind="input_pdf", path=str(pdf_path)))
 
+    # Explicit drivers are test fixtures and retain the legacy Audiveris metric
+    # namespace. Production chooses an engine from resolved params / OMR_ENGINE.
+    engine = "audiveris" if driver is not None else configured_engine(params)
+    selected_driver = driver or configured_driver(params)
+
     # Capture the underlying OmrResult so we can return measure layouts /
     # page sizes too — those are used by the API response and aren't
     # serialised through the artifact store yet (separate ticket).
     captured: dict[str, OmrResult] = {}
 
     def _capturing_driver(pdf: Path, out_dir: Path) -> OmrResult:
-        result = driver(pdf, out_dir)
+        result = selected_driver(pdf, out_dir)
         captured["last"] = result
         return result
 
     # Test-friendly: re-register the stage under a unique name so two
     # parallel calls don't fight over the global registry. This still
     # exercises the Pipeline path end-to-end.
-    stage_name = f"omr.audiveris._call_{job_id}"
-    default_registry.register(stage_name, make_test_stage(_capturing_driver))
+    stage_name = f"omr.{engine}._call_{job_id}"
+    default_registry.register(
+        stage_name,
+        make_test_stage(_capturing_driver, engine=engine),
+    )
     try:
         pipeline = Pipeline(
             job_id=job_id,
