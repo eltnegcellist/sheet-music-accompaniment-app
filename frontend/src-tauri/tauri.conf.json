@@ -9,13 +9,14 @@
   },
   "package": {
     "productName": "IMSLP Accompanist",
-    "version": "0.1.0"
+    "version": "0.1.1"
   },
   "tauri": {
     "allowlist": {
       "all": false,
       "shell": {
         "all": false,
+        "open": true,
         "sidecar": true,
         "scope": [
           { "name": "bin/accompanist-server", "sidecar": true, "args": true }
@@ -37,7 +38,7 @@
     "bundle": {
       "active": true,
       "category": "Music",
-      "copyright": "",
+      "copyright": "Copyright © 2026 Hidetaka Ito and contributors",
       "deb": { "depends": [] },
       "externalBin": ["bin/accompanist-server"],
       "icon": [

@@ -24,6 +24,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LEGAL_STAGE="$ROOT/frontend/src-tauri/legal-bundle"
+PROJECT_LEGAL="$ROOT/frontend/src-tauri/resources/legal"
 APP="$ROOT/frontend/src-tauri/target/release/bundle/macos/IMSLP Accompanist.app"
 
 if [[ ! -d "$APP" ]]; then
@@ -40,10 +41,19 @@ if [[ ! -d "$LEGAL_STAGE" ]]; then
   exit 1
 fi
 
+for file in "$ROOT/LICENSE" "$ROOT/THIRD_PARTY_NOTICES.md" "$PROJECT_LEGAL/AUDIVERIS-LICENSE"; do
+  [[ -f "$file" ]] || { echo "ERROR: required license file missing: $file" >&2; exit 1; }
+done
+
 DEST="$APP/Contents/Resources/resources/runtime/jre/legal"
 echo "[post-bundle] copying legal/ → $DEST"
 rm -rf "$DEST"
 cp -R "$LEGAL_STAGE" "$DEST"
+NOTICE_DEST="$APP/Contents/Resources/legal"
+mkdir -p "$NOTICE_DEST"
+cp "$ROOT/LICENSE" "$NOTICE_DEST/IMSLP-ACCOMPANIST-LICENSE"
+cp "$ROOT/THIRD_PARTY_NOTICES.md" "$NOTICE_DEST/THIRD_PARTY_NOTICES.md"
+cp "$PROJECT_LEGAL/AUDIVERIS-LICENSE" "$NOTICE_DEST/AUDIVERIS-LICENSE"
 echo "[post-bundle] legal/ entries:"
-ls "$DEST" | sed 's/^/    /'
+find "$NOTICE_DEST" -maxdepth 1 -type f -print | sed 's/^/    /'
 echo "[post-bundle] done"

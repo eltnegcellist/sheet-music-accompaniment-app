@@ -37,7 +37,26 @@ shift
 
 DEST_BIN="$DEST/bin"
 DEST_LIB="$DEST/lib"
-mkdir -p "$DEST_BIN" "$DEST_LIB"
+DEST_LEGAL="$DEST/legal"
+mkdir -p "$DEST_BIN" "$DEST_LIB" "$DEST_LEGAL"
+
+# Preserve notices from any Homebrew Cellar package whose executable or dylib
+# is copied. This keeps the binary redistribution notices beside the runtime.
+capture_legal() {
+  local src="$1"
+  local cellar package out
+  if [[ "$src" =~ ^(/opt/homebrew|/usr/local)/Cellar/([^/]+)/([^/]+) ]]; then
+    cellar="${BASH_REMATCH[0]}"
+    package="${BASH_REMATCH[2]}"
+    out="$DEST_LEGAL/$package"
+    mkdir -p "$out"
+    while IFS= read -r -d '' notice; do
+      cp "$notice" "$out/$(basename "$notice")"
+    done < <(find "$cellar" -maxdepth 3 -type f \( \
+      -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' \
+      -o -iname 'COPYRIGHT*' \) -print0 2>/dev/null)
+  fi
+}
 
 is_external() {
   case "$1" in
@@ -89,6 +108,7 @@ absorb_lib() {
   local base="$2"
   local dest="$DEST_LIB/$base"
   if [[ ! -f "$dest" ]]; then
+    capture_legal "$src"
     cp "$src" "$dest"
     chmod +w "$dest"
     install_name_tool -id "$base" "$dest"
@@ -136,6 +156,7 @@ for bin_path in "$@"; do
   base="$(basename "$bin_path")"
   dest="$DEST_BIN/$base"
   source_dir="$(cd "$(dirname "$bin_path")" && pwd)"
+  capture_legal "$bin_path"
   cp "$bin_path" "$dest"
   chmod +w "$dest"
   walk "$dest" "@loader_path/../lib" "$source_dir"

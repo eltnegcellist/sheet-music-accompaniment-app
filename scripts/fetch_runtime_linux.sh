@@ -33,6 +33,7 @@ JRE_FEATURE="${JRE_FEATURE:-25}"
 JRE_URL="https://api.adoptium.net/v3/binary/latest/${JRE_FEATURE}/ga/linux/x64/jdk/hotspot/normal/eclipse"
 AUDIVERIS_VERSION="5.10.2"
 AUDIVERIS_DEB_URL="https://github.com/Audiveris/audiveris/releases/download/${AUDIVERIS_VERSION}/Audiveris-${AUDIVERIS_VERSION}.deb"
+AUDIVERIS_LICENSE_URL="https://raw.githubusercontent.com/Audiveris/audiveris/${AUDIVERIS_VERSION}/LICENSE"
 
 # ---------------------------------------------------------------------------
 # 1. Trimmed JRE via jlink. Pulls the full JDK once, runs jlink, keeps only
@@ -65,6 +66,10 @@ rm -rf "$RES/runtime/jre"
 # ---------------------------------------------------------------------------
 echo "[runtime] fetching Audiveris $AUDIVERIS_VERSION"
 curl -fsSL "$AUDIVERIS_DEB_URL" -o "$WORK/audiveris.deb"
+mkdir -p "$RES/legal"
+curl -fsSL "$AUDIVERIS_LICENSE_URL" -o "$RES/legal/AUDIVERIS-LICENSE"
+cp "$ROOT/LICENSE" "$RES/legal/IMSLP-ACCOMPANIST-LICENSE"
+cp "$ROOT/THIRD_PARTY_NOTICES.md" "$RES/legal/THIRD_PARTY_NOTICES.md"
 mkdir -p "$WORK/audiveris-extracted"
 ( cd "$WORK/audiveris-extracted" && ar x "$WORK/audiveris.deb" data.tar.xz && tar -xJf data.tar.xz )
 

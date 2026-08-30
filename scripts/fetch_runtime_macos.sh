@@ -102,6 +102,10 @@ fi
 echo "[runtime] cloning + building Audiveris @ $AUDIVERIS_REF"
 git clone --depth 1 --branch "$AUDIVERIS_REF" \
     https://github.com/Audiveris/audiveris.git "$WORK/audiveris"
+mkdir -p "$RES/legal"
+cp "$WORK/audiveris/LICENSE" "$RES/legal/AUDIVERIS-LICENSE"
+cp "$ROOT/LICENSE" "$RES/legal/IMSLP-ACCOMPANIST-LICENSE"
+cp "$ROOT/THIRD_PARTY_NOTICES.md" "$RES/legal/THIRD_PARTY_NOTICES.md"
 
 (
   cd "$WORK/audiveris"

@@ -26,6 +26,7 @@ import {
   type SoloInstrumentName,
 } from "./audio/ToneEngine";
 import { PdfUploader, type PdfUploaderHandle } from "./components/PdfUploader";
+import { LegalNotice } from "./components/LegalNotice";
 import { PdfViewer } from "./components/PdfViewer";
 import {
   PlaybackControls,
@@ -754,6 +755,7 @@ export default function App() {
             <span className="zoom-ctl__val">{zoom}%</span>
           </div>
         )}
+        <LegalNotice />
       </div>
     </LangContext.Provider>
   );

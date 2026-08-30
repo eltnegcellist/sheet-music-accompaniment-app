@@ -92,12 +92,20 @@ done
 [[ -n "$AUD_LAUNCHER" ]] || fail "no Audiveris launcher under runtime/audiveris/bin/"
 ok "Audiveris launcher: $(basename "$AUD_LAUNCHER")"
 
+echo "[validate] license notices"
+[[ -f "$ROOT/LICENSE" ]] || fail "project LICENSE missing"
+[[ -f "$ROOT/THIRD_PARTY_NOTICES.md" ]] || fail "THIRD_PARTY_NOTICES.md missing"
+[[ -f "$RES/legal/AUDIVERIS-LICENSE" ]] || fail "staged Audiveris license missing; run the runtime fetch script"
+ok "project and Audiveris notices present"
+
 echo "[validate] Tesseract"
 TESS=""
-for c in "$RES/tesseract/tesseract" "$RES/tesseract/tesseract.exe"; do
+for c in "$RES/runtime/tesseract/bin/tesseract" \
+         "$RES/runtime/tesseract/bin/tesseract.exe" \
+         "$RES/tesseract/tesseract" "$RES/tesseract/tesseract.exe"; do
   [[ -x "$c" ]] && TESS="$c" && break
 done
-[[ -n "$TESS" ]] || fail "no Tesseract binary under resources/tesseract/"
+[[ -n "$TESS" ]] || fail "no Tesseract binary under resources/runtime/tesseract/bin/"
 ok "Tesseract binary: $(basename "$TESS")"
 
 [[ -d "$RES/runtime/tessdata" ]] || fail "runtime/tessdata missing"

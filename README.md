@@ -154,7 +154,7 @@ scripts/fetch_runtime_macos.sh
 # 2. Build the Python sidecar binary into frontend/src-tauri/bin/
 pip install pyinstaller
 pip install -e backend
-scripts/build_sidecar.sh
+scripts/build_sidecar.sh --onefile
 
 # 3. (one-time) Generate bundle icons from a 1024x1024 PNG source
 cd frontend
@@ -166,8 +166,9 @@ npm install --prefix frontend
 npm run tauri:dev --prefix frontend
 
 # 5. Or build the .app + DMG for distribution
+scripts/validate_bundle.sh
 npm run tauri:build --prefix frontend
-scripts/post_bundle_macos.sh    # restore JRE legal/ stripped by Tauri
+scripts/post_bundle_macos.sh    # restore JRE + open-source legal notices
 scripts/sign_adhoc_macos.sh     # ad-hoc resign every embedded Mach-O
 scripts/build_dmg_macos.sh      # → dist/IMSLP-Accompanist-<version>.dmg
 ```
@@ -181,6 +182,18 @@ cd backend && pip install -e ".[dev]" && pytest
 # frontend
 cd frontend && npm install && npm test
 ```
+
+### License and corresponding source
+
+IMSLP Accompanist is free software licensed under the
+[GNU Affero General Public License v3 or later](LICENSE). Copyright © 2026
+Hidetaka Ito and contributors. You may use, study, modify, and redistribute it
+under that license; it comes without warranty.
+
+The complete corresponding source for each binary release is the matching
+`vX.Y.Z` tag in this repository. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
+for Audiveris and audio-sample notices, and
+[docs/license_compliance.md](docs/license_compliance.md) for the release checklist.
 
 ---
 
@@ -241,3 +254,12 @@ macOS デスクトップアプリです。IMSLP などのパブリックドメ�
 - **Windows**: ⏳ 未対応 / 検証中。
 - **Linux**: デスクトップアプリ未提供。Web 版（Docker / セルフ
   ホスト）で利用できます。
+
+### ライセンスと対応するソースコード
+
+IMSLP Accompanist は [GNU Affero General Public License v3 またはそれ以降](LICENSE)
+で公開する自由ソフトウェアです。Copyright © 2026 Hidetaka Ito and contributors.
+ライセンス条件に従って利用・調査・改変・再配布できますが、無保証です。
+各バイナリ版に対応する完全なソースコードは、このリポジトリの同じ
+`vX.Y.Z` タグから取得できます。Audiveris と音源の表示は
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を参照してください。

@@ -97,6 +97,12 @@ try {
     Write-Host "[runtime] cloning + building Audiveris @ $AudiverisRef"
     git clone --depth 1 --branch $AudiverisRef https://github.com/Audiveris/audiveris.git $aud
 
+    $legalOut = Join-Path $res "legal"
+    New-Item -ItemType Directory -Path $legalOut -Force | Out-Null
+    Copy-Item (Join-Path $aud "LICENSE") (Join-Path $legalOut "AUDIVERIS-LICENSE") -Force
+    Copy-Item (Join-Path $root "LICENSE") (Join-Path $legalOut "IMSLP-ACCOMPANIST-LICENSE") -Force
+    Copy-Item (Join-Path $root "THIRD_PARTY_NOTICES.md") (Join-Path $legalOut "THIRD_PARTY_NOTICES.md") -Force
+
     Push-Location $aud
     try {
         $env:JAVA_HOME = $jdkHome

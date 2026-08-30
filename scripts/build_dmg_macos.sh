@@ -44,6 +44,13 @@ trap 'rm -rf "$STAGE"' EXIT
 # the user's drag-to-install workflow is the conventional one.
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
+APP_LEGAL="$APP/Contents/Resources/legal"
+[[ -f "$APP_LEGAL/AUDIVERIS-LICENSE" ]] || {
+  echo "ERROR: Audiveris license is missing from the app. Run scripts/post_bundle_macos.sh." >&2
+  exit 1
+}
+mkdir -p "$STAGE/Open Source Licenses"
+cp "$APP_LEGAL/"* "$STAGE/Open Source Licenses/"
 
 echo "[dmg] creating $DMG"
 hdiutil create \

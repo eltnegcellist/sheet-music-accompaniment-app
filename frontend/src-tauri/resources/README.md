@@ -10,6 +10,7 @@ trees:
                           macOS/Windows, extracted from the .deb on Linux)
 * `runtime/tessdata/`   — Tesseract language packs
 * `tesseract/`          — Tesseract binary (system or Homebrew copy)
+* `legal/`              — generated project and third-party license files
 
 Run the matching `scripts/fetch_runtime_<os>.{sh,ps1}` to populate these
 before `npm run tauri:build`. See the migration plan
@@ -18,3 +19,7 @@ before `npm run tauri:build`. See the migration plan
 This README is committed so that `tauri-build`'s `bundle.resources`
 glob has at least one file to match during `cargo check`, before the
 real runtime tree is staged.
+
+The runtime fetch scripts copy the exact Audiveris license into `legal/`.
+`scripts/post_bundle_macos.sh` then installs it, the project `LICENSE`, and
+`THIRD_PARTY_NOTICES.md` in the finished application bundle.

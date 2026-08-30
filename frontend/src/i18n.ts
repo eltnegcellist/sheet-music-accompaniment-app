@@ -82,6 +82,15 @@ const ja = {
   sheetNoSanitize: "サニタイズなしで表示しました (詳細はコンソール参照)",
   sheetRenderFail: (msg: string) => `譜面のレンダリングに失敗しました: ${msg}`,
   sheetEmpty: "PDF を読み込むと譜面が表示されます。",
+  // License dialog
+  legalButton: "ライセンス",
+  legalTitle: "ライセンスとソースコード",
+  legalAgpl: "本ソフトウェアは GNU Affero General Public License v3 またはそれ以降の条件で利用・改変・再配布できます。",
+  legalSource: "対応するソースコード",
+  legalDownload: "ソースをダウンロード",
+  legalAudiveris: "楽譜認識には AGPL ライセンスの Audiveris 5.10.2 を使用しています。",
+  legalSamples: "ピアノ音源: Salamander Grand Piano V2（Alexander Holm、CC BY 3.0）。ソロ音源の帰属情報は THIRD_PARTY_NOTICES.md を参照してください。",
+  legalWarranty: "本ソフトウェアは無保証です。詳しい条件は AGPL-3.0 を参照してください。",
 };
 
 const en: typeof ja = {
@@ -154,6 +163,14 @@ const en: typeof ja = {
   sheetNoSanitize: "Displayed without sanitization (see console)",
   sheetRenderFail: (msg: string) => `Failed to render sheet: ${msg}`,
   sheetEmpty: "Load a PDF to display the sheet music.",
+  legalButton: "Licenses",
+  legalTitle: "Licenses and source code",
+  legalAgpl: "You may use, modify, and redistribute this software under GNU Affero General Public License v3 or any later version.",
+  legalSource: "Corresponding source",
+  legalDownload: "Download source",
+  legalAudiveris: "Score recognition uses AGPL-licensed Audiveris 5.10.2.",
+  legalSamples: "Piano samples: Salamander Grand Piano V2 (Alexander Holm, CC BY 3.0). See THIRD_PARTY_NOTICES.md for solo-sample attribution.",
+  legalWarranty: "This software comes with no warranty. See AGPL-3.0 for details.",
 };
 
 export const translations = { ja, en };
