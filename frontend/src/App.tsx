@@ -25,7 +25,7 @@ import {
   type SoloBus,
   type SoloInstrumentName,
 } from "./audio/ToneEngine";
-import { PdfUploader, type PdfUploaderHandle } from "./components/PdfUploader";
+import { PdfUploader, type PdfUploaderHandle } from "./components/PdfUploader";\nimport { ServerSettings } from "./components/ServerSettings";\nimport { hasConfiguredServer, isAndroidApp } from "./api/serverConfig";
 import { LegalNotice } from "./components/LegalNotice";
 import { PdfViewer } from "./components/PdfViewer";
 import {
@@ -85,7 +85,7 @@ export default function App() {
   const [pdfTotalPages, setPdfTotalPages] = useState(0);
   const [zoom, setZoom] = useState(100);
   const [warningsDismissed, setWarningsDismissed] = useState(false);
-  const [cacheList, setCacheList] = useState<CacheEntry[]>([]);
+  const [cacheList, setCacheList] = useState<CacheEntry[]>([]);\n  const [serverSettingsOpen, setServerSettingsOpen] = useState(false);\n  const [serverConfigured, setServerConfigured] = useState(() => hasConfiguredServer());\n  const androidApp = isAndroidApp();\n  const serverRequired = androidApp && !serverConfigured;
 
   // Auto-hide topbar/transport based on cursor proximity. The badge / play
   // pill stay visible so the user always has an entry point.
@@ -755,6 +755,14 @@ export default function App() {
             <span className="zoom-ctl__val">{zoom}%</span>
           </div>
         )}
+        <ServerSettings
+          open={serverSettingsOpen}
+          onClose={() => setServerSettingsOpen(false)}
+          onSaved={() => {
+            setServerConfigured(hasConfiguredServer());
+            getCacheList().then(setCacheList).catch(() => {});
+          }}
+        />
         <LegalNotice />
       </div>
     </LangContext.Provider>
