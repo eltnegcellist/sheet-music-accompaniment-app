@@ -1,30 +1,27 @@
-import type { AnalyzeResponse } from "../types";\nimport { authHeaders, configuredServerUrl } from "./serverConfig";
+import type { AnalyzeResponse } from "../types";
+import { authHeaders, configuredServerUrl } from "./serverConfig";
 
 function resolveBackendUrl(): string {
-  // Tauri injects window.__BACKEND_URL__ once the Python sidecar has
-  // emitted its READY line with the OS-assigned port. Vite's env var
-  // remains the override for `npm run dev` outside Tauri, and the
-  // localhost default keeps the legacy Docker setup working.
+  // Desktop Tauri injects its bundled local sidecar URL. Android has no
+  // sidecar, so it falls through to the server configured in the app.
   if (typeof window !== "undefined" && window.__BACKEND_URL__) {
     return window.__BACKEND_URL__;
   }
-  const configured = configuredServerUrl();\n  if (configured) return configured;\n  const fromEnv = import.meta.env.VITE_BACKEND_URL as string | undefined;
+  const configured = configuredServerUrl();
+  if (configured) return configured;
+  const fromEnv = import.meta.env.VITE_BACKEND_URL as string | undefined;
   if (fromEnv) return fromEnv;
   return "http://localhost:8000";
 }
 
-// Resolved per request so a late `window.__BACKEND_URL__` injection
-// (Tauri's setup script may run after this module is imported in
-// some build configurations) is still picked up.
 function backendUrl(): string {
   return resolveBackendUrl();
 }
 
 export interface AnalyzeOptions {
-  /** Optional second PDF that contains only the solo part. When provided
-   *  the backend uses it to refine solo recognition. */
+  /** Optional second PDF that contains only the solo part. */
   soloPdf?: File;
-  /** When true, the backend ignores any cached result and re-runs OMR. */
+  /** When true, ignore a cached result and re-run OMR. */
   force?: boolean;
 }
 
@@ -36,22 +33,16 @@ export async function analyzePdf(
   if (!pdf && !musicXml) {
     throw new Error("PDF か MusicXML のどちらかを選択してください。");
   }
+
   const form = new FormData();
-  if (pdf) {
-    form.append("pdf", pdf);
-  }
-  if (musicXml) {
-    form.append("music_xml", musicXml);
-  }
-  if (options.soloPdf) {
-    form.append("solo_pdf", options.soloPdf);
-  }
-  if (options.force) {
-    form.append("force", "true");
-  }
+  if (pdf) form.append("pdf", pdf);
+  if (musicXml) form.append("music_xml", musicXml);
+  if (options.soloPdf) form.append("solo_pdf", options.soloPdf);
+  if (options.force) form.append("force", "true");
 
   const response = await fetch(`${backendUrl()}/analyze`, {
     method: "POST",
+    headers: authHeaders(),
     body: form,
   });
 
@@ -70,7 +61,9 @@ export interface CacheEntry {
 }
 
 export async function getCacheList(): Promise<CacheEntry[]> {
-  const response = await fetch(`${backendUrl()}/cache`, { headers: authHeaders() });
+  const response = await fetch(`${backendUrl()}/cache`, {
+    headers: authHeaders(),
+  });
   if (!response.ok) throw new Error("Failed to fetch cache list");
   return (await response.json()) as CacheEntry[];
 }
@@ -79,28 +72,47 @@ export async function getCachedAnalysis(
   key: string,
   paramSetId: string,
 ): Promise<AnalyzeResponse> {
-  const response = await fetch(`${backendUrl()}/cache/${key}/${paramSetId}`, {\n    headers: authHeaders(),\n  });
+  const response = await fetch(`${backendUrl()}/cache/${key}/${paramSetId}`, {
+    headers: authHeaders(),
+  });
   if (!response.ok) throw new Error("Failed to fetch cached analysis");
   return (await response.json()) as AnalyzeResponse;
 }
 
-export async function getCachedPdf(key: string, paramSetId: string): Promise<File> {
-  const response = await fetch(`${backendUrl()}/cache/${key}/${paramSetId}/pdf`, {\n    headers: authHeaders(),\n  });
+export async function getCachedPdf(
+  key: string,
+  paramSetId: string,
+): Promise<File> {
+  const response = await fetch(
+    `${backendUrl()}/cache/${key}/${paramSetId}/pdf`,
+    { headers: authHeaders() },
+  );
   if (!response.ok) throw new Error("Failed to fetch cached PDF");
   const blob = await response.blob();
   return new File([blob], "cached_score.pdf", { type: "application/pdf" });
 }
 
-export async function deleteCache(key: string, paramSetId: string): Promise<void> {
+export async function deleteCache(
+  key: string,
+  paramSetId: string,
+): Promise<void> {
   const response = await fetch(`${backendUrl()}/cache/${key}/${paramSetId}`, {
     method: "DELETE",
+    headers: authHeaders(),
   });
   if (!response.ok) throw new Error("Failed to delete cache entry");
 }
 
-export async function touchCache(key: string, paramSetId: string): Promise<void> {
-  const response = await fetch(`${backendUrl()}/cache/${key}/${paramSetId}/touch`, {
-    method: "POST",
-  });
+export async function touchCache(
+  key: string,
+  paramSetId: string,
+): Promise<void> {
+  const response = await fetch(
+    `${backendUrl()}/cache/${key}/${paramSetId}/touch`,
+    {
+      method: "POST",
+      headers: authHeaders(),
+    },
+  );
   if (!response.ok) throw new Error("Failed to touch cache entry");
 }
