@@ -91,7 +91,7 @@ export const PdfUploader = forwardRef<PdfUploaderHandle, Props>(
   function PdfUploader({ disabled, onSelect, mobile, hidden }, ref) {
     const inputRef = useRef<HTMLInputElement>(null);
     const [drag, setDrag] = useState(false);
-    const { T } = useLang();
+    const { T, lang } = useLang();
 
     const handleFiles = useCallback(
       (files: ArrayLike<File> | null | undefined) => {
@@ -145,12 +145,14 @@ export const PdfUploader = forwardRef<PdfUploaderHandle, Props>(
           >
             <span className="mobile-upload__icon">＋</span>
             <span>
-              <strong>{T.clickToSelect}</strong>
-              <small>PDF / MusicXML</small>
+              <strong>{lang === "ja" ? "楽譜PDFを選ぶ" : "Choose a score PDF"}</strong>
+              <small>{lang === "ja" ? "端末のファイルから選択" : "Choose from files on this device"}</small>
             </span>
           </button>
           <p className="mobile-upload__hint">
-            {T.pdfOnly} · {T.skipOmr}
+            {lang === "ja"
+              ? "PDF / MusicXML に対応"
+              : "Supports PDF / MusicXML"}
           </p>
           {input}
         </div>
