@@ -1,10 +1,15 @@
-name: android-release
+name: android-stable-release
 
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     tags:
       - "v*"
+    paths:
+      - "android/**"
+      - "frontend/**"
+      - ".github/workflows/android-release.yml"
 
 permissions:
   contents: write
@@ -17,6 +22,7 @@ jobs:
       ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
       ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      EXPECTED_CERT_SHA256: "AFB14F54F734FAB564A93F3549E3E733F1FC97F3FE83AE1C843AF47C41B25BE3"
     steps:
       - uses: actions/checkout@v6
 
@@ -26,6 +32,12 @@ jobs:
           test -n "$ANDROID_KEYSTORE_PASSWORD" || { echo "Missing ANDROID_KEYSTORE_PASSWORD"; exit 1; }
           test -n "$ANDROID_KEY_ALIAS" || { echo "Missing ANDROID_KEY_ALIAS"; exit 1; }
           test -n "$ANDROID_KEY_PASSWORD" || { echo "Missing ANDROID_KEY_PASSWORD"; exit 1; }
+
+      - name: Verify pinned public certificate
+        run: |
+          ACTUAL="$(openssl x509             -in android/signing/imslp-accompanist-release-cert.pem             -noout -fingerprint -sha256             | cut -d= -f2 | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          echo "Pinned certificate SHA-256: $ACTUAL"
+          test "$ACTUAL" = "$EXPECTED_CERT_SHA256"
 
       - uses: actions/setup-node@v6
         with:
@@ -60,30 +72,42 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      - name: Restore release keystore
+      - name: Restore fixed release keystore
         run: |
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/imslp-accompanist-release.jks"
           chmod 600 "$RUNNER_TEMP/imslp-accompanist-release.jks"
           echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/imslp-accompanist-release.jks" >> "$GITHUB_ENV"
 
-      - name: Build signed release APK
+      - name: Verify keystore certificate is the pinned certificate
+        run: |
+          ACTUAL="$(keytool -list -v             -keystore "$ANDROID_KEYSTORE_PATH"             -storepass "$ANDROID_KEYSTORE_PASSWORD"             -alias "$ANDROID_KEY_ALIAS"             | sed -n 's/^[[:space:]]*SHA256: //p'             | head -n1 | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          echo "Keystore certificate SHA-256: $ACTUAL"
+          test "$ACTUAL" = "$EXPECTED_CERT_SHA256"
+
+      - name: Build fixed-signed release APK
         run: gradle -p android assembleRelease
 
-      - name: Verify APK signature
+      - name: Verify APK signature and certificate
         run: |
           APK="android/app/build/outputs/apk/release/app-release.apk"
           test -f "$APK"
-          "${ANDROID_HOME}/build-tools/$(ls "${ANDROID_HOME}/build-tools" | sort -V | tail -n1)/apksigner" verify --verbose "$APK"
+          APKSIGNER="${ANDROID_HOME}/build-tools/$(ls "${ANDROID_HOME}/build-tools" | sort -V | tail -n1)/apksigner"
+          "$APKSIGNER" verify --verbose "$APK"
+          ACTUAL="$("$APKSIGNER" verify --print-certs "$APK"             | sed -n 's/^Signer #1 certificate SHA-256 digest: //p'             | head -n1 | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          echo "APK certificate SHA-256: $ACTUAL"
+          test "$ACTUAL" = "$EXPECTED_CERT_SHA256"
 
-      - name: Name release artifact
+      - name: Name stable update APK
         run: |
-          VERSION="${GITHUB_REF_NAME:-manual}"
-          cp android/app/build/outputs/apk/release/app-release.apk "IMSLP-Accompanist-Android-${VERSION}.apk"
+          VERSION="$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' android/app/build.gradle.kts | head -n1)"
+          test -n "$VERSION"
+          echo "ANDROID_VERSION=$VERSION" >> "$GITHUB_ENV"
+          cp android/app/build/outputs/apk/release/app-release.apk             "IMSLP-Accompanist-Android-v${VERSION}.apk"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: IMSLP-Accompanist-Android-release
-          path: IMSLP-Accompanist-Android-*.apk
+          name: IMSLP-Accompanist-Android-stable-update
+          path: IMSLP-Accompanist-Android-v*.apk
           if-no-files-found: error
 
       - name: Attach APK to GitHub Release
@@ -91,6 +115,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
-            gh release create "$GITHUB_REF_NAME" --generate-notes --title "IMSLP Accompanist $GITHUB_REF_NAME"
-          gh release upload "$GITHUB_REF_NAME" IMSLP-Accompanist-Android-*.apk --clobber
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 ||             gh release create "$GITHUB_REF_NAME" --generate-notes --title "IMSLP Accompanist $GITHUB_REF_NAME"
+          gh release upload "$GITHUB_REF_NAME" "IMSLP-Accompanist-Android-v${ANDROID_VERSION}.apk" --clobber
