@@ -9,6 +9,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
 import android.webkit.JavascriptInterface;
+import android.webkit.RenderProcessGoneDetail;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -110,6 +111,21 @@ public class MainActivity extends Activity {
             public void onPageFinished(WebView view, String url) {
                 pageReady = true;
                 dispatchPendingIncomingFile();
+            }
+
+            @Override
+            public boolean onRenderProcessGone(
+                WebView view,
+                RenderProcessGoneDetail detail
+            ) {
+                pageReady = false;
+                Toast.makeText(
+                    MainActivity.this,
+                    "表示エンジンを再起動します",
+                    Toast.LENGTH_SHORT
+                ).show();
+                runOnUiThread(MainActivity.this::recreate);
+                return true;
             }
         });
 
