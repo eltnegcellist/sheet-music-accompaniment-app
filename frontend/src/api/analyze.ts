@@ -58,6 +58,8 @@ export interface CacheEntry {
   param_set_id: string;
   pdf_name: string;
   timestamp: number;
+  /** Android stores completed analyses on-device; desktop entries are server-backed. */
+  source?: "server" | "local";
 }
 
 export async function getCacheList(): Promise<CacheEntry[]> {
