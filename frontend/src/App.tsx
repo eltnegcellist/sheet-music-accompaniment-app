@@ -574,6 +574,14 @@ export default function App() {
             </>
           )}
           <div className="topbar__spacer" />
+          <button
+            type="button"
+            className="server-settings-btn"
+            onClick={() => setServerSettingsOpen(true)}
+            title={lang === "ja" ? "OMRサーバー設定" : "OMR server settings"}
+          >
+            ⚙ <span>{androidApp ? "OMR" : lang === "ja" ? "サーバー" : "Server"}</span>
+          </button>
           <div className="status-badge">
             {statusLed && (
               <div className={`status-badge__led status-badge__led--${statusLed}`} />
@@ -594,9 +602,29 @@ export default function App() {
                 overflowY: "auto",
               }}
             >
+              {serverRequired && (
+                <div className="server-required-card">
+                  <strong>
+                    {lang === "ja"
+                      ? "OMRサーバーを設定してください"
+                      : "Configure an OMR server"}
+                  </strong>
+                  <span>
+                    {lang === "ja"
+                      ? "Android版はPDF認識にあなた自身のAudiverisサーバーを使用します。"
+                      : "Android uses your own Audiveris server for PDF recognition."}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setServerSettingsOpen(true)}
+                  >
+                    {lang === "ja" ? "サーバーを設定" : "Configure server"}
+                  </button>
+                </div>
+              )}
               <PdfUploader
                 ref={uploaderRef}
-                disabled={busy}
+                disabled={busy || serverRequired}
                 onSelect={handleSelect}
               />
               <div className="lang-switch">
