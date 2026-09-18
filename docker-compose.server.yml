@@ -1,0 +1,29 @@
+services:
+  omr:
+    platform: linux/amd64
+    build:
+      context: ./backend
+      args:
+        AUDIVERIS_VERSION: ${AUDIVERIS_VERSION:-5.10.2}
+    ports:
+      - "${OMR_BIND:-0.0.0.0}:${OMR_PORT:-8000}:8000"
+    environment:
+      API_TOKEN: ${API_TOKEN:?Set API_TOKEN in .omr-server.env}
+      APP_DATA_DIR: /data
+      ANALYZE_CACHE_DIR: /data/cache/analyze
+      PIPELINE_PARAM_SET: ${PIPELINE_PARAM_SET:-v5_real_pdf}
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - omr_data:/data
+      - audiveris_cache:/root/.audiveris
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  omr_data:
+  audiveris_cache:

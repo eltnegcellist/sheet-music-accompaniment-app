@@ -44,3 +44,9 @@ frontend/src-tauri/legal-bundle/
 # Generated audio samples (large)
 frontend/public/samples/*.mp3
 !frontend/public/samples/.gitkeep
+
+# Self-hosted OMR secrets
+.omr-server.env
+*.jks
+*.keystore
+android/keystore.properties

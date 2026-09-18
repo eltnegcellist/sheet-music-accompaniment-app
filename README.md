@@ -6,10 +6,10 @@
 
 ## English
 
-macOS desktop app that extracts **accompaniment (piano) parts** from
-public-domain sheet music PDFs (such as IMSLP) and plays them back
-with score-following highlights, live tempo, looping, count-in, and a
-karaoke-style solo mix.
+Score-accompaniment app for macOS and Android. It extracts **accompaniment
+(piano) parts** from public-domain sheet music PDFs (such as IMSLP) and plays
+them back with score-following highlights, live tempo, looping, count-in, and a
+karaoke-style solo mix. Android uses a user-owned self-hosted OMR server.
 
 ### Download (macOS)
 
@@ -43,6 +43,22 @@ Grab the latest **`IMSLP-Accompanist-<version>.dmg`** from the
 
    See [docs/macos_unsigned_distribution.md](docs/macos_unsigned_distribution.md)
    for the full troubleshooting guide.
+
+### Android (self-hosted OMR)
+
+Android v0.2.0 uses the same score viewer/player while moving heavy Audiveris
+OMR to a server owned by the user. The server can run on a home PC, NAS or VM.
+
+```bash
+git clone https://github.com/eltnegcellist/sheet-music-accompaniment-app.git
+cd sheet-music-accompaniment-app
+sh scripts/setup_omr_server.sh
+```
+
+Enter the printed URL/token in **OMR** settings in the Android app. Completed
+PDF analyses are cached on the phone, so previously opened scores can be used
+without the OMR server. Android also supports **Open with**, MusicXML export and
+screen-awake playback. See [docs/android.md](docs/android.md).
 
 ### What this app does
 
@@ -97,10 +113,11 @@ Grab the latest **`IMSLP-Accompanist-<version>.dmg`** from the
   The runtime self-containment script (`scripts/fetch_runtime_windows.ps1`)
   exists but the end-to-end build, sign, and distribution flow is
   unverified.
-- **Android (self-hosted OMR)** — 🚧 experimental. The Android app contains
-  server URL / API-token setup and sends PDF recognition to the user's own
-  Audiveris backend. GitHub Actions builds a debug APK. See
-  [docs/android.md](docs/android.md).
+- **Android (self-hosted OMR)** — ✅ v0.2.0 implementation complete. The app
+  contains server URL / API-token setup, device-local score cache, Android
+  Open-with integration and MusicXML export. GitHub Actions builds an
+  installable debug APK; the signed release workflow is ready once repository
+  signing secrets are configured. See [docs/android.md](docs/android.md).
 - **Linux** — desktop app not packaged. Use the self-hosting options
   below if you want to run it on Linux.
 
@@ -223,10 +240,11 @@ for Audiveris and audio-sample notices, and
 
 ## 日本語
 
-macOS デスクトップアプリです。IMSLP などのパブリックドメイン楽譜 PDF
-から**伴奏パート（主にピアノ）**を抽出し、譜面ハイライト・テンポ
-スライダ・ループ・カウントイン・カラオケ風ソロミックス付きで再生
-します。
+macOS / Android 対応の伴奏アプリです。IMSLP などのパブリックドメイン
+楽譜 PDF から**伴奏パート（主にピアノ）**を抽出し、譜面ハイライト・
+テンポスライダ・ループ・カウントイン・カラオケ風ソロミックス付きで
+再生します。Android版では重いOMRだけを各ユーザー自身のサーバーで
+実行します。
 
 ### ダウンロード（macOS）
 
@@ -257,6 +275,23 @@ macOS デスクトップアプリです。IMSLP などのパブリックドメ�
    詳細なトラブルシューティングは
    [docs/macos_unsigned_distribution.md](docs/macos_unsigned_distribution.md)。
 
+### Android版（セルフホスト OMR）
+
+Android v0.2.0では、楽譜表示・伴奏再生・端末内キャッシュをスマホ側で
+行い、AudiverisによるPDF認識だけをユーザー自身のPC/NAS/VMへ送ります。
+
+```bash
+git clone https://github.com/eltnegcellist/sheet-music-accompaniment-app.git
+cd sheet-music-accompaniment-app
+sh scripts/setup_omr_server.sh
+```
+
+表示されたURLとAPIトークンをAndroidアプリ右上の **OMR** 設定へ入力
+してください。一度解析したPDFと結果は端末内に保存されるため、過去の
+楽譜はOMRサーバーが停止中でも開けます。「このアプリで開く」、
+MusicXML保存、再生中の画面スリープ防止にも対応しています。詳細は
+[docs/android.md](docs/android.md)。
+
 ### 機能概要
 - PDF を Audiveris で OMR し、MusicXML と小節バウンディングボックスを抽出。
 - 伴奏（主に 2 段譜ピアノ）とソロパートを自動判定。
@@ -276,9 +311,10 @@ macOS デスクトップアプリです。IMSLP などのパブリックドメ�
 - **macOS (Apple Silicon)**: ✅ サポート対象。
 - **macOS (Intel)**: ⚠️ 未検証。
 - **Windows**: ⏳ 未対応 / 検証中。
-- **Android（セルフホスト OMR）**: 🚧 実験版。アプリ内で OMR
-  サーバー URL / API トークンを設定し、各ユーザー自身の Audiveris
-  サーバーで PDF を認識します。詳細は
+- **Android（セルフホスト OMR）**: ✅ v0.2.0 実装完了。アプリ内の
+  サーバー設定、端末内キャッシュ、「このアプリで開く」、MusicXML保存
+  まで対応。GitHub Actionsでインストール可能なdebug APKを生成し、
+  固定署名のReleaseワークフローも用意済みです。詳細は
   [docs/android.md](docs/android.md)。
 - **Linux**: デスクトップアプリ未提供。Web 版（Docker / セルフ
   ホスト）で利用できます。

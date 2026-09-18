@@ -10,6 +10,13 @@ import {
   touchCache,
   type CacheEntry,
 } from "./api/analyze";
+import {
+  deleteAndroidCache,
+  getAndroidCache,
+  listAndroidCache,
+  putAndroidCache,
+  touchAndroidCache,
+} from "./api/androidCache";
 import { Metronome } from "./audio/Metronome";
 import {
   cancelSchedule,
@@ -27,7 +34,7 @@ import {
 } from "./audio/ToneEngine";
 import { PdfUploader, type PdfUploaderHandle } from "./components/PdfUploader";
 import { ServerSettings } from "./components/ServerSettings";
-import { hasConfiguredServer, isAndroidApp } from "./api/serverConfig";
+import { getServerConfig, hasConfiguredServer, isAndroidApp } from "./api/serverConfig";
 import { LegalNotice } from "./components/LegalNotice";
 import { PdfViewer } from "./components/PdfViewer";
 import {
@@ -92,6 +99,12 @@ export default function App() {
   const [serverConfigured, setServerConfigured] = useState(() => hasConfiguredServer());
   const androidApp = isAndroidApp();
   const serverRequired = androidApp && !serverConfigured;
+  const pendingIncomingRef = useRef<File | null>(null);
+
+  const refreshCacheList = async () => {
+    const entries = androidApp ? await listAndroidCache() : await getCacheList();
+    setCacheList(entries);
+  };
 
   // Auto-hide topbar/transport based on cursor proximity. The badge / play
   // pill stay visible so the user always has an entry point.
@@ -246,6 +259,14 @@ export default function App() {
       result.music_xml = sanitizeForOsmd(result.music_xml);
       setAnalysis(result);
       setWarningsDismissed(false);
+      if (androidApp && pdf) {
+        try {
+          await putAndroidCache(pdf, result);
+          await refreshCacheList();
+        } catch (cacheError) {
+          console.warn("Failed to persist Android cache", cacheError);
+        }
+      }
     } catch (err) {
       setErrorText(`${T.errorPrefix}${(err as Error).message}`);
     } finally {
@@ -265,6 +286,48 @@ export default function App() {
     setPdfTotalPages(0);
     await runAnalyze(pdf, musicXml, soloPdf, false);
   };
+
+  useEffect(() => {
+    if (!androidApp) return;
+
+    type IncomingDetail = { url: string; name: string; mime?: string };
+    const processIncoming = async (detail: IncomingDetail) => {
+      try {
+        const response = await fetch(detail.url, { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(`Android file bridge returned HTTP ${response.status}`);
+        }
+        const blob = await response.blob();
+        const file = new File([blob], detail.name || "score.pdf", {
+          type: detail.mime || blob.type || "application/pdf",
+        });
+        if (serverRequired) {
+          pendingIncomingRef.current = file;
+          setServerSettingsOpen(true);
+          return;
+        }
+        await handleSelect(file, undefined, undefined);
+      } catch (err) {
+        setErrorText(`${T.errorPrefix}${(err as Error).message}`);
+      }
+    };
+
+    const onIncoming = (event: Event) => {
+      window.__ANDROID_PENDING_FILE__ = undefined;
+      const detail = (event as CustomEvent<IncomingDetail>).detail;
+      if (detail) void processIncoming(detail);
+    };
+
+    window.addEventListener("android-incoming-file", onIncoming);
+    const pending = window.__ANDROID_PENDING_FILE__;
+    if (pending) {
+      window.__ANDROID_PENDING_FILE__ = undefined;
+      void processIncoming(pending);
+    }
+    return () => window.removeEventListener("android-incoming-file", onIncoming);
+    // handleSelect intentionally follows the current serverRequired closure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [androidApp, serverRequired, lang]);
 
   const handleReanalyze = async () => {
     if (!pdfFile && !musicXmlFile) return;
@@ -369,11 +432,20 @@ export default function App() {
     const blob = new Blob([analysis.music_xml], {
       type: "application/vnd.recordare.musicxml+xml",
     });
+    const base = pdfFile?.name.replace(/\.pdf$/i, "") ?? "score";
+    const fileName = `${base}.musicxml`;
+    if (window.AndroidBridge?.saveTextFile) {
+      window.AndroidBridge.saveTextFile(
+        fileName,
+        "application/vnd.recordare.musicxml+xml",
+        analysis.music_xml,
+      );
+      return;
+    }
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    const base = pdfFile?.name.replace(/\.pdf$/i, "") ?? "score";
     a.href = url;
-    a.download = `${base}.musicxml`;
+    a.download = fileName;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -401,7 +473,7 @@ export default function App() {
     setPdfPage(0);
     setPdfTotalPages(0);
     setViewMode("pdf");
-    getCacheList().then(setCacheList).catch(console.error);
+    refreshCacheList().catch(console.error);
   };
 
   // Live tempo updates while playing.
@@ -412,6 +484,18 @@ export default function App() {
   useEffect(() => {
     metronomeRef.current?.setEnabled(playback.metronome);
   }, [playback.metronome]);
+
+  useEffect(() => {
+    if (!androidApp) return;
+    const url = getServerConfig().serverUrl.trim().toLowerCase();
+    window.AndroidBridge?.setAllowHttpOmr(url.startsWith("http://"));
+  }, [androidApp]);
+
+  useEffect(() => {
+    if (!androidApp) return;
+    window.AndroidBridge?.setKeepScreenOn(isPlaying);
+    return () => window.AndroidBridge?.setKeepScreenOn(false);
+  }, [androidApp, isPlaying]);
 
   useEffect(() => {
     if (soloBusRef.current) {
@@ -432,12 +516,14 @@ export default function App() {
   const fileLabel = pdfFile?.name ?? musicXmlFile?.name ?? T.fileLabel;
 
   useEffect(() => {
-    // Initial fetch. In Tauri this races the sidecar's READY line
-    // (which injects window.__BACKEND_URL__), so the very first call
-    // can hit the localhost:8000 fallback and 404. We refresh below
-    // when the Rust side fires the `backend-ready` event.
-    getCacheList().then(setCacheList).catch(() => {});
+    if (androidApp) {
+      listAndroidCache().then(setCacheList).catch(() => {});
+      return;
+    }
 
+    // Desktop Tauri races the sidecar's READY line, so refresh when Rust
+    // announces the actual local port.
+    getCacheList().then(setCacheList).catch(() => {});
     let cancelled = false;
     let unlisten: (() => void) | undefined;
     (async () => {
@@ -449,8 +535,7 @@ export default function App() {
           }
         });
       } catch {
-        // Not running in Tauri (e.g. `npm run dev` standalone). The
-        // initial fetch above is the canonical path in that case.
+        // Standalone Vite uses its configured backend URL.
       }
     })();
 
@@ -458,7 +543,7 @@ export default function App() {
       cancelled = true;
       unlisten?.();
     };
-  }, []);
+  }, [androidApp]);
 
   const loadFromCache = async (entry: CacheEntry) => {
     setBusy(true);
@@ -468,11 +553,20 @@ export default function App() {
     setCurrentMeasure(null);
     setCurrentMeasureOrdinal(null);
     try {
-      const [analysisResult, pdfFileResult] = await Promise.all([
-        getCachedAnalysis(entry.key, entry.param_set_id),
-        getCachedPdf(entry.key, entry.param_set_id),
-      ]);
-      await touchCache(entry.key, entry.param_set_id).catch(() => {});
+      let analysisResult: AnalyzeResponse;
+      let pdfFileResult: File;
+      if (entry.source === "local") {
+        const local = await getAndroidCache(entry.key);
+        analysisResult = local.analysis;
+        pdfFileResult = local.pdf;
+        await touchAndroidCache(entry.key).catch(() => {});
+      } else {
+        [analysisResult, pdfFileResult] = await Promise.all([
+          getCachedAnalysis(entry.key, entry.param_set_id),
+          getCachedPdf(entry.key, entry.param_set_id),
+        ]);
+        await touchCache(entry.key, entry.param_set_id).catch(() => {});
+      }
       analysisResult.music_xml = sanitizeForOsmd(analysisResult.music_xml);
       setPdfFile(pdfFileResult);
       setAnalysis(analysisResult);
@@ -495,7 +589,11 @@ export default function App() {
   ) => {
     e.stopPropagation();
     try {
-      await deleteCache(entry.key, entry.param_set_id);
+      if (entry.source === "local") {
+        await deleteAndroidCache(entry.key);
+      } else {
+        await deleteCache(entry.key, entry.param_set_id);
+      }
       setCacheList((prev) =>
         prev.filter(
           (c) => !(c.key === entry.key && c.param_set_id === entry.param_set_id),
@@ -550,7 +648,7 @@ export default function App() {
               <button
                 type="button"
                 className="reanalyze-btn"
-                disabled={isPlaying || busy}
+                disabled={isPlaying || busy || serverRequired}
                 onClick={handleReanalyze}
                 title={T.reanalyzeTitle}
               >
@@ -580,14 +678,16 @@ export default function App() {
             </>
           )}
           <div className="topbar__spacer" />
-          <button
-            type="button"
-            className="server-settings-btn"
-            onClick={() => setServerSettingsOpen(true)}
-            title={lang === "ja" ? "OMRサーバー設定" : "OMR server settings"}
-          >
-            ⚙ <span>{androidApp ? "OMR" : lang === "ja" ? "サーバー" : "Server"}</span>
-          </button>
+          {androidApp && (
+            <button
+              type="button"
+              className="server-settings-btn"
+              onClick={() => setServerSettingsOpen(true)}
+              title={lang === "ja" ? "OMRサーバー設定" : "OMR server settings"}
+            >
+              ⚙ <span>OMR</span>
+            </button>
+          )}
           <div className="status-badge">
             {statusLed && (
               <div className={`status-badge__led status-badge__led--${statusLed}`} />
@@ -687,7 +787,7 @@ export default function App() {
           {scene !== "upload" && (
             <PdfUploader
               ref={uploaderRef}
-              disabled={busy}
+              disabled={busy || serverRequired}
               onSelect={handleSelect}
               hidden
             />
@@ -794,7 +894,13 @@ export default function App() {
           onClose={() => setServerSettingsOpen(false)}
           onSaved={() => {
             setServerConfigured(hasConfiguredServer());
-            getCacheList().then(setCacheList).catch(() => {});
+            const pending = pendingIncomingRef.current;
+            pendingIncomingRef.current = null;
+            if (pending) {
+              void handleSelect(pending, undefined, undefined);
+            } else {
+              refreshCacheList().catch(() => {});
+            }
           }}
         />
         <LegalNotice />

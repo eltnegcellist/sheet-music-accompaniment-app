@@ -13,4 +13,14 @@ interface ImportMeta {
 // client falls back to VITE_BACKEND_URL / localhost.
 interface Window {
   __BACKEND_URL__?: string;
+  __ANDROID_PENDING_FILE__?: {
+    url: string;
+    name: string;
+    mime?: string;
+  };
+  AndroidBridge?: {
+    saveTextFile(fileName: string, mimeType: string, content: string): void;
+    setKeepScreenOn(keep: boolean): void;
+    setAllowHttpOmr(allow: boolean): void;
+  };
 }

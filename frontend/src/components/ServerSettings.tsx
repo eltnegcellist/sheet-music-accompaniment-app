@@ -48,6 +48,9 @@ export function ServerSettings({ open, onClose, onSaved }: Props) {
 
   const save = () => {
     saveServerConfig(draft);
+    window.AndroidBridge?.setAllowHttpOmr(
+      draft.serverUrl.trim().toLowerCase().startsWith("http://"),
+    );
     onSaved?.();
     onClose();
   };
@@ -79,8 +82,8 @@ export function ServerSettings({ open, onClose, onSaved }: Props) {
 
         <p className="server-settings__lead">
           {ja
-            ? "Android版ではPDFの楽譜認識を、あなた自身が用意したAudiverisサーバーで実行します。解析後の再生は端末側で行います。"
-            : "The Android app sends PDFs to your own Audiveris server. Playback stays on the device after analysis."}
+            ? "Android版ではPDFの楽譜認識だけを、あなた自身が用意したAudiverisサーバーで実行します。解析後はPDFと解析結果を端末に保存するため、過去の曲はサーバーなしでも開けます。"
+            : "Android sends only PDF recognition to your own Audiveris server. Completed analyses and PDFs are cached on-device so previously opened scores remain available without the server."}
         </p>
 
         <label className="server-settings__field">
@@ -96,6 +99,14 @@ export function ServerSettings({ open, onClose, onSaved }: Props) {
             autoCorrect="off"
           />
         </label>
+
+        {draft.serverUrl.trim().toLowerCase().startsWith("http://") && (
+          <div className="server-settings__http-warning">
+            {ja
+              ? "HTTPではURLとAPIトークンが暗号化されません。自宅LAN内だけで使用し、インターネットには公開しないでください。"
+              : "HTTP does not encrypt the URL or API token. Use it only on a trusted private LAN and never expose it directly to the Internet."}
+          </div>
+        )}
 
         <label className="server-settings__field">
           <span>{ja ? "APIトークン（推奨）" : "API token (recommended)"}</span>
@@ -155,10 +166,10 @@ export function ServerSettings({ open, onClose, onSaved }: Props) {
           <div>
             <p>
               {ja
-                ? "このGitHubリポジトリをサーバーへ置き、Docker Composeでbackendを起動します。"
-                : "Clone this GitHub repository on your server and start the backend with Docker Compose."}
+                ? "このGitHubリポジトリをサーバーへ置き、付属のセットアップスクリプトを実行すると、APIトークン生成とDocker起動まで自動で行います。"
+                : "Clone this repository on your server and run the included setup script to generate an API token and start Docker automatically."}
             </p>
-            <code>API_TOKEN=your-secret docker compose up -d backend</code>
+            <code>sh scripts/setup_omr_server.sh</code>
             <p>
               {ja
                 ? "インターネット越しに使う場合はHTTPSを推奨します。自宅LAN内のHTTPサーバーもAndroid版では利用できます。"

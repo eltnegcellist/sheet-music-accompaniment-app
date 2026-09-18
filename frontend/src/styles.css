@@ -1522,3 +1522,13 @@ body {
     display: none !important;
   }
 }
+
+.server-settings__http-warning {
+  margin: 8px 0 2px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(245, 184, 65, .42);
+  background: rgba(245, 184, 65, .10);
+  font-size: 12px;
+  line-height: 1.55;
+}

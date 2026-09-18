@@ -1,67 +1,209 @@
-# Android build and self-hosted OMR
+# Android v0.2.0 — self-hosted OMR
 
-The Android edition reuses the existing React/Vite player but does **not**
-bundle the Python/Audiveris sidecar. PDF recognition is performed by an OMR
-server configured by the user inside the app.
+The Android edition is designed as a **free/open-source client with user-owned
+OMR infrastructure**.
 
-## Architecture
+The Android app contains the score viewer, playback engine, local cache and
+server settings. PDF recognition itself is performed by the user's own
+Audiveris/FastAPI server.
 
-1. Pick a PDF on Android.
-2. The app uploads it to the configured `/analyze` endpoint.
-3. The self-hosted backend runs Audiveris and returns MusicXML + measure layout.
-4. Rendering, score following, tempo changes, looping and audio playback run on
-   the Android device.
+## What works on Android
 
-The server URL and optional API token are stored in Android WebView local
-storage. They are never sent anywhere except the configured server.
+- Pick a PDF from Android's document picker.
+- Open/share a PDF directly into **IMSLP Accompanist** from another app.
+- Upload the PDF to a user-configured OMR server.
+- Receive MusicXML + measure layout and follow the source PDF during playback.
+- Tempo, accompaniment volume, play range, loop, count-in and metronome.
+- Solo-part playback when a solo part is detected.
+- Save the generated MusicXML with Android's system file picker.
+- Keep the screen awake while playback is active.
+- Store the analyzed PDF + analysis result on the Android device.
+- Re-open previously analyzed scores without contacting the OMR server.
 
-## Start an OMR server
+The OMR server is only required when analyzing or re-analyzing a score.
 
-On a machine with Docker:
+## 1. Start your own OMR server
+
+The easiest supported setup is Docker on a PC, NAS or VM.
 
 ```bash
 git clone https://github.com/eltnegcellist/sheet-music-accompaniment-app.git
 cd sheet-music-accompaniment-app
-API_TOKEN="$(openssl rand -hex 24)" docker compose up -d backend
+sh scripts/setup_omr_server.sh
 ```
 
-Expose port 8000 only on a trusted LAN, or put the service behind HTTPS when
-accessing it over the Internet. Set the same `API_TOKEN` in the Android app.
+The script:
 
-For a permanent deployment, put `API_TOKEN=...` in a local `.env` file.
-Do not commit that file.
+1. generates a random API token,
+2. stores it in the ignored `.omr-server.env` file,
+3. builds and starts the production OMR container,
+4. prints the server URL and API token to enter in Android.
 
-## Build the APK locally
+The production compose file is `docker-compose.server.yml`. It uses persistent
+volumes for the OMR result cache and Audiveris state and restarts automatically.
+
+### Home LAN
+
+If the phone and server are on the same Wi-Fi/LAN, enter the printed address,
+for example:
+
+```text
+Server URL: http://192.168.1.20:8000
+API token:  <generated token>
+```
+
+Android permits cleartext HTTP specifically so private-LAN servers work without
+requiring local TLS certificates.
+
+Do **not** expose that plain-HTTP port directly to the Internet.
+
+### Internet-facing server
+
+Put the OMR service behind HTTPS (Caddy, nginx, Cloud Run, a reverse proxy, etc.)
+and use the HTTPS URL in the app. Keep `API_TOKEN` enabled.
+
+The API token is sent only to the server URL configured by the user.
+
+## 2. Configure the Android app
+
+On first launch:
+
+1. tap **OMR** in the top bar,
+2. enter the server URL,
+3. enter the API token,
+4. tap **接続テスト / Test connection**,
+5. tap **保存 / Save**.
+
+If Android receives a PDF through **Open with** before a server is configured,
+the app keeps that file pending, opens server setup and starts analysis after
+the settings are saved.
+
+## 3. Analyze and play
+
+Choose a PDF from the app or use **Open with IMSLP Accompanist** from a file
+manager/browser.
+
+The first analysis follows this path:
+
+```text
+Android PDF
+   ↓
+user-owned FastAPI server
+   ↓
+Audiveris OMR
+   ↓
+MusicXML + measure layout
+   ↓
+Android local cache
+   ↓
+viewer / accompaniment playback
+```
+
+After analysis, the PDF and parsed response are stored in Android WebView
+IndexedDB. The **Recently opened** list on Android is therefore device-local,
+not the server's cache.
+
+Deleting an Android recent item deletes only the local copy. The server may
+still have its own OMR cache.
+
+## Android security model
+
+The packaged UI is served through AndroidX `WebViewAssetLoader` at
+`https://appassets.androidplatform.net`.
+
+The Android build explicitly disables:
+
+- `file://` access,
+- file-to-file URL access,
+- universal access from `file://` URLs.
+
+External top-level links are opened in the system browser instead of being
+navigated inside the app WebView.
+
+The native JavaScript bridge exposes only two app-owned operations:
+
+- save generated MusicXML with Android's document picker,
+- keep the screen awake while playback is running.
+
+## Build a debug APK
 
 Requirements:
 
 - Node.js 20+
 - JDK 17
 - Android SDK 35
-- Gradle 8.9 (or Android Studio with a compatible Gradle installation)
+- Gradle 8.9
 
 ```bash
 cd frontend
 npm ci
+npm test
 npx vite build
 cd ..
+
 rm -rf android/app/src/main/assets/www
 mkdir -p android/app/src/main/assets/www
 cp -R frontend/dist/. android/app/src/main/assets/www/
+
 gradle -p android assembleDebug
 ```
 
-The APK is created under:
+Output:
 
-`android/app/build/outputs/apk/debug/app-debug.apk`
+```text
+android/app/build/outputs/apk/debug/app-debug.apk
+```
 
-GitHub Actions also builds a debug APK artifact automatically.
+GitHub Actions runs the same build and publishes
+`IMSLP-Accompanist-Android-debug` as an artifact.
 
-## Notes
+## Signed GitHub releases
 
-- The Android wrapper intentionally permits cleartext HTTP so a server on a
-  private home LAN can be used. Prefer HTTPS for any Internet-facing server.
-- The app uses a packaged, trusted WebView UI. It enables file-origin network
-  access so that UI can call the server chosen by the user.
-- macOS desktop packaging remains unchanged and continues to use its bundled
-  local sidecar.
+Do not use a newly generated debug key for every public build: Android treats
+APKs signed by different keys as different update chains.
+
+The repository includes `.github/workflows/android-release.yml`, which builds
+a release APK with one stable signing key and can attach it to a tagged GitHub
+Release.
+
+Configure these repository secrets once:
+
+- `ANDROID_KEYSTORE_BASE64`
+- `ANDROID_KEYSTORE_PASSWORD`
+- `ANDROID_KEY_ALIAS`
+- `ANDROID_KEY_PASSWORD`
+
+Example one-time keystore creation:
+
+```bash
+keytool -genkeypair \
+  -keystore imslp-accompanist-release.jks \
+  -alias imslp-accompanist \
+  -keyalg RSA -keysize 4096 -validity 10000
+```
+
+Encode the keystore for the GitHub secret:
+
+```bash
+base64 < imslp-accompanist-release.jks | tr -d '\n'
+```
+
+Keep the original keystore and passwords backed up privately. Losing the
+signing key means existing installations cannot be updated with a newly signed
+APK.
+
+After the secrets are configured, pushing a tag such as `v0.2.0` builds,
+verifies and attaches:
+
+```text
+IMSLP-Accompanist-Android-v0.2.0.apk
+```
+
+## Desktop compatibility
+
+The macOS desktop edition is unchanged:
+
+- it still launches the bundled Python/Audiveris sidecar,
+- it still prefers `window.__BACKEND_URL__`,
+- Android-only server settings and IndexedDB score cache are not shown or used
+  on the desktop app.
