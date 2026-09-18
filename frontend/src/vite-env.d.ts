@@ -21,5 +21,6 @@ interface Window {
   AndroidBridge?: {
     saveTextFile(fileName: string, mimeType: string, content: string): void;
     setKeepScreenOn(keep: boolean): void;
+    setAllowHttpOmr(allow: boolean): void;
   };
 }
