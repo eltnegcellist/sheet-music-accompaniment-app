@@ -1505,7 +1505,20 @@ body {
     padding: 12px 0 4px;
   }
   .transport {
+    left: 8px !important;
+    right: 8px !important;
+    bottom: 8px !important;
+    max-width: calc(100vw - 16px) !important;
+    max-height: min(52vh, 360px) !important;
+    border-radius: 14px !important;
+    overflow: auto !important;
     opacity: 1 !important;
     pointer-events: auto !important;
+  }
+  .transport__inner {
+    min-width: max-content;
+  }
+  .zoom-ctl {
+    display: none !important;
   }
 }
