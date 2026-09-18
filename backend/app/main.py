@@ -5,9 +5,9 @@ import os
 import tempfile
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 
 from .cache import AnalyzeCache, hash_pdf_bytes
 from .music.accompaniment import (
@@ -39,7 +39,7 @@ from .schemas import AnalyzeResponse, MeasureBox, TimeSignatureModel
 logger = logging.getLogger("accompanist")
 logging.basicConfig(level=logging.INFO)
 
-app = FastAPI(title="IMSLP Accompanist")
+app = FastAPI(title="IMSLP Accompanist")\n\n# Optional bearer token for self-hosted / Internet-facing OMR servers.\n# The bundled desktop sidecar leaves this unset and therefore keeps its\n# existing localhost behaviour.\n_API_TOKEN = os.environ.get("API_TOKEN", "").strip()
 
 
 # Active param set for /analyze. Configurable so tests / staging can pin
@@ -88,6 +88,33 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def optional_api_token_auth(request: Request, call_next):
+    """Protect OMR/cache endpoints when API_TOKEN is configured.
+
+    /health and API documentation remain public for diagnostics. CORS
+    preflight requests must also pass through unauthenticated.
+    """
+    if (
+        not _API_TOKEN
+        or request.method == "OPTIONS"
+        or request.url.path in {"/health", "/docs", "/redoc", "/openapi.json"}
+    ):
+        return await call_next(request)
+
+    authorization = request.headers.get("authorization", "")
+    scheme, _, supplied = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not supplied or not secrets.compare_digest(
+        supplied, _API_TOKEN
+    ):
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Invalid or missing API token"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return await call_next(request)
 
 
 @app.get("/health")
