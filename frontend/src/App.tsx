@@ -25,7 +25,9 @@ import {
   type SoloBus,
   type SoloInstrumentName,
 } from "./audio/ToneEngine";
-import { PdfUploader, type PdfUploaderHandle } from "./components/PdfUploader";\nimport { ServerSettings } from "./components/ServerSettings";\nimport { hasConfiguredServer, isAndroidApp } from "./api/serverConfig";
+import { PdfUploader, type PdfUploaderHandle } from "./components/PdfUploader";
+import { ServerSettings } from "./components/ServerSettings";
+import { hasConfiguredServer, isAndroidApp } from "./api/serverConfig";
 import { LegalNotice } from "./components/LegalNotice";
 import { PdfViewer } from "./components/PdfViewer";
 import {
@@ -85,7 +87,11 @@ export default function App() {
   const [pdfTotalPages, setPdfTotalPages] = useState(0);
   const [zoom, setZoom] = useState(100);
   const [warningsDismissed, setWarningsDismissed] = useState(false);
-  const [cacheList, setCacheList] = useState<CacheEntry[]>([]);\n  const [serverSettingsOpen, setServerSettingsOpen] = useState(false);\n  const [serverConfigured, setServerConfigured] = useState(() => hasConfiguredServer());\n  const androidApp = isAndroidApp();\n  const serverRequired = androidApp && !serverConfigured;
+  const [cacheList, setCacheList] = useState<CacheEntry[]>([]);
+  const [serverSettingsOpen, setServerSettingsOpen] = useState(false);
+  const [serverConfigured, setServerConfigured] = useState(() => hasConfiguredServer());
+  const androidApp = isAndroidApp();
+  const serverRequired = androidApp && !serverConfigured;
 
   // Auto-hide topbar/transport based on cursor proximity. The badge / play
   // pill stay visible so the user always has an entry point.
