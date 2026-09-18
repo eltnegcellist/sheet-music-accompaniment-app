@@ -48,6 +48,9 @@ export function ServerSettings({ open, onClose, onSaved }: Props) {
 
   const save = () => {
     saveServerConfig(draft);
+    window.AndroidBridge?.setAllowHttpOmr(
+      draft.serverUrl.trim().toLowerCase().startsWith("http://"),
+    );
     onSaved?.();
     onClose();
   };
