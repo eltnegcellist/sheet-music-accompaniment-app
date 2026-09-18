@@ -41,6 +41,7 @@ import {
   PlaybackControls,
   type PlaybackState,
 } from "./components/PlaybackControls";
+import { MobilePlaybackControls } from "./components/MobilePlaybackControls";
 import { SheetViewer } from "./components/SheetViewer";
 import { LangContext, translateWarning, translations, useLang, type Lang } from "./i18n";
 import { parseScore } from "./music/musicXmlParser";
@@ -92,7 +93,7 @@ export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>("sheet");
   const [pdfPage, setPdfPage] = useState(0);
   const [pdfTotalPages, setPdfTotalPages] = useState(0);
-  const [zoom, setZoom] = useState(100);
+  const [zoom, setZoom] = useState(() => (isAndroidApp() ? 65 : 100));
   const [warningsDismissed, setWarningsDismissed] = useState(false);
   const [cacheList, setCacheList] = useState<CacheEntry[]>([]);
   const [serverSettingsOpen, setServerSettingsOpen] = useState(false);
@@ -608,7 +609,7 @@ export default function App() {
 
   return (
     <LangContext.Provider value={{ lang, T, toggleLang }}>
-      <div className="app">
+      <div className={androidApp ? "app app--android" : "app"}>
         {/* Always-visible logo badge (shown when topbar is collapsed). */}
         <div
           className={`logo-badge${headerVisible ? " logo-badge--hidden" : ""}${isLoaded ? " logo-badge--clickable" : ""}`}
@@ -696,6 +697,74 @@ export default function App() {
           </div>
         </header>
 
+        {androidApp && (
+          <>
+            <header className="mobile-topbar">
+              {isLoaded ? (
+                <button
+                  type="button"
+                  className="mobile-topbar__back"
+                  onClick={handleBackToUpload}
+                  aria-label={T.backToUpload}
+                >
+                  ‹
+                </button>
+              ) : (
+                <div className="mobile-topbar__mark">♩</div>
+              )}
+              <div className="mobile-topbar__title">
+                <strong>
+                  {isLoaded
+                    ? analysis?.score_title || fileLabel
+                    : "IMSLP Accompanist"}
+                </strong>
+                {!isLoaded && (
+                  <span>{lang === "ja" ? "スマホ伴奏プレーヤー" : "Mobile accompanist"}</span>
+                )}
+              </div>
+              <button
+                type="button"
+                className="mobile-topbar__settings"
+                onClick={() => setServerSettingsOpen(true)}
+                aria-label={lang === "ja" ? "OMRサーバー設定" : "OMR server settings"}
+              >
+                ⚙
+              </button>
+            </header>
+
+            {isLoaded && (
+              <nav className="mobile-score-toolbar" aria-label={lang === "ja" ? "楽譜表示" : "Score view"}>
+                <div className="mobile-score-toolbar__tabs">
+                  <button
+                    type="button"
+                    className={viewMode === "pdf" ? "mobile-score-tab mobile-score-tab--on" : "mobile-score-tab"}
+                    onClick={() => setViewMode("pdf")}
+                    disabled={!pdfFile}
+                  >
+                    PDF
+                  </button>
+                  <button
+                    type="button"
+                    className={viewMode === "sheet" ? "mobile-score-tab mobile-score-tab--on" : "mobile-score-tab"}
+                    onClick={() => setViewMode("sheet")}
+                  >
+                    {lang === "ja" ? "譜面" : "Score"}
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  className="mobile-reanalyze"
+                  disabled={isPlaying || busy || serverRequired}
+                  onClick={handleReanalyze}
+                  aria-label={T.reanalyze}
+                >
+                  ↻
+                </button>
+              </nav>
+            )}
+          </>
+        )}
+
         {/* Body. */}
         <div className="body">
           {scene === "upload" && (
@@ -708,6 +777,17 @@ export default function App() {
                 overflowY: "auto",
               }}
             >
+              {androidApp && (
+                <div className="mobile-home-intro">
+                  <div className="mobile-home-intro__icon">♩</div>
+                  <h1>{lang === "ja" ? "楽譜から伴奏をつくる" : "Turn sheet music into accompaniment"}</h1>
+                  <p>
+                    {lang === "ja"
+                      ? "PDFを選ぶだけ。認識後はスマホだけで再生できます。"
+                      : "Choose a PDF. After recognition, playback stays on your phone."}
+                  </p>
+                </div>
+              )}
               {serverRequired && (
                 <div className="server-required-card">
                   <strong>
@@ -732,6 +812,7 @@ export default function App() {
                 ref={uploaderRef}
                 disabled={busy || serverRequired}
                 onSelect={handleSelect}
+                mobile={androidApp}
               />
               <div className="lang-switch">
                 <button
@@ -789,6 +870,7 @@ export default function App() {
               ref={uploaderRef}
               disabled={busy || serverRequired}
               onSelect={handleSelect}
+              mobile={androidApp}
               hidden
             />
           )}
@@ -852,29 +934,47 @@ export default function App() {
           </div>
         )}
 
-        {/* Transport. */}
-        {isLoaded && (
-          <PlaybackControls
-            state={playback}
-            onChange={setPlayback}
-            measureCount={measureCount}
-            firstMeasure={firstMeasure}
-            lastMeasure={lastMeasure}
-            hasSolo={!!soloScore}
-            isPlaying={isPlaying}
-            isReady={!!accompanimentScore && !busy}
-            onPlay={handlePlay}
-            onStop={handleStop}
-            onDownloadMusicXml={handleDownloadMusicXml}
-            canDownload={!!analysis}
-            timeSignature={analysis?.time_signature ?? null}
-            currentMeasure={currentMeasure}
-            expanded={footerVisible}
-          />
-        )}
+        {/* Transport. Android uses a dedicated touch-first player. */}
+        {isLoaded &&
+          (androidApp ? (
+            <MobilePlaybackControls
+              state={playback}
+              onChange={setPlayback}
+              measureCount={measureCount}
+              firstMeasure={firstMeasure}
+              lastMeasure={lastMeasure}
+              hasSolo={!!soloScore}
+              isPlaying={isPlaying}
+              isReady={!!accompanimentScore && !busy}
+              onPlay={handlePlay}
+              onStop={handleStop}
+              onDownloadMusicXml={handleDownloadMusicXml}
+              canDownload={!!analysis}
+              timeSignature={analysis?.time_signature ?? null}
+              currentMeasure={currentMeasure}
+            />
+          ) : (
+            <PlaybackControls
+              state={playback}
+              onChange={setPlayback}
+              measureCount={measureCount}
+              firstMeasure={firstMeasure}
+              lastMeasure={lastMeasure}
+              hasSolo={!!soloScore}
+              isPlaying={isPlaying}
+              isReady={!!accompanimentScore && !busy}
+              onPlay={handlePlay}
+              onStop={handleStop}
+              onDownloadMusicXml={handleDownloadMusicXml}
+              canDownload={!!analysis}
+              timeSignature={analysis?.time_signature ?? null}
+              currentMeasure={currentMeasure}
+              expanded={footerVisible}
+            />
+          ))}
 
         {/* Zoom control. */}
-        {isLoaded && (
+        {isLoaded && !androidApp && (
           <div className={`zoom-ctl${footerVisible ? "" : " zoom-ctl--hidden"}`}>
             <span className="zoom-ctl__lbl">{T.zoomLabel}</span>
             <input
