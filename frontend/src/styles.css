@@ -1351,3 +1351,161 @@ body {
 }
 .legal-dialog__text-link { padding: 0; border: 0; background: none; text-decoration: underline; }
 .legal-dialog__warranty { color: var(--text-4); font-size: 11px; }
+
+
+/* Self-hosted OMR server settings / Android */
+.server-settings-btn {
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(255,255,255,.06);
+  color: inherit;
+  border-radius: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  white-space: nowrap;
+}
+.server-settings-btn:hover { background: rgba(255,255,255,.11); }
+
+.server-required-card {
+  width: min(620px, calc(100% - 32px));
+  margin: 18px auto 0;
+  border: 1px solid rgba(245, 184, 65, .55);
+  background: rgba(245, 184, 65, .10);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: grid;
+  gap: 7px;
+}
+.server-required-card span { opacity: .8; font-size: 13px; }
+.server-required-card button {
+  justify-self: start;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.server-settings-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(0,0,0,.68);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+.server-settings {
+  width: min(620px, 100%);
+  max-height: min(780px, calc(100vh - 32px));
+  overflow: auto;
+  border-radius: 16px;
+  padding: 20px;
+  background: #17191d;
+  border: 1px solid rgba(255,255,255,.13);
+  box-shadow: 0 20px 70px rgba(0,0,0,.45);
+}
+.server-settings__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+.server-settings__head h2 { margin: 3px 0 0; font-size: 22px; }
+.server-settings__eyebrow {
+  font-size: 10px;
+  letter-spacing: .16em;
+  opacity: .55;
+}
+.server-settings__close {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 28px;
+  line-height: 1;
+  cursor: pointer;
+}
+.server-settings__lead { opacity: .75; line-height: 1.65; font-size: 13px; }
+.server-settings__field {
+  display: grid;
+  gap: 7px;
+  margin: 16px 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+.server-settings__field input {
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 9px;
+  border: 1px solid rgba(255,255,255,.15);
+  background: rgba(0,0,0,.24);
+  color: inherit;
+  padding: 11px 12px;
+  font: inherit;
+  font-weight: 400;
+}
+.server-settings__actions { display: flex; justify-content: flex-end; gap: 10px; }
+.server-settings__actions button {
+  border-radius: 9px;
+  padding: 9px 14px;
+  cursor: pointer;
+}
+.server-settings__test {
+  border: 1px solid rgba(255,255,255,.18);
+  background: transparent;
+  color: inherit;
+}
+.server-settings__save { border: 0; font-weight: 700; }
+.server-settings__result {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.server-settings__result--ok { background: rgba(55, 190, 110, .15); }
+.server-settings__result--error { background: rgba(225, 75, 75, .15); }
+.server-settings__guide {
+  margin-top: 18px;
+  border-top: 1px solid rgba(255,255,255,.10);
+  padding-top: 14px;
+  font-size: 13px;
+}
+.server-settings__guide summary { cursor: pointer; font-weight: 600; }
+.server-settings__guide code {
+  display: block;
+  overflow-x: auto;
+  background: rgba(0,0,0,.30);
+  padding: 10px;
+  border-radius: 8px;
+  user-select: all;
+}
+
+@media (pointer: coarse), (max-width: 720px) {
+  .topbar {
+    min-width: 0 !important;
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+  }
+  .topbar__name, .file-chip, .topbar__sep, .status-badge {
+    display: none !important;
+  }
+  .server-settings-btn span { display: inline; }
+  .upload-container { padding-bottom: 88px; }
+  .server-settings {
+    max-height: calc(100vh - 16px);
+    padding: 16px;
+    border-radius: 12px;
+  }
+  .server-settings__actions {
+    position: sticky;
+    bottom: -16px;
+    background: #17191d;
+    padding: 12px 0 4px;
+  }
+  .transport {
+    opacity: 1 !important;
+    pointer-events: auto !important;
+  }
+}
