@@ -93,7 +93,7 @@ export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>("sheet");
   const [pdfPage, setPdfPage] = useState(0);
   const [pdfTotalPages, setPdfTotalPages] = useState(0);
-  const [zoom, setZoom] = useState(() => (isAndroidApp() ? 65 : 100));
+  const [zoom, setZoom] = useState(() => (isAndroidApp() ? 40 : 100));
   const [warningsDismissed, setWarningsDismissed] = useState(false);
   const [cacheList, setCacheList] = useState<CacheEntry[]>([]);
   const [serverSettingsOpen, setServerSettingsOpen] = useState(false);
