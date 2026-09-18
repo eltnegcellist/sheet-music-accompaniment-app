@@ -648,7 +648,7 @@ export default function App() {
               <button
                 type="button"
                 className="reanalyze-btn"
-                disabled={isPlaying || busy}
+                disabled={isPlaying || busy || serverRequired}
                 onClick={handleReanalyze}
                 title={T.reanalyzeTitle}
               >
@@ -787,7 +787,7 @@ export default function App() {
           {scene !== "upload" && (
             <PdfUploader
               ref={uploaderRef}
-              disabled={busy}
+              disabled={busy || serverRequired}
               onSelect={handleSelect}
               hidden
             />
