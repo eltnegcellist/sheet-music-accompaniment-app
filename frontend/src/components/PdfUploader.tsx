@@ -5,6 +5,8 @@ import { useLang } from "../i18n";
 interface Props {
   disabled?: boolean;
   onSelect: (pdf?: File, musicXml?: File, soloPdf?: File) => void;
+  /** Android uses a tap-first picker instead of desktop drag-and-drop UI. */
+  mobile?: boolean;
   /** When true, render only a hidden input — the parent draws its own UI and
    *  triggers the picker via the imperative ref. */
   hidden?: boolean;
@@ -86,10 +88,10 @@ function pickFiles(files: ArrayLike<File> | null | undefined): {
 }
 
 export const PdfUploader = forwardRef<PdfUploaderHandle, Props>(
-  function PdfUploader({ disabled, onSelect, hidden }, ref) {
+  function PdfUploader({ disabled, onSelect, mobile, hidden }, ref) {
     const inputRef = useRef<HTMLInputElement>(null);
     const [drag, setDrag] = useState(false);
-    const { T } = useLang();
+    const { T, lang } = useLang();
 
     const handleFiles = useCallback(
       (files: ArrayLike<File> | null | undefined) => {
@@ -131,6 +133,31 @@ export const PdfUploader = forwardRef<PdfUploaderHandle, Props>(
     );
 
     if (hidden) return input;
+
+    if (mobile) {
+      return (
+        <div className="mobile-upload">
+          <button
+            type="button"
+            className="mobile-upload__primary"
+            disabled={disabled}
+            onClick={openPicker}
+          >
+            <span className="mobile-upload__icon">＋</span>
+            <span>
+              <strong>{lang === "ja" ? "楽譜PDFを選ぶ" : "Choose a score PDF"}</strong>
+              <small>{lang === "ja" ? "端末のファイルから選択" : "Choose from files on this device"}</small>
+            </span>
+          </button>
+          <p className="mobile-upload__hint">
+            {lang === "ja"
+              ? "PDF / MusicXML に対応"
+              : "Supports PDF / MusicXML"}
+          </p>
+          {input}
+        </div>
+      );
+    }
 
     return (
       <div className="upload">
