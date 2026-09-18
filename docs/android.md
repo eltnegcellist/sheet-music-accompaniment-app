@@ -1,4 +1,4 @@
-# Android v0.2.1 — mobile-first self-hosted OMR
+# Android v0.2.2 — mobile-first self-hosted OMR
 
 The Android edition is designed as a **free/open-source, phone-first client with user-owned
 OMR infrastructure**. v0.2.1 replaces the desktop-oriented drag/drop and wide
@@ -217,3 +217,44 @@ The macOS desktop edition is unchanged:
 - it still prefers `window.__BACKEND_URL__`,
 - Android-only server settings and IndexedDB score cache are not shown or used
   on the desktop app.
+
+
+## Stable Android update signature
+
+Starting with **v0.2.2**, installable Android releases use one fixed signing
+certificate. This is what allows Android to install a newer APK as an update
+instead of requiring uninstall/reinstall.
+
+Pinned signing certificate SHA-256:
+
+```text
+AF:B1:4F:54:F7:34:FA:B5:64:A9:3F:35:49:E3:E7:33:F1:FC:97:F3:FE:83:AE:1C:84:3A:F4:7C:41:B2:5B:E3
+```
+
+The public certificate is committed at:
+
+`android/signing/imslp-accompanist-release-cert.pem`
+
+The private keystore is **never committed**. GitHub Actions receives it only
+through repository secrets and verifies all three of the following before an
+APK is published:
+
+1. the committed public certificate fingerprint,
+2. the private keystore certificate fingerprint,
+3. the certificate fingerprint embedded in the finished APK.
+
+All three must match the pinned fingerprint above.
+
+### One-time migration from v0.2.1 debug APK
+
+The previously distributed v0.2.1 debug APK was signed by an ephemeral GitHub
+runner debug key. That private key no longer exists, so Android cannot accept
+v0.2.2 fixed-signing APK as an in-place update over v0.2.1.
+
+Therefore **one final uninstall/reinstall is required when moving from v0.2.1
+to v0.2.2**. After v0.2.2 is installed, later fixed-signed builds can be
+installed normally as updates as long as `versionCode` increases.
+
+Do not distribute APKs from the ordinary `android-ci` debug artifact as user
+updates. Those artifacts are test builds only. Use the
+`android-stable-release` workflow artifact or tagged GitHub Release.

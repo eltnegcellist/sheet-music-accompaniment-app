@@ -58,7 +58,7 @@ sh scripts/setup_omr_server.sh
 Enter the printed URL/token in **OMR** settings in the Android app. Completed
 PDF analyses are cached on the phone, so previously opened scores can be used
 without the OMR server. Android also supports **Open with**, MusicXML export and
-screen-awake playback. See [docs/android.md](docs/android.md).
+screen-awake playback. See [docs/android.md](docs/android.md). Starting with Android v0.2.2, public update APKs use one pinned signing certificate so later versions can be installed in place without uninstalling.
 
 ### What this app does
 
@@ -113,7 +113,7 @@ screen-awake playback. See [docs/android.md](docs/android.md).
   The runtime self-containment script (`scripts/fetch_runtime_windows.ps1`)
   exists but the end-to-end build, sign, and distribution flow is
   unverified.
-- **Android (self-hosted OMR)** — ✅ v0.2.0 implementation complete. The app
+- **Android (self-hosted OMR)** — ✅ mobile implementation complete. The app
   contains server URL / API-token setup, device-local score cache, Android
   Open-with integration and MusicXML export. GitHub Actions builds an
   installable debug APK; the signed release workflow is ready once repository
