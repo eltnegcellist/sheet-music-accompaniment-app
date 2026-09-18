@@ -34,7 +34,7 @@ import {
 } from "./audio/ToneEngine";
 import { PdfUploader, type PdfUploaderHandle } from "./components/PdfUploader";
 import { ServerSettings } from "./components/ServerSettings";
-import { hasConfiguredServer, isAndroidApp } from "./api/serverConfig";
+import { getServerConfig, hasConfiguredServer, isAndroidApp } from "./api/serverConfig";
 import { LegalNotice } from "./components/LegalNotice";
 import { PdfViewer } from "./components/PdfViewer";
 import {
@@ -484,6 +484,12 @@ export default function App() {
   useEffect(() => {
     metronomeRef.current?.setEnabled(playback.metronome);
   }, [playback.metronome]);
+
+  useEffect(() => {
+    if (!androidApp) return;
+    const url = getServerConfig().serverUrl.trim().toLowerCase();
+    window.AndroidBridge?.setAllowHttpOmr(url.startsWith("http://"));
+  }, [androidApp]);
 
   useEffect(() => {
     if (!androidApp) return;
