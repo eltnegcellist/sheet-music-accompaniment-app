@@ -18,7 +18,9 @@ services:
       - audiveris_cache:/root/.audiveris
     environment:
       AUDIVERIS_HOME: /opt/audiveris
-      PYTHONUNBUFFERED: "1"\n      # Optional: set API_TOKEN in .env or the shell for Android clients.\n      API_TOKEN: ${API_TOKEN:-}
+      PYTHONUNBUFFERED: "1"
+      # Optional: set API_TOKEN in .env or the shell for Android clients.
+      API_TOKEN: ${API_TOKEN:-}
     command: python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   frontend:
