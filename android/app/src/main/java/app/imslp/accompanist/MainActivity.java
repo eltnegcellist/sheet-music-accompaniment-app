@@ -73,6 +73,7 @@ public class MainActivity extends Activity {
         settings.setAllowFileAccessFromFileURLs(false);
         settings.setAllowUniversalAccessFromFileURLs(false);
         settings.setMediaPlaybackRequiresUserGesture(false);
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setUserAgentString(
             settings.getUserAgentString() + " IMSLPAccompanistAndroid/0.2.0"
         );
@@ -346,6 +347,18 @@ public class MainActivity extends Activity {
         public void setKeepScreenOn(boolean keep) {
             runOnUiThread(() -> {
                 if (webView != null) webView.setKeepScreenOn(keep);
+            });
+        }
+
+        @JavascriptInterface
+        public void setAllowHttpOmr(boolean allow) {
+            runOnUiThread(() -> {
+                if (webView == null) return;
+                webView.getSettings().setMixedContentMode(
+                    allow
+                        ? WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                        : WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                );
             });
         }
 
