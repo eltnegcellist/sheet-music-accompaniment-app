@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import secrets
 import tempfile
 from pathlib import Path
 
@@ -39,7 +40,12 @@ from .schemas import AnalyzeResponse, MeasureBox, TimeSignatureModel
 logger = logging.getLogger("accompanist")
 logging.basicConfig(level=logging.INFO)
 
-app = FastAPI(title="IMSLP Accompanist")\n\n# Optional bearer token for self-hosted / Internet-facing OMR servers.\n# The bundled desktop sidecar leaves this unset and therefore keeps its\n# existing localhost behaviour.\n_API_TOKEN = os.environ.get("API_TOKEN", "").strip()
+app = FastAPI(title="IMSLP Accompanist")
+
+# Optional bearer token for self-hosted / Internet-facing OMR servers.
+# The bundled desktop sidecar leaves this unset and therefore keeps its
+# existing localhost behaviour.
+_API_TOKEN = os.environ.get("API_TOKEN", "").strip()
 
 
 # Active param set for /analyze. Configurable so tests / staging can pin
@@ -119,6 +125,12 @@ async def optional_api_token_auth(request: Request, call_next):
 
 @app.get("/health")
 def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.get("/auth/check")
+def auth_check() -> dict[str, str]:
+    """Authenticated no-op used by Android server settings connection test."""
     return {"status": "ok"}
 
 
