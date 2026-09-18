@@ -64,17 +64,20 @@ jobs:
           path: /tmp/android-signing-tools
           if-no-files-found: error
 
-      - name: Build debug APK
-        run: gradle -p android assembleDebug
+      - name: Build unsigned release APK
+        run: gradle -p android assembleRelease
 
-      - name: Verify debug APK signature
+      - name: Confirm release APK is unsigned
         run: |
-          APK="android/app/build/outputs/apk/debug/app-debug.apk"
+          APK="android/app/build/outputs/apk/release/app-release-unsigned.apk"
           test -f "$APK"
-          "${ANDROID_HOME}/build-tools/$(ls "${ANDROID_HOME}/build-tools" | sort -V | tail -n1)/apksigner" verify --verbose "$APK"
+          if "${ANDROID_HOME}/build-tools/$(ls "${ANDROID_HOME}/build-tools" | sort -V | tail -n1)/apksigner" verify "$APK"; then
+            echo "Release APK unexpectedly already signed" >&2
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
-          name: UNSIGNED-UPDATE-CHAIN-Android-debug
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: IMSLP-Accompanist-Android-v0.2.2-unsigned-release
+          path: android/app/build/outputs/apk/release/app-release-unsigned.apk
           if-no-files-found: error
