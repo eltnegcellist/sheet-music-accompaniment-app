@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import logging
 import os
+import secrets
 import tempfile
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 
 from .cache import AnalyzeCache, hash_pdf_bytes
 from .music.accompaniment import (
@@ -40,6 +41,11 @@ logger = logging.getLogger("accompanist")
 logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(title="IMSLP Accompanist")
+
+# Optional bearer token for self-hosted / Internet-facing OMR servers.
+# The bundled desktop sidecar leaves this unset and therefore keeps its
+# existing localhost behaviour.
+_API_TOKEN = os.environ.get("API_TOKEN", "").strip()
 
 
 # Active param set for /analyze. Configurable so tests / staging can pin
@@ -90,8 +96,41 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def optional_api_token_auth(request: Request, call_next):
+    """Protect OMR/cache endpoints when API_TOKEN is configured.
+
+    /health and API documentation remain public for diagnostics. CORS
+    preflight requests must also pass through unauthenticated.
+    """
+    if (
+        not _API_TOKEN
+        or request.method == "OPTIONS"
+        or request.url.path in {"/health", "/docs", "/redoc", "/openapi.json"}
+    ):
+        return await call_next(request)
+
+    authorization = request.headers.get("authorization", "")
+    scheme, _, supplied = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not supplied or not secrets.compare_digest(
+        supplied, _API_TOKEN
+    ):
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Invalid or missing API token"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return await call_next(request)
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.get("/auth/check")
+def auth_check() -> dict[str, str]:
+    """Authenticated no-op used by Android server settings connection test."""
     return {"status": "ok"}
 
 

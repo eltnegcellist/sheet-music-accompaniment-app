@@ -26,6 +26,8 @@ import {
   type SoloInstrumentName,
 } from "./audio/ToneEngine";
 import { PdfUploader, type PdfUploaderHandle } from "./components/PdfUploader";
+import { ServerSettings } from "./components/ServerSettings";
+import { hasConfiguredServer, isAndroidApp } from "./api/serverConfig";
 import { LegalNotice } from "./components/LegalNotice";
 import { PdfViewer } from "./components/PdfViewer";
 import {
@@ -86,6 +88,10 @@ export default function App() {
   const [zoom, setZoom] = useState(100);
   const [warningsDismissed, setWarningsDismissed] = useState(false);
   const [cacheList, setCacheList] = useState<CacheEntry[]>([]);
+  const [serverSettingsOpen, setServerSettingsOpen] = useState(false);
+  const [serverConfigured, setServerConfigured] = useState(() => hasConfiguredServer());
+  const androidApp = isAndroidApp();
+  const serverRequired = androidApp && !serverConfigured;
 
   // Auto-hide topbar/transport based on cursor proximity. The badge / play
   // pill stay visible so the user always has an entry point.
@@ -574,6 +580,14 @@ export default function App() {
             </>
           )}
           <div className="topbar__spacer" />
+          <button
+            type="button"
+            className="server-settings-btn"
+            onClick={() => setServerSettingsOpen(true)}
+            title={lang === "ja" ? "OMRサーバー設定" : "OMR server settings"}
+          >
+            ⚙ <span>{androidApp ? "OMR" : lang === "ja" ? "サーバー" : "Server"}</span>
+          </button>
           <div className="status-badge">
             {statusLed && (
               <div className={`status-badge__led status-badge__led--${statusLed}`} />
@@ -594,9 +608,29 @@ export default function App() {
                 overflowY: "auto",
               }}
             >
+              {serverRequired && (
+                <div className="server-required-card">
+                  <strong>
+                    {lang === "ja"
+                      ? "OMRサーバーを設定してください"
+                      : "Configure an OMR server"}
+                  </strong>
+                  <span>
+                    {lang === "ja"
+                      ? "Android版はPDF認識にあなた自身のAudiverisサーバーを使用します。"
+                      : "Android uses your own Audiveris server for PDF recognition."}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setServerSettingsOpen(true)}
+                  >
+                    {lang === "ja" ? "サーバーを設定" : "Configure server"}
+                  </button>
+                </div>
+              )}
               <PdfUploader
                 ref={uploaderRef}
-                disabled={busy}
+                disabled={busy || serverRequired}
                 onSelect={handleSelect}
               />
               <div className="lang-switch">
@@ -755,6 +789,14 @@ export default function App() {
             <span className="zoom-ctl__val">{zoom}%</span>
           </div>
         )}
+        <ServerSettings
+          open={serverSettingsOpen}
+          onClose={() => setServerSettingsOpen(false)}
+          onSaved={() => {
+            setServerConfigured(hasConfiguredServer());
+            getCacheList().then(setCacheList).catch(() => {});
+          }}
+        />
         <LegalNotice />
       </div>
     </LangContext.Provider>
