@@ -672,14 +672,16 @@ export default function App() {
             </>
           )}
           <div className="topbar__spacer" />
-          <button
-            type="button"
-            className="server-settings-btn"
-            onClick={() => setServerSettingsOpen(true)}
-            title={lang === "ja" ? "OMRサーバー設定" : "OMR server settings"}
-          >
-            ⚙ <span>{androidApp ? "OMR" : lang === "ja" ? "サーバー" : "Server"}</span>
-          </button>
+          {androidApp && (
+            <button
+              type="button"
+              className="server-settings-btn"
+              onClick={() => setServerSettingsOpen(true)}
+              title={lang === "ja" ? "OMRサーバー設定" : "OMR server settings"}
+            >
+              ⚙ <span>OMR</span>
+            </button>
+          )}
           <div className="status-badge">
             {statusLed && (
               <div className={`status-badge__led status-badge__led--${statusLed}`} />
