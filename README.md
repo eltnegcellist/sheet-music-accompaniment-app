@@ -97,6 +97,10 @@ Grab the latest **`IMSLP-Accompanist-<version>.dmg`** from the
   The runtime self-containment script (`scripts/fetch_runtime_windows.ps1`)
   exists but the end-to-end build, sign, and distribution flow is
   unverified.
+- **Android (self-hosted OMR)** — 🚧 experimental. The Android app contains
+  server URL / API-token setup and sends PDF recognition to the user's own
+  Audiveris backend. GitHub Actions builds a debug APK. See
+  [docs/android.md](docs/android.md).
 - **Linux** — desktop app not packaged. Use the self-hosting options
   below if you want to run it on Linux.
 
@@ -272,6 +276,10 @@ macOS デスクトップアプリです。IMSLP などのパブリックドメ�
 - **macOS (Apple Silicon)**: ✅ サポート対象。
 - **macOS (Intel)**: ⚠️ 未検証。
 - **Windows**: ⏳ 未対応 / 検証中。
+- **Android（セルフホスト OMR）**: 🚧 実験版。アプリ内で OMR
+  サーバー URL / API トークンを設定し、各ユーザー自身の Audiveris
+  サーバーで PDF を認識します。詳細は
+  [docs/android.md](docs/android.md)。
 - **Linux**: デスクトップアプリ未提供。Web 版（Docker / セルフ
   ホスト）で利用できます。
 
