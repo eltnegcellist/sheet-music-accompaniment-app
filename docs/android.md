@@ -1,11 +1,21 @@
-# Android v0.2.0 — self-hosted OMR
+# Android v0.2.1 — mobile-first self-hosted OMR
 
-The Android edition is designed as a **free/open-source client with user-owned
-OMR infrastructure**.
+The Android edition is designed as a **free/open-source, phone-first client with user-owned
+OMR infrastructure**. v0.2.1 replaces the desktop-oriented drag/drop and wide
+transport controls with a dedicated touch UI.
 
 The Android app contains the score viewer, playback engine, local cache and
 server settings. PDF recognition itself is performed by the user's own
 Audiveris/FastAPI server.
+
+## Mobile-first UI
+
+- Home screen uses a large **Choose score PDF** button instead of drag-and-drop.
+- Recent scores are large tap targets with always-visible delete controls.
+- Loaded scores use a compact Android app bar and a PDF/Score segmented switch.
+- Playback uses a thumb-reachable bottom bar with a large Play/Stop button.
+- Tempo, volume, range, loop, metronome, count-in and solo settings live in an expandable bottom sheet.
+- The initial Android score zoom is tuned for phone-width display.
 
 ## What works on Android
 
