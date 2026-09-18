@@ -100,6 +100,14 @@ export function ServerSettings({ open, onClose, onSaved }: Props) {
           />
         </label>
 
+        {draft.serverUrl.trim().toLowerCase().startsWith("http://") && (
+          <div className="server-settings__http-warning">
+            {ja
+              ? "HTTPではURLとAPIトークンが暗号化されません。自宅LAN内だけで使用し、インターネットには公開しないでください。"
+              : "HTTP does not encrypt the URL or API token. Use it only on a trusted private LAN and never expose it directly to the Internet."}
+          </div>
+        )}
+
         <label className="server-settings__field">
           <span>{ja ? "APIトークン（推奨）" : "API token (recommended)"}</span>
           <input
