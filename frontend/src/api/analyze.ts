@@ -1,4 +1,4 @@
-import type { AnalyzeResponse } from "../types";
+import type { AnalyzeResponse } from "../types";\nimport { authHeaders, configuredServerUrl } from "./serverConfig";
 
 function resolveBackendUrl(): string {
   // Tauri injects window.__BACKEND_URL__ once the Python sidecar has
@@ -8,7 +8,7 @@ function resolveBackendUrl(): string {
   if (typeof window !== "undefined" && window.__BACKEND_URL__) {
     return window.__BACKEND_URL__;
   }
-  const fromEnv = import.meta.env.VITE_BACKEND_URL as string | undefined;
+  const configured = configuredServerUrl();\n  if (configured) return configured;\n  const fromEnv = import.meta.env.VITE_BACKEND_URL as string | undefined;
   if (fromEnv) return fromEnv;
   return "http://localhost:8000";
 }
@@ -70,7 +70,7 @@ export interface CacheEntry {
 }
 
 export async function getCacheList(): Promise<CacheEntry[]> {
-  const response = await fetch(`${backendUrl()}/cache`);
+  const response = await fetch(`${backendUrl()}/cache`, { headers: authHeaders() });
   if (!response.ok) throw new Error("Failed to fetch cache list");
   return (await response.json()) as CacheEntry[];
 }
@@ -79,13 +79,13 @@ export async function getCachedAnalysis(
   key: string,
   paramSetId: string,
 ): Promise<AnalyzeResponse> {
-  const response = await fetch(`${backendUrl()}/cache/${key}/${paramSetId}`);
+  const response = await fetch(`${backendUrl()}/cache/${key}/${paramSetId}`, {\n    headers: authHeaders(),\n  });
   if (!response.ok) throw new Error("Failed to fetch cached analysis");
   return (await response.json()) as AnalyzeResponse;
 }
 
 export async function getCachedPdf(key: string, paramSetId: string): Promise<File> {
-  const response = await fetch(`${backendUrl()}/cache/${key}/${paramSetId}/pdf`);
+  const response = await fetch(`${backendUrl()}/cache/${key}/${paramSetId}/pdf`, {\n    headers: authHeaders(),\n  });
   if (!response.ok) throw new Error("Failed to fetch cached PDF");
   const blob = await response.blob();
   return new File([blob], "cached_score.pdf", { type: "application/pdf" });
