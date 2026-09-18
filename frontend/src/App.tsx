@@ -313,6 +313,7 @@ export default function App() {
     };
 
     const onIncoming = (event: Event) => {
+      window.__ANDROID_PENDING_FILE__ = undefined;
       const detail = (event as CustomEvent<IncomingDetail>).detail;
       if (detail) void processIncoming(detail);
     };
