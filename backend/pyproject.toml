@@ -27,7 +27,7 @@ Repository = "https://github.com/eltnegcellist/sheet-music-accompaniment-app"
 
 [project.optional-dependencies]
 homr = [
-  "homr==0.7.0",
+  "homr[cpu]==0.7.0",
 ]
 dev = [
   "pytest>=8.3.0",

@@ -50,3 +50,7 @@ frontend/public/samples/*.mp3
 *.jks
 *.keystore
 android/keystore.properties
+
+# Local OMR benchmark corpus/results
+backend/benchmark/corpus/
+backend/benchmark-results/
