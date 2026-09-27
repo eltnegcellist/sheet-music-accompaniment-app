@@ -1,0 +1,36 @@
+FROM python:3.11-slim-bookworm
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      poppler-utils \
+      tesseract-ocr \
+      tesseract-ocr-eng \
+      tesseract-ocr-ita \
+      curl \
+      ca-certificates \
+      libgomp1 \
+      libgl1 \
+      libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy the package before installation so setuptools can discover app/*.
+COPY pyproject.toml ./
+COPY app ./app
+COPY params ./params
+
+RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && python -m pip install --no-cache-dir ".[homr]"
+
+# homr 0.7 stores its ONNX models inside the installed package. Download them
+# at image-build time so the first score does not pay the model-download cost
+# and the runtime server does not need write access to site-packages.
+RUN homr --init
+
+EXPOSE 8000
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

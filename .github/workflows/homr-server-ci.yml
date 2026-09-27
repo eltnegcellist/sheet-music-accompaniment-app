@@ -1,0 +1,85 @@
+name: homr-server-ci
+
+on:
+  push:
+    branches: [main, "feature/homr**"]
+    paths:
+      - "backend/Dockerfile.homr"
+      - "backend/app/**"
+      - "backend/params/**"
+      - "backend/pyproject.toml"
+      - "docker-compose.homr.yml"
+      - "scripts/setup_homr_server.sh"
+      - ".github/workflows/homr-server-ci.yml"
+  pull_request:
+    paths:
+      - "backend/Dockerfile.homr"
+      - "backend/app/**"
+      - "backend/params/**"
+      - "backend/pyproject.toml"
+      - "docker-compose.homr.yml"
+      - "scripts/setup_homr_server.sh"
+      - ".github/workflows/homr-server-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  build-neural-server:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build homr 0.7 neural server image
+        run: docker build -f backend/Dockerfile.homr -t imslp-accompanist-homr:ci backend
+
+      - name: Verify homr and ONNX Runtime
+        run: |
+          docker run --rm imslp-accompanist-homr:ci             python -c "import homr, onnxruntime; print('onnxruntime', onnxruntime.__version__)"
+          docker run --rm imslp-accompanist-homr:ci homr --help >/dev/null
+
+      - name: Start API and check health
+        run: |
+          docker run -d --name imslp-homr-ci             -p 18001:8000             -e API_TOKEN=ci-test-token             -e PIPELINE_PARAM_SET=v6_homr             -e OMR_ENGINE=homr             imslp-accompanist-homr:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18001/health; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs imslp-homr-ci
+          exit 1
+
+      - name: Run one-page neural OMR end-to-end
+        run: |
+          mkdir -p /tmp/homr-e2e
+          curl -fL \
+            https://raw.githubusercontent.com/liebharc/homr/v0.7.0/figures/tabi.jpg \
+            -o /tmp/homr-e2e/tabi.jpg
+
+          docker run --rm \
+            -v /tmp/homr-e2e:/work \
+            imslp-accompanist-homr:ci \
+            python -c "from PIL import Image; Image.open('/work/tabi.jpg').convert('RGB').save('/work/tabi.pdf')"
+
+          curl -fsS \
+            -H "Authorization: Bearer ci-test-token" \
+            -F "pdf=@/tmp/homr-e2e/tabi.pdf;type=application/pdf" \
+            http://127.0.0.1:18001/analyze \
+            -o /tmp/homr-e2e/response.json
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          response = json.loads(Path("/tmp/homr-e2e/response.json").read_text())
+          xml = response.get("music_xml", "")
+          if "<score-partwise" not in xml and "<score-timewise" not in xml:
+              raise SystemExit("neural /analyze did not return MusicXML")
+          warnings = " ".join(response.get("warnings") or [])
+          if "homr" not in warnings.lower():
+              raise SystemExit("response does not identify homr neural OMR")
+          print("neural OMR E2E MusicXML bytes:", len(xml.encode("utf-8")))
+          PY
+
+      - name: Container logs
+        if: always()
+        run: docker logs imslp-homr-ci 2>/dev/null || true

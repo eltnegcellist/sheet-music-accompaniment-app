@@ -52,6 +52,35 @@ The script:
 The production compose file is `docker-compose.server.yml`. It uses persistent
 volumes for the OMR result cache and Audiveris state and restarts automatically.
 
+### Experimental neural OMR (homr 0.7.0)
+
+For scores where Audiveris produces musically broken output, you can run the
+deep-learning-based homr server alongside it:
+
+```bash
+sh scripts/setup_homr_server.sh
+```
+
+By default the two servers coexist:
+
+```text
+Audiveris server: http://<computer-LAN-IP>:8000
+Neural homr:      http://<computer-LAN-IP>:8001
+```
+
+The setup script reuses the same `.omr-server.env` API token. In Android,
+change only the server URL from port 8000 to port 8001, run **接続テスト**,
+save, and analyze the same PDF again.
+
+The neural server uses Python 3.11, homr 0.7.0 and ONNX Runtime. Its model files
+are downloaded when the Docker image is built, not on the first score.
+
+**This remains experimental.** homr currently does not return the PDF
+per-measure bounding boxes used by the source-PDF highlight, so neural results
+play correctly from MusicXML but the original-PDF measure highlight is
+unavailable. Audiveris remains the fallback while real-score accuracy is being
+benchmarked.
+
 ### Home LAN
 
 If the phone and server are on the same Wi-Fi/LAN, enter the printed address,
@@ -100,9 +129,9 @@ Android PDF
    ↓
 user-owned FastAPI server
    ↓
-Audiveris OMR
+Audiveris OMR (default) or homr neural OMR (experimental)
    ↓
-MusicXML + measure layout
+MusicXML (+ measure layout with Audiveris)
    ↓
 Android local cache
    ↓
