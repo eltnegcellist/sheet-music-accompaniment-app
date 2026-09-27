@@ -48,6 +48,38 @@ jobs:
           docker logs imslp-homr-ci
           exit 1
 
+      - name: Run one-page neural OMR end-to-end
+        run: |
+          mkdir -p /tmp/homr-e2e
+          curl -fL \
+            https://raw.githubusercontent.com/liebharc/homr/v0.7.0/figures/tabi.jpg \
+            -o /tmp/homr-e2e/tabi.jpg
+
+          docker run --rm \
+            -v /tmp/homr-e2e:/work \
+            imslp-accompanist-homr:ci \
+            python -c "from PIL import Image; Image.open('/work/tabi.jpg').convert('RGB').save('/work/tabi.pdf')"
+
+          curl -fsS \
+            -H "Authorization: Bearer ci-test-token" \
+            -F "pdf=@/tmp/homr-e2e/tabi.pdf;type=application/pdf" \
+            http://127.0.0.1:18001/analyze \
+            -o /tmp/homr-e2e/response.json
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          response = json.loads(Path("/tmp/homr-e2e/response.json").read_text())
+          xml = response.get("music_xml", "")
+          if "<score-partwise" not in xml and "<score-timewise" not in xml:
+              raise SystemExit("neural /analyze did not return MusicXML")
+          warnings = " ".join(response.get("warnings") or [])
+          if "homr" not in warnings.lower():
+              raise SystemExit("response does not identify homr neural OMR")
+          print("neural OMR E2E MusicXML bytes:", len(xml.encode("utf-8")))
+          PY
+
       - name: Container logs
         if: always()
         run: docker logs imslp-homr-ci 2>/dev/null || true
