@@ -17,8 +17,9 @@ recognition and outputs MusicXML. It supports grand-staff/piano-form notation,
 which matches this application's accompaniment use case.
 
 The application rasterizes PDF pages one at a time at 300 DPI to bound memory,
-then passes the ordered image paths to homr in one invocation. Current homr
-creates a merged MusicXML file for multi-image input.
+then passes the page directory to homr 0.7.0. That release processes the image
+files in sorted order and emits one MusicXML file per page; the application
+merges those page-level MusicXML files into one score.
 
 ## Local setup
 
@@ -31,9 +32,12 @@ source .venv-homr/bin/activate
 pip install -e ".[dev,homr]"
 ```
 
-The `homr` optional dependency installs `homr[cpu]==0.7.0`, including the
-ONNX Runtime CPU inference backend. Model assets are managed by homr when it
-runs. An existing launcher can be selected with `HOMR_COMMAND`.
+The `homr` optional dependency installs `homr==0.7.0`. In that pinned release,
+ONNX Runtime is a normal dependency (there is no `cpu` extra). Model assets are
+downloaded by homr into its installed package directories. `homr --init` can
+pre-download the segmentation/transformer and RapidOCR assets; normal inference
+also downloads missing model assets automatically. An existing launcher can be
+selected with `HOMR_COMMAND`.
 
 To run the API with neural OMR:
 
@@ -131,3 +135,35 @@ such as Sheet Music Transformer or Acai OMR only if their inference setup is
 reproducible and their licenses/dependencies are suitable. The benchmark format
 is intentionally engine-neutral so those outputs can be compared against the
 same corpus later.
+
+
+## Docker neural server for Android
+
+The existing Audiveris server remains unchanged on port 8000. A separate
+Python 3.11 image runs homr 0.7.0 on port 8001 by default:
+
+```bash
+sh scripts/setup_homr_server.sh
+```
+
+This uses `backend/Dockerfile.homr` and `docker-compose.homr.yml`.
+The image:
+
+- uses Python 3.11;
+- installs the same FastAPI backend plus `homr==0.7.0`;
+- runs `homr --init` at image-build time so model downloads do not delay the
+  first score;
+- sets `PIPELINE_PARAM_SET=v6_homr` and `OMR_ENGINE=homr`;
+- does not force `linux/amd64`, so Apple Silicon Docker can use a native ARM
+  Python/ONNX Runtime image when available.
+
+Both servers can run together and reuse the same API token:
+
+```text
+Audiveris: http://<server>:8000
+homr:      http://<server>:8001
+```
+
+During evaluation, switch the Android server URL between the two ports and use
+the same score. Do not remove Audiveris until the benchmark and listening tests
+show that neural OMR is a clear improvement.
