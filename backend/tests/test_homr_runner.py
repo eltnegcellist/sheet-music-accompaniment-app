@@ -36,7 +36,7 @@ def _fake_render(
     return paths
 
 
-def test_run_homr_uses_current_multi_image_cli_and_merged_output(tmp_path, monkeypatch):
+def test_run_homr_merges_page_musicxml(tmp_path, monkeypatch):
     pdf = tmp_path / "score.pdf"
     pdf.write_bytes(b"%PDF fake")
     monkeypatch.setattr(
@@ -52,7 +52,7 @@ def test_run_homr_uses_current_multi_image_cli_and_merged_output(tmp_path, monke
 
     assert result.page_sizes == [(595.0, 842.0), (595.0, 842.0)]
     assert result.measures == []
-    assert "measure number='2'" in result.music_xml
+    assert 'measure number="2"' in result.music_xml
     assert any("PDF連動小節ハイライト" in w for w in result.warnings)
 
 
