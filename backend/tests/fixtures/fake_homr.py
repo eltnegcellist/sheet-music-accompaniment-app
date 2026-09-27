@@ -1,4 +1,4 @@
-"""Tiny homr 0.7 CLI stand-in used by unit tests."""
+"""Tiny homr CLI stand-in used by unit tests."""
 
 from __future__ import annotations
 
@@ -8,33 +8,22 @@ from pathlib import Path
 
 
 def main() -> int:
-    images = [
-        Path(arg)
-        for arg in sys.argv[1:]
-        if not arg.startswith("--") and Path(arg).suffix.lower() == ".png"
-    ]
-    if not images:
+    directories = [Path(arg) for arg in sys.argv[1:] if not arg.startswith("--")]
+    if not directories:
         return 2
-
-    measures = []
-    for index, _image in enumerate(images, start=1):
-        measures.append(
-            "<measure number='" + str(index) + "'>"
+    pages_dir = directories[0]
+    for index, image in enumerate(sorted(pages_dir.glob("page_*.png")), start=1):
+        xml = (
+            "<score-partwise>"
+            "<part-list><score-part id='P1'/></part-list>"
+            "<part id='P1'><measure number='1'>"
             "<note><pitch><step>C</step><octave>4</octave></pitch>"
-            "<duration>" + str(index) + "</duration></note>"
-            "</measure>"
+            f"<duration>{index}</duration></note>"
+            "</measure></part>"
+            "</score-partwise>"
         )
-
-    xml = (
-        "<score-partwise>"
-        "<part-list><score-part id='P1'/></part-list>"
-        "<part id='P1'>"
-        + "".join(measures)
-        + "</part></score-partwise>"
-    )
-    output = images[0].with_name("merged_" + images[0].stem + ".musicxml")
-    output.write_text(xml, encoding="utf-8")
-    print(f"recognized {len(images)} page(s)")
+        image.with_suffix(".musicxml").write_text(xml, encoding="utf-8")
+    print(f"recognized {len(list(pages_dir.glob('page_*.png')))} page(s)")
     return int(os.environ.get("FAKE_HOMR_EXIT", "0"))
 
 
