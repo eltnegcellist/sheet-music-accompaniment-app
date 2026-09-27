@@ -103,30 +103,12 @@ def _should_use_coreml_encoder(coreml_encoder: bool | None, page_count: int) -> 
     )
 
 
-def _find_homr_musicxml(output_dir: Path) -> tuple[Path | None, list[Path]]:
-    """Find homr 0.7 merged output, with a legacy per-page fallback.
-
-    Current homr accepts one or more image paths and, for multi-image input,
-    writes a single merged_<first-image>.musicxml file next to the input.
-    Older adapters/tests may still produce one MusicXML file per page, so keep
-    that path as a compatibility fallback.
-    """
-    merged = sorted(output_dir.rglob("merged_*.musicxml"))
-    if not merged:
-        merged = sorted(output_dir.rglob("merged_*.xml"))
-    if merged:
-        # A single invocation should create one merged score. If stale files
-        # exist, use the newest one rather than concatenating duplicate scores.
-        return max(merged, key=lambda path: path.stat().st_mtime), []
-
-    page_files = sorted(
-        path
-        for pattern in ("page_*.musicxml", "page_*.xml")
-        for path in output_dir.rglob(pattern)
-        if not path.name.startswith("merged_")
-    )
-    unique = list(dict.fromkeys(page_files))
-    return None, unique
+def _find_page_musicxml(output_dir: Path) -> list[Path]:
+    candidates = sorted(output_dir.rglob("page_*.musicxml"))
+    if candidates:
+        return candidates
+    # Keep compatibility with future homr versions that may use .xml.
+    return sorted(output_dir.rglob("page_*.xml"))
 
 
 def run_homr(
@@ -148,16 +130,14 @@ def run_homr(
     if page_count == 0:
         raise HomrError("Could not determine the PDF page count")
 
-    rendered_pages = _render_pdf_pages(
+    _render_pdf_pages(
         pdf_path,
         pages_dir,
         page_count=page_count,
         dpi=dpi,
     )
 
-    # homr 0.7 expects image paths, not a directory. Passing every rendered
-    # page in score order lets homr build one merged MusicXML document.
-    cmd = [*_homr_command(), *(str(path) for path in rendered_pages)]
+    cmd = [*_homr_command(), str(pages_dir)]
     if _should_use_coreml_encoder(coreml_encoder, page_count):
         cmd.append("--coreml-encoder")
 
@@ -186,30 +166,23 @@ def run_homr(
     tail = lines[-50:]
     returncode = proc.returncode
 
-    merged_path, page_xml_paths = _find_homr_musicxml(output_dir)
-    if merged_path is None and not page_xml_paths:
+    xml_paths = _find_page_musicxml(output_dir)
+    if not xml_paths:
         raise HomrError(
             f"homr produced no MusicXML output (exit {returncode}). Last output:\n"
             + "\n".join(tail[-20:])
         )
 
-    warnings = [
-        "ニューラルOMR (homr) で解析しました。"
-        "PDF連動小節ハイライトは現在利用できません。"
-    ]
+    warnings = ["ニューラルOMR (homr) で解析しました。PDF連動小節ハイライトは現在利用できません。"]
     if returncode != 0:
         warnings.append(
             f"homr exited with code {returncode}; using saved partial output."
         )
 
-    if merged_path is not None:
-        merged_xml = merged_path.read_text(encoding="utf-8", errors="replace")
-    else:
-        xml_pages = [
-            path.read_text(encoding="utf-8", errors="replace")
-            for path in page_xml_paths
-        ]
-        merged_xml = concat_musicxml(xml_pages, warnings=warnings)
+    xml_pages = [
+        path.read_text(encoding="utf-8", errors="replace") for path in xml_paths
+    ]
+    merged_xml = concat_musicxml(xml_pages, warnings=warnings)
     if not merged_xml.strip():
         raise HomrError("homr MusicXML output was empty")
 
