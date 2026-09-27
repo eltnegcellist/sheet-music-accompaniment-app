@@ -1,0 +1,14 @@
+# OMR benchmark manifest.
+# Paths are relative to this file. Keep copyrighted IMSLP PDFs out of git.
+cases:
+  - id: clean-piano-01
+    category: clean-engraving
+    pdf: corpus/clean-piano-01.pdf
+    reference_musicxml: corpus/clean-piano-01.musicxml
+    notes: "MusicXML-rendered PDF; quantitative ground truth."
+
+  - id: imslp-scan-01
+    category: imslp-scan
+    pdf: corpus/imslp-scan-01.pdf
+    # No reference: outputs are retained for listening/manual comparison.
+    notes: "Historical scan; qualitative playback test."
