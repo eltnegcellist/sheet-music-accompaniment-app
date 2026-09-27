@@ -1,0 +1,53 @@
+name: homr-server-ci
+
+on:
+  push:
+    branches: [main, "feature/homr**"]
+    paths:
+      - "backend/Dockerfile.homr"
+      - "backend/app/**"
+      - "backend/params/**"
+      - "backend/pyproject.toml"
+      - "docker-compose.homr.yml"
+      - "scripts/setup_homr_server.sh"
+      - ".github/workflows/homr-server-ci.yml"
+  pull_request:
+    paths:
+      - "backend/Dockerfile.homr"
+      - "backend/app/**"
+      - "backend/params/**"
+      - "backend/pyproject.toml"
+      - "docker-compose.homr.yml"
+      - "scripts/setup_homr_server.sh"
+      - ".github/workflows/homr-server-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  build-neural-server:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build homr 0.7 neural server image
+        run: docker build -f backend/Dockerfile.homr -t imslp-accompanist-homr:ci backend
+
+      - name: Verify homr and ONNX Runtime
+        run: |
+          docker run --rm imslp-accompanist-homr:ci             python -c "import homr, onnxruntime; print('onnxruntime', onnxruntime.__version__)"
+          docker run --rm imslp-accompanist-homr:ci homr --help >/dev/null
+
+      - name: Start API and check health
+        run: |
+          docker run -d --name imslp-homr-ci             -p 18001:8000             -e API_TOKEN=ci-test-token             -e PIPELINE_PARAM_SET=v6_homr             -e OMR_ENGINE=homr             imslp-accompanist-homr:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18001/health; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs imslp-homr-ci
+          exit 1
+
+      - name: Container logs
+        if: always()
+        run: docker logs imslp-homr-ci 2>/dev/null || true
