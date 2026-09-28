@@ -31,8 +31,9 @@ source .venv-homr/bin/activate
 pip install -e ".[dev,homr]"
 ```
 
-The `homr` optional dependency installs `homr[cpu]==0.7.0`, including the
-ONNX Runtime CPU inference backend. Model assets are managed by homr when it
+The `homr` optional dependency pins `homr==0.7.0`. The published 0.7.0
+package includes its CPU inference dependencies; unlike current upstream main,
+the PyPI 0.7.0 metadata does not publish a `cpu` extra. Model assets are managed by homr when it
 runs. An existing launcher can be selected with `HOMR_COMMAND`.
 
 To run the API with neural OMR:
@@ -136,7 +137,7 @@ same corpus later.
 
 The production Docker image now keeps the existing FastAPI/Audiveris Python
 environment unchanged and installs `uv 0.12.19`. At image build time it
-prepares a separate Python 3.11 environment for `homr[cpu]==0.7.0`.
+prepares a separate Python 3.11 environment for `homr==0.7.0`.
 
 The Android client sends `omr_engine=audiveris` or `omr_engine=homr` with
 self-hosted analysis requests. The server maps those to `v5_real_pdf` and
