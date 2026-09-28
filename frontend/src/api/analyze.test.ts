@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getCacheList } from "./analyze";
+import { analyzePdf, getCacheList } from "./analyze";
+import { saveServerConfig } from "./serverConfig";
 
 // resolveBackendUrl is module-private, but every public client function
 // reads through `backendUrl()` so we can pin the priority chain by
@@ -10,6 +11,7 @@ describe("backend URL resolution", () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(() => {
+    localStorage.clear();
     delete (window as { __BACKEND_URL__?: string }).__BACKEND_URL__;
     // import.meta.env is read-only at runtime under Vitest; we can't undo
     // a value Vite injected at build time. Each test that needs a
@@ -62,5 +64,43 @@ describe("backend URL resolution", () => {
     // /cache and starts with http(s) so the test is robust to env
     // overrides in CI.
     expect(captured.url).toMatch(/^https?:\/\/.+\/cache$/);
+  });
+});
+
+
+describe("self-hosted OMR engine selection", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    localStorage.clear();
+    vi.restoreAllMocks();
+  });
+
+  it("sends the selected neural engine with Android/self-hosted analyze", async () => {
+    saveServerConfig({
+      serverUrl: "https://omr.example.test",
+      apiToken: "token",
+      omrEngine: "homr",
+    });
+
+    let requestBody: FormData | null = null;
+    globalThis.fetch = vi.fn(async (_input, init) => {
+      requestBody = init?.body as FormData;
+      return new Response(
+        JSON.stringify({
+          music_xml: "<score-partwise/>",
+          measures: [],
+          warnings: [],
+          page_sizes: [],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    const pdf = new File(["pdf"], "score.pdf", { type: "application/pdf" });
+    await analyzePdf(pdf);
+
+    expect(requestBody?.get("omr_engine")).toBe("homr");
   });
 });
