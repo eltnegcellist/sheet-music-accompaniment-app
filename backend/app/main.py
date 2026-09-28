@@ -239,6 +239,7 @@ async def analyze(
                 _analyze_cache.invalidate(cache_key_pdf_only)
 
         warnings: list[str] = []
+        used_omr_engine: str | None = None
         # When the caller supplies a valid MusicXML we can skip Audiveris
         # entirely. That's ~20x faster on long scores and sidesteps Audiveris
         # bugs (NullPointerExceptions in reduceScores/Voices occur on some
@@ -280,6 +281,8 @@ async def analyze(
             full_pdf_for_omr = pdf_path
             inferred_solo_pdf: Path | None = None
 
+            omr_cfg = (params or {}).get("omr") or {}
+            used_omr_engine = str(omr_cfg.get("engine") or "audiveris").lower()
             try:
                 omr_result = run_omr_via_pipeline(
                     full_pdf_for_omr,
@@ -429,6 +432,7 @@ async def analyze(
 
         response = AnalyzeResponse(
             music_xml=merged_xml,
+            omr_engine=used_omr_engine,
             score_title=score_title,
             accompaniment_part_id=accompaniment_part_id,
             solo_part_id=solo_part_id,
