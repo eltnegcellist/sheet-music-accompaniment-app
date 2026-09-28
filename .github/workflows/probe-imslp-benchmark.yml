@@ -10,28 +10,17 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6
-      - name: Probe IMSLP download endpoints
-        shell: bash
+      - name: Inspect IMSLP friendly redirect
         run: |
-          set -u
-          mkdir -p /tmp/imslp
-          probe() {
-            label="$1"
-            url="$2"
-            echo "===== $label ====="
-            echo "$url"
-            curl -A 'Mozilla/5.0' -L --max-redirs 10 --connect-timeout 15 --max-time 90 \
-              -D "/tmp/imslp/$label.headers" \
-              -o "/tmp/imslp/$label.bin" \
-              -w 'http=%{http_code} type=%{content_type} size=%{size_download} final=%{url_effective}\n' \
-              "$url" || true
-            head -c 16 "/tmp/imslp/$label.bin" 2>/dev/null | xxd || true
-            file "/tmp/imslp/$label.bin" 2>/dev/null || true
-            sha256sum "/tmp/imslp/$label.bin" 2>/dev/null || true
-            tail -30 "/tmp/imslp/$label.headers" 2>/dev/null || true
-          }
+          set -euxo pipefail
+          curl --compressed -A 'Mozilla/5.0' -fsSL             'https://imslp.org/friendlyredirect.html'             -o /tmp/friendly.html
+          echo '===== friendlyredirect.html ====='
+          cat /tmp/friendly.html
+          echo
+          echo '===== scripts ====='
+          grep -Eo '<script[^>]+src="[^"]+"' /tmp/friendly.html || true
+          grep -Eo 'https?://[^"[:space:]<>]+' /tmp/friendly.html || true
 
-          probe ss_index 'https://imslp.org/wiki/Special:ImagefromIndex/413948'
-          probe ss_redirect 'https://imslp.org/wiki/Special:Redirect/file/PMLP30030-Saint_Saens_Allegro_Mandozzi_Vc_Kl_-_Partitur.pdf'
-          probe be_index 'https://imslp.org/wiki/Special:ImagefromIndex/52413'
-          probe be_redirect 'https://imslp.org/wiki/Special:Redirect/file/PMLP04421-Beethoven_Werke_Breitkopf_Serie_13_No_107_Op_69.pdf'
+          echo '===== special page compressed/body ====='
+          curl --compressed -A 'Mozilla/5.0' -fsSL             'https://imslp.org/wiki/Special:ImagefromIndex/413948'             -o /tmp/index.html
+          cat /tmp/index.html
