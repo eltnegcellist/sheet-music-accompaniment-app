@@ -1,0 +1,98 @@
+name: saint-saens-page1-omr-benchmark
+
+on:
+  push:
+    branches:
+      - "experiment/omr-real-score-benchmark"
+    paths:
+      - ".github/workflows/saint-saens-page1-omr-benchmark.yml"
+
+jobs:
+  page1:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download score and extract page 1
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/bench
+          curl -fL --retry 3             'https://s9.imslp.org/files/imglnks/usimg/e/e2/IMSLP413948-PMLP30030-Saint_Saens_Allegro_Mandozzi_Vc_Kl_-_Partitur.pdf'             -o /tmp/bench/full.pdf
+          python3 -m pip install --quiet pypdf
+          python3 - <<'PY'
+          from pypdf import PdfReader, PdfWriter
+          r=PdfReader('/tmp/bench/full.pdf')
+          w=PdfWriter(); w.add_page(r.pages[0])
+          with open('/tmp/bench/page1.pdf','wb') as f: w.write(f)
+          print('source pages', len(r.pages))
+          PY
+          sha256sum /tmp/bench/page1.pdf
+          cat > /tmp/bench/manifest.yaml <<'YAML'
+          cases:
+            - id: saint-saens-page1
+              category: clean-typeset-cello-piano
+              pdf: page1.pdf
+          YAML
+
+      - name: Build dual-engine OMR image
+        run: docker build --progress=plain -t imslp-omr-benchmark backend
+
+      - name: Run both engines
+        run: |
+          mkdir -p /tmp/bench/results
+          set +e
+          docker run --rm             -v /tmp/bench:/bench             -e HOMR_COMMAND="uvx --python 3.11 --from homr==0.7.0 homr"             imslp-omr-benchmark             python3 -m app.benchmark.omr_compare               --manifest /bench/manifest.yaml               --engines audiveris,homr               --output /bench/results
+          status=$?
+          set -e
+          echo "benchmark_status=$status"
+          cat /tmp/bench/results/results.json || true
+
+      - name: Summarize recognized MusicXML
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json, xml.etree.ElementTree as ET
+          from pathlib import Path
+          out={}
+          base=Path('/tmp/bench/results/saint-saens-page1')
+          for engine in ('audiveris','homr'):
+              p=base/engine/'recognized.musicxml'
+              if not p.exists():
+                  out[engine]={'missing': True}
+                  continue
+              root=ET.fromstring(p.read_text(errors='replace'))
+              part_defs={x.get('id'): x.findtext('part-name') for x in root.findall('.//score-part')}
+              parts=root.findall('./part')
+              po=[]
+              for part in parts:
+                  notes=[]
+                  for n in part.findall('.//note'):
+                      pitch=n.find('pitch')
+                      if pitch is None:
+                          continue
+                      notes.append({
+                        'step': pitch.findtext('step'),
+                        'alter': pitch.findtext('alter'),
+                        'octave': pitch.findtext('octave'),
+                        'duration': n.findtext('duration'),
+                        'chord': n.find('chord') is not None,
+                      })
+                  po.append({
+                    'id': part.get('id'),
+                    'name': part_defs.get(part.get('id')),
+                    'measures': len(part.findall('measure')),
+                    'pitched_notes': len(notes),
+                    'first_40_notes': notes[:40],
+                  })
+              out[engine]={'parts': po}
+          Path('/tmp/bench/results/page1_summary.json').write_text(json.dumps(out,ensure_ascii=False,indent=2))
+          print(json.dumps(out,ensure_ascii=False,indent=2))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: saint-saens-page1-audiveris-vs-homr
+          path: /tmp/bench/results
+          if-no-files-found: warn
