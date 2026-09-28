@@ -262,7 +262,8 @@ export default function App() {
       setWarningsDismissed(false);
       if (androidApp && pdf) {
         try {
-          await putAndroidCache(pdf, result, getServerConfig().omrEngine);
+          const engine = result.omr_engine === "homr" ? "homr" : "audiveris";
+          await putAndroidCache(pdf, result, engine);
           await refreshCacheList();
         } catch (cacheError) {
           console.warn("Failed to persist Android cache", cacheError);
