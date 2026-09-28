@@ -10,36 +10,20 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6
-      - name: Reproduce IMSLP friendly redirect browser flow
+      - name: Fetch IMSLP files with redirectPassed cookie
         run: |
           set -euxo pipefail
           UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36'
-          JAR=/tmp/imslp.cookies
-
-          # First request establishes any IMSLP/session cookies and redirects
-          # a browser to friendlyredirect.html#<original path>.
-          curl --compressed -A "$UA" -c "$JAR" -b "$JAR" -sS -D /tmp/step1.h             'https://imslp.org/wiki/Special:ImagefromIndex/413948'             -o /tmp/step1.body || true
-          echo '===== step1 headers ====='
-          cat /tmp/step1.h
-          echo '===== cookies after step1 ====='
-          cat "$JAR" || true
-
-          # Browser JS posts a random friendlyredirect field to this page.
-          curl --compressed -A "$UA" -e 'https://imslp.org/friendlyredirect.html#/wiki/Special:ImagefromIndex/413948'             -c "$JAR" -b "$JAR" -sS -D /tmp/step2.h             -X POST -d 'friendlyredirect=123456789'             'https://imslp.org/friendlyredirect2.html'             -o /tmp/step2.body || true
-          echo '===== step2 headers ====='
-          cat /tmp/step2.h
-          echo '===== step2 body ====='
-          cat /tmp/step2.body
-          echo '===== cookies after step2 ====='
-          cat "$JAR" || true
-
-          # Hash is client-side, so the browser next navigates back to the
-          # original path with the cookies set by step 2.
-          curl --compressed -A "$UA" -e 'https://imslp.org/friendlyredirect2.html#/wiki/Special:ImagefromIndex/413948'             -c "$JAR" -b "$JAR" -L -sS -D /tmp/step3.h             'https://imslp.org/wiki/Special:ImagefromIndex/413948'             -o /tmp/step3.body || true
-          echo '===== step3 headers tail ====='
-          tail -80 /tmp/step3.h
-          echo '===== step3 file ====='
-          file /tmp/step3.body || true
-          wc -c /tmp/step3.body
-          head -c 32 /tmp/step3.body | xxd
-          sha256sum /tmp/step3.body
+          fetch_one() {
+            label="$1"
+            idx="$2"
+            curl --compressed -A "$UA"               -H 'Cookie: redirectPassed=1'               -L --max-redirs 10 -sS -D "/tmp/$label.h"               "https://imslp.org/wiki/Special:ImagefromIndex/$idx"               -o "/tmp/$label.bin"
+            echo "===== $label ====="
+            tail -100 "/tmp/$label.h"
+            file "/tmp/$label.bin"
+            wc -c "/tmp/$label.bin"
+            head -c 32 "/tmp/$label.bin" | xxd
+            sha256sum "/tmp/$label.bin"
+          }
+          fetch_one saintsaens 413948
+          fetch_one beethoven 52413
