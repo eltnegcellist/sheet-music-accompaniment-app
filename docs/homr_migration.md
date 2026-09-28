@@ -16,9 +16,15 @@ homr 0.7 uses learned segmentation followed by transformer-based semantic
 recognition and outputs MusicXML. It supports grand-staff/piano-form notation,
 which matches this application's accompaniment use case.
 
-The application rasterizes PDF pages one at a time at 300 DPI to bound memory,
-then passes the ordered image paths to homr in one invocation. Current homr
-creates a merged MusicXML file for multi-image input.
+The application rasterizes PDF pages one at a time at 300 DPI to bound memory.
+The **published PyPI 0.7.0 CLI** accepts one image or one directory, so the
+adapter passes the rendered-page directory to homr. homr processes the images
+in filename order and writes one MusicXML file per page; this application then
+concatenates those page outputs into one score.
+
+The current upstream main branch has since evolved toward multi-image/merged
+output behavior. We intentionally target the pinned PyPI 0.7.0 interface here
+for reproducibility.
 
 ## Local setup
 
@@ -33,8 +39,12 @@ pip install -e ".[dev,homr]"
 
 The `homr` optional dependency pins `homr==0.7.0`. The published 0.7.0
 package includes its CPU inference dependencies; unlike current upstream main,
-the PyPI 0.7.0 metadata does not publish a `cpu` extra. Model assets are managed by homr when it
-runs. An existing launcher can be selected with `HOMR_COMMAND`.
+the PyPI 0.7.0 metadata does not publish a `cpu` extra. An existing launcher
+can be selected with `HOMR_COMMAND`.
+
+The Docker image runs `homr --init` at build time so segmentation,
+transformer and title-OCR model assets are downloaded into the image before the
+server is started. This avoids a model download on the first Android analysis.
 
 To run the API with neural OMR:
 
