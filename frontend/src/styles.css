@@ -2175,3 +2175,20 @@ body {
   line-height: 1.55;
   font-weight: 400;
 }
+
+.cache-item__engine {
+  flex-shrink: 0;
+  border: 1px solid var(--rule-hi);
+  border-radius: 999px;
+  padding: 3px 7px;
+  font-size: 9px;
+  line-height: 1;
+  font-family: var(--mono);
+  color: var(--text-3);
+  background: var(--ink-3);
+}
+.cache-item__engine--homr {
+  border-color: var(--gold-ring);
+  color: var(--gold);
+  background: var(--gold-dim);
+}
