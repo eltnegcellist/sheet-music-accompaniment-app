@@ -1435,7 +1435,8 @@ body {
   font-size: 12px;
   font-weight: 600;
 }
-.server-settings__field input {
+.server-settings__field input,
+.server-settings__field select {
   width: 100%;
   box-sizing: border-box;
   border-radius: 9px;
@@ -2166,4 +2167,11 @@ body {
   .mobile-home-intro h1 {
     font-size: 21px;
   }
+}
+
+.server-settings__hint {
+  color: var(--text-4);
+  font-size: 11px;
+  line-height: 1.55;
+  font-weight: 400;
 }
