@@ -67,6 +67,8 @@ export interface CacheEntry {
   param_set_id: string;
   pdf_name: string;
   timestamp: number;
+  /** Present for Android-local entries so two OMR engines can coexist. */
+  engine?: "audiveris" | "homr";
   /** Android stores completed analyses on-device; desktop entries are server-backed. */
   source?: "server" | "local";
 }
