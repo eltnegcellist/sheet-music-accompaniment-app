@@ -262,7 +262,7 @@ export default function App() {
       setWarningsDismissed(false);
       if (androidApp && pdf) {
         try {
-          await putAndroidCache(pdf, result);
+          await putAndroidCache(pdf, result, getServerConfig().omrEngine);
           await refreshCacheList();
         } catch (cacheError) {
           console.warn("Failed to persist Android cache", cacheError);
@@ -842,6 +842,11 @@ export default function App() {
                         onClick={() => loadFromCache(c)}
                       >
                         <span className="cache-item__title">{c.pdf_name}</span>
+                        {c.engine && (
+                          <span className={"cache-item__engine cache-item__engine--" + c.engine}>
+                            {c.engine === "homr" ? "Neural" : "Audiveris"}
+                          </span>
+                        )}
                         <span className="cache-item__date">
                           {new Date(c.timestamp * 1000).toLocaleDateString(dateLocale)}
                         </span>
