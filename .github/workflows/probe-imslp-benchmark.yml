@@ -10,17 +10,36 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6
-      - name: Inspect IMSLP friendly redirect
+      - name: Reproduce IMSLP friendly redirect browser flow
         run: |
           set -euxo pipefail
-          curl --compressed -A 'Mozilla/5.0' -fsSL             'https://imslp.org/friendlyredirect.html'             -o /tmp/friendly.html
-          echo '===== friendlyredirect.html ====='
-          cat /tmp/friendly.html
-          echo
-          echo '===== scripts ====='
-          grep -Eo '<script[^>]+src="[^"]+"' /tmp/friendly.html || true
-          grep -Eo 'https?://[^"[:space:]<>]+' /tmp/friendly.html || true
+          UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36'
+          JAR=/tmp/imslp.cookies
 
-          echo '===== special page compressed/body ====='
-          curl --compressed -A 'Mozilla/5.0' -fsSL             'https://imslp.org/wiki/Special:ImagefromIndex/413948'             -o /tmp/index.html
-          cat /tmp/index.html
+          # First request establishes any IMSLP/session cookies and redirects
+          # a browser to friendlyredirect.html#<original path>.
+          curl --compressed -A "$UA" -c "$JAR" -b "$JAR" -sS -D /tmp/step1.h             'https://imslp.org/wiki/Special:ImagefromIndex/413948'             -o /tmp/step1.body || true
+          echo '===== step1 headers ====='
+          cat /tmp/step1.h
+          echo '===== cookies after step1 ====='
+          cat "$JAR" || true
+
+          # Browser JS posts a random friendlyredirect field to this page.
+          curl --compressed -A "$UA" -e 'https://imslp.org/friendlyredirect.html#/wiki/Special:ImagefromIndex/413948'             -c "$JAR" -b "$JAR" -sS -D /tmp/step2.h             -X POST -d 'friendlyredirect=123456789'             'https://imslp.org/friendlyredirect2.html'             -o /tmp/step2.body || true
+          echo '===== step2 headers ====='
+          cat /tmp/step2.h
+          echo '===== step2 body ====='
+          cat /tmp/step2.body
+          echo '===== cookies after step2 ====='
+          cat "$JAR" || true
+
+          # Hash is client-side, so the browser next navigates back to the
+          # original path with the cookies set by step 2.
+          curl --compressed -A "$UA" -e 'https://imslp.org/friendlyredirect2.html#/wiki/Special:ImagefromIndex/413948'             -c "$JAR" -b "$JAR" -L -sS -D /tmp/step3.h             'https://imslp.org/wiki/Special:ImagefromIndex/413948'             -o /tmp/step3.body || true
+          echo '===== step3 headers tail ====='
+          tail -80 /tmp/step3.h
+          echo '===== step3 file ====='
+          file /tmp/step3.body || true
+          wc -c /tmp/step3.body
+          head -c 32 /tmp/step3.body | xxd
+          sha256sum /tmp/step3.body
