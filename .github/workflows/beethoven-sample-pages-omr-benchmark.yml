@@ -1,0 +1,93 @@
+name: beethoven-sample-pages-omr-benchmark
+
+on:
+  push:
+    branches:
+      - "experiment/omr-real-score-benchmark"
+    paths:
+      - ".github/workflows/beethoven-sample-pages-omr-benchmark.yml"
+
+jobs:
+  sample-pages:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download score and extract PDF pages 3, 11 and 24
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/bench
+          curl -fL --retry 3             'https://s9.imslp.org/files/imglnks/usimg/8/80/IMSLP52413-PMLP04421-Beethoven_Werke_Breitkopf_Serie_13_No_107_Op_69.pdf'             -o /tmp/bench/full.pdf
+          python3 -m pip install --quiet pypdf
+          python3 - <<'PY'
+          from pypdf import PdfReader, PdfWriter
+          r=PdfReader('/tmp/bench/full.pdf')
+          print('pages', len(r.pages))
+          for page in (3,11,24):
+              w=PdfWriter(); w.add_page(r.pages[page-1])
+              with open(f'/tmp/bench/p{page:02d}.pdf','wb') as f: w.write(f)
+          PY
+          cat > /tmp/bench/manifest.yaml <<'YAML'
+          cases:
+            - id: beethoven-p03
+              category: historical-scan-opening
+              pdf: p03.pdf
+            - id: beethoven-p11
+              category: historical-scan-dense
+              pdf: p11.pdf
+            - id: beethoven-p24
+              category: historical-scan-late
+              pdf: p24.pdf
+          YAML
+
+      - name: Build dual-engine OMR image
+        run: docker build --progress=plain -t imslp-omr-benchmark backend
+
+      - name: Run both engines on all sample pages
+        run: |
+          mkdir -p /tmp/bench/results
+          set +e
+          docker run --rm             -v /tmp/bench:/bench             -e HOMR_COMMAND="uvx --python 3.11 --from homr==0.7.0 homr"             imslp-omr-benchmark             python3 -m app.benchmark.omr_compare               --manifest /bench/manifest.yaml               --engines audiveris,homr               --output /bench/results
+          status=$?
+          set -e
+          echo "benchmark_status=$status"
+          cat /tmp/bench/results/results.json || true
+
+      - name: Structural summary
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json, xml.etree.ElementTree as ET
+          from pathlib import Path
+          out={}
+          base=Path('/tmp/bench/results')
+          for case in ('beethoven-p03','beethoven-p11','beethoven-p24'):
+              out[case]={}
+              for eng in ('audiveris','homr'):
+                  p=base/case/eng/'recognized.musicxml'
+                  if not p.exists():
+                      out[case][eng]={'missing':True}
+                      continue
+                  root=ET.fromstring(p.read_text(errors='replace'))
+                  defs={sp.get('id'):sp.findtext('part-name') for sp in root.findall('./part-list/score-part')}
+                  ps=[]
+                  for part in root.findall('./part'):
+                      notes=[n for n in part.findall('.//note') if n.find('pitch') is not None]
+                      rests=[n for n in part.findall('.//note') if n.find('rest') is not None]
+                      ps.append({
+                        'id':part.get('id'),'name':defs.get(part.get('id')),
+                        'measures':len(part.findall('measure')),
+                        'pitched_notes':len(notes),'rests':len(rests)
+                      })
+                  out[case][eng]={'parts':ps}
+          Path('/tmp/bench/results/structure_summary.json').write_text(json.dumps(out,ensure_ascii=False,indent=2))
+          print(json.dumps(out,ensure_ascii=False,indent=2))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: beethoven-sample-pages-audiveris-vs-homr
+          path: /tmp/bench/results
+          if-no-files-found: warn
