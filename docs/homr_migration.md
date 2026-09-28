@@ -131,3 +131,18 @@ such as Sheet Music Transformer or Acai OMR only if their inference setup is
 reproducible and their licenses/dependencies are suitable. The benchmark format
 is intentionally engine-neutral so those outputs can be compared against the
 same corpus later.
+
+## Self-hosted Android server
+
+The production Docker image now keeps the existing FastAPI/Audiveris Python
+environment unchanged and installs `uv 0.12.19`. At image build time it
+prepares a separate Python 3.11 environment for `homr[cpu]==0.7.0`.
+
+The Android client sends `omr_engine=audiveris` or `omr_engine=homr` with
+self-hosted analysis requests. The server maps those to `v5_real_pdf` and
+`v6_homr` respectively. Desktop/Tauri requests omit the field and continue to
+follow `PIPELINE_PARAM_SET`.
+
+`GET /capabilities` advertises supported engines and whether per-request
+selection is available. Android uses that endpoint during connection testing so
+an old server cannot silently ignore a homr selection.
