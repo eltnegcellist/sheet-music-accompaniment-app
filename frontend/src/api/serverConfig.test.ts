@@ -34,7 +34,13 @@ describe("OMR server config", () => {
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response('{"status":"ok"}', { status: 200 }))
-      .mockResolvedValueOnce(new Response('{"status":"ok"}', { status: 200 }));
+      .mockResolvedValueOnce(new Response('{"status":"ok"}', { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(
+          '{"omr_engines":["audiveris","homr"],"per_request_engine_selection":true}',
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
 
     const result = await testServerConnection({
       serverUrl: "https://example.test/",
@@ -53,6 +59,11 @@ describe("OMR server config", () => {
       "https://example.test/auth/check",
       { headers: { Authorization: "Bearer abc" } },
     );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "https://example.test/capabilities",
+      { headers: { Authorization: "Bearer abc" } },
+    );
   });
 });
 
@@ -64,4 +75,21 @@ describe("OMR server config", () => {
     );
 
     expect(getServerConfig().omrEngine).toBe("audiveris");
+  });
+
+
+  it("rejects homr selection when the server cannot confirm neural support", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response('{"status":"ok"}', { status: 200 }))
+      .mockResolvedValueOnce(new Response('{"status":"ok"}', { status: 200 }))
+      .mockResolvedValueOnce(new Response("not found", { status: 404 }));
+
+    const result = await testServerConnection({
+      serverUrl: "https://old.example.test",
+      apiToken: "",
+      omrEngine: "homr",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("最新版");
   });
