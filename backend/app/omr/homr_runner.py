@@ -104,12 +104,11 @@ def _should_use_coreml_encoder(coreml_encoder: bool | None, page_count: int) -> 
 
 
 def _find_homr_musicxml(output_dir: Path) -> tuple[Path | None, list[Path]]:
-    """Find homr 0.7 merged output, with a legacy per-page fallback.
+    """Find MusicXML produced by homr.
 
-    Current homr accepts one or more image paths and, for multi-image input,
-    writes a single merged_<first-image>.musicxml file next to the input.
-    Older adapters/tests may still produce one MusicXML file per page, so keep
-    that path as a compatibility fallback.
+    PyPI homr 0.7.0 accepts one image or one directory. Directory mode writes
+    one MusicXML file beside each image. A merged-file lookup is retained only
+    for forward compatibility with newer/custom homr launchers.
     """
     merged = sorted(output_dir.rglob("merged_*.musicxml"))
     if not merged:
@@ -148,16 +147,17 @@ def run_homr(
     if page_count == 0:
         raise HomrError("Could not determine the PDF page count")
 
-    rendered_pages = _render_pdf_pages(
+    _render_pdf_pages(
         pdf_path,
         pages_dir,
         page_count=page_count,
         dpi=dpi,
     )
 
-    # homr 0.7 expects image paths, not a directory. Passing every rendered
-    # page in score order lets homr build one merged MusicXML document.
-    cmd = [*_homr_command(), *(str(path) for path in rendered_pages)]
+    # Published homr 0.7.0 accepts a single image OR a directory. Directory
+    # mode walks the rendered pages in filename order and writes one MusicXML
+    # file per page; we concatenate those files below.
+    cmd = [*_homr_command(), str(pages_dir)]
     if _should_use_coreml_encoder(coreml_encoder, page_count):
         cmd.append("--coreml-encoder")
 
