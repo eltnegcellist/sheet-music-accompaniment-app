@@ -1,4 +1,4 @@
-# Android v0.2.2 — mobile-first self-hosted OMR
+# Android v0.2.3 — mobile-first self-hosted OMR
 
 The Android edition is designed as a **free/open-source, phone-first client with user-owned
 OMR infrastructure**. v0.2.1 replaces the desktop-oriented drag/drop and wide
@@ -6,7 +6,7 @@ transport controls with a dedicated touch UI.
 
 The Android app contains the score viewer, playback engine, local cache and
 server settings. PDF recognition itself is performed by the user's own
-Audiveris/FastAPI server.
+FastAPI server, which can run either classic **Audiveris** or neural **homr**.
 
 ## Mobile-first UI
 
@@ -47,7 +47,8 @@ The script:
 1. generates a random API token,
 2. stores it in the ignored `.omr-server.env` file,
 3. builds and starts the production OMR container,
-4. prints the server URL and API token to enter in Android.
+4. includes both Audiveris and a Python 3.11 homr 0.7 CPU runtime,
+5. prints the server URL and API token to enter in Android.
 
 The production compose file is `docker-compose.server.yml`. It uses persistent
 volumes for the OMR result cache and Audiveris state and restarts automatically.
@@ -79,10 +80,11 @@ The API token is sent only to the server URL configured by the user.
 On first launch:
 
 1. tap **OMR** in the top bar,
-2. enter the server URL,
-3. enter the API token,
-4. tap **接続テスト / Test connection**,
-5. tap **保存 / Save**.
+2. choose **Audiveris** or **homr (neural OMR)**,
+3. enter the server URL,
+4. enter the API token,
+5. tap **接続テスト / Test connection**,
+6. tap **保存 / Save**.
 
 If Android receives a PDF through **Open with** before a server is configured,
 the app keeps that file pending, opens server setup and starts analysis after
@@ -100,14 +102,29 @@ Android PDF
    ↓
 user-owned FastAPI server
    ↓
-Audiveris OMR
+Audiveris  OR  neural homr
    ↓
-MusicXML + measure layout
+MusicXML
    ↓
 Android local cache
    ↓
 viewer / accompaniment playback
 ```
+
+### Neural OMR notes
+
+homr 0.7 uses a learned segmentation + transformer OMR pipeline. The server
+runs it in an isolated Python 3.11 environment via `uvx`, because homr 0.7
+requires Python 3.11+ while the existing FastAPI/Audiveris container uses the
+Ubuntu 22.04 system Python.
+
+The first neural recognition can take longer while model assets are prepared.
+homr currently does not provide Audiveris-compatible PDF measure bounding boxes,
+so **PDF measure highlighting is disabled for homr output**. Score-view
+playback still works.
+
+Audiveris remains the default while the neural benchmark is being measured.
+The Android setting allows explicit opt-in to homr for real-score testing.
 
 After analysis, the PDF and parsed response are stored in Android WebView
 IndexedDB. The **Recently opened** list on Android is therefore device-local,
