@@ -1,6 +1,9 @@
+export type OmrEngine = "audiveris" | "homr";
+
 export interface OmrServerConfig {
   serverUrl: string;
   apiToken: string;
+  omrEngine: OmrEngine;
 }
 
 const STORAGE_KEY = "imslp-accompanist.omr-server.v1";
@@ -10,17 +13,22 @@ function normalizeServerUrl(value: string): string {
 }
 
 export function getServerConfig(): OmrServerConfig {
-  if (typeof window === "undefined") return { serverUrl: "", apiToken: "" };
+  if (typeof window === "undefined") {
+    return { serverUrl: "", apiToken: "", omrEngine: "audiveris" };
+  }
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { serverUrl: "", apiToken: "" };
+    if (!raw) {
+      return { serverUrl: "", apiToken: "", omrEngine: "audiveris" };
+    }
     const parsed = JSON.parse(raw) as Partial<OmrServerConfig>;
     return {
       serverUrl: normalizeServerUrl(parsed.serverUrl ?? ""),
       apiToken: parsed.apiToken ?? "",
+      omrEngine: parsed.omrEngine === "homr" ? "homr" : "audiveris",
     };
   } catch {
-    return { serverUrl: "", apiToken: "" };
+    return { serverUrl: "", apiToken: "", omrEngine: "audiveris" };
   }
 }
 
@@ -28,6 +36,7 @@ export function saveServerConfig(config: OmrServerConfig): void {
   const normalized: OmrServerConfig = {
     serverUrl: normalizeServerUrl(config.serverUrl),
     apiToken: config.apiToken.trim(),
+    omrEngine: config.omrEngine,
   };
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
 }
@@ -39,6 +48,10 @@ export function hasConfiguredServer(): boolean {
 export function configuredServerUrl(): string | null {
   const url = getServerConfig().serverUrl;
   return url || null;
+}
+
+export function configuredOmrEngine(): OmrEngine {
+  return getServerConfig().omrEngine;
 }
 
 export function authHeaders(): Record<string, string> {
