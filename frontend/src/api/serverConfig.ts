@@ -87,6 +87,32 @@ export async function testServerConnection(
     if (!auth.ok) {
       return { ok: false, message: `/auth/check: HTTP ${auth.status}` };
     }
+
+    const capabilities = await fetch(`${serverUrl}/capabilities`, { headers });
+    if (capabilities.ok) {
+      const body = (await capabilities.json()) as {
+        omr_engines?: unknown;
+        per_request_engine_selection?: unknown;
+      };
+      const engines = Array.isArray(body.omr_engines)
+        ? body.omr_engines.filter((item): item is string => typeof item === "string")
+        : [];
+      if (
+        config.omrEngine === "homr" &&
+        (!engines.includes("homr") || body.per_request_engine_selection !== true)
+      ) {
+        return {
+          ok: false,
+          message: "このサーバーはニューラルOMR (homr) の選択に対応していません。サーバーを更新してください。",
+        };
+      }
+    } else if (config.omrEngine === "homr") {
+      return {
+        ok: false,
+        message: "このサーバーはニューラルOMR対応を確認できません。サーバーを最新版へ更新してください。",
+      };
+    }
+
     return { ok: true, message: "接続できました。OMRサーバーを利用できます。" };
   } catch (error) {
     return {
