@@ -39,6 +39,14 @@ def test_health_returns_ok(client) -> None:
     assert resp.json() == {"status": "ok"}
 
 
+def test_capabilities_advertise_neural_engine(client) -> None:
+    resp = client.get("/capabilities")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["omr_engines"] == ["audiveris", "homr"]
+    assert body["per_request_engine_selection"] is True
+
+
 def test_cache_listing_starts_empty(client) -> None:
     resp = client.get("/cache")
     assert resp.status_code == 200
