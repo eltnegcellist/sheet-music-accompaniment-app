@@ -18,11 +18,13 @@ describe("OMR server config", () => {
     saveServerConfig({
       serverUrl: " https://example.test/// ",
       apiToken: " secret ",
+      omrEngine: "homr",
     });
 
     expect(getServerConfig()).toEqual({
       serverUrl: "https://example.test",
       apiToken: "secret",
+      omrEngine: "homr",
     });
     expect(configuredServerUrl()).toBe("https://example.test");
     expect(authHeaders()).toEqual({ Authorization: "Bearer secret" });
@@ -37,6 +39,7 @@ describe("OMR server config", () => {
     const result = await testServerConnection({
       serverUrl: "https://example.test/",
       apiToken: "abc",
+      omrEngine: "audiveris",
     });
 
     expect(result.ok).toBe(true);
@@ -52,3 +55,13 @@ describe("OMR server config", () => {
     );
   });
 });
+
+
+  it("migrates old saved config to Audiveris by default", () => {
+    localStorage.setItem(
+      "imslp-accompanist.omr-server.v1",
+      JSON.stringify({ serverUrl: "http://lan.test:8000", apiToken: "old" }),
+    );
+
+    expect(getServerConfig().omrEngine).toBe("audiveris");
+  });
