@@ -1,0 +1,14 @@
+name: neural-omr-docker-smoke
+
+on:
+  push:
+    branches:
+      - "feature/neural-omr-server"
+
+jobs:
+  build-neural-omr-server:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build self-hosted OMR image with homr runtime
+        run: docker build --progress=plain -t imslp-accompanist-omr-neural-smoke backend
