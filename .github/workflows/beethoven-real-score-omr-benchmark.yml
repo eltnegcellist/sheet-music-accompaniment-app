@@ -1,0 +1,80 @@
+name: beethoven-real-score-omr-benchmark
+
+on:
+  push:
+    branches:
+      - "experiment/omr-real-score-benchmark"
+    paths:
+      - ".github/workflows/beethoven-real-score-omr-benchmark.yml"
+
+jobs:
+  beethoven:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download exact IMSLP Beethoven score
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/bench
+          curl -fL --retry 3             'https://s9.imslp.org/files/imglnks/usimg/8/80/IMSLP52413-PMLP04421-Beethoven_Werke_Breitkopf_Serie_13_No_107_Op_69.pdf'             -o /tmp/bench/beethoven.pdf
+          file /tmp/bench/beethoven.pdf
+          wc -c /tmp/bench/beethoven.pdf
+          sha256sum /tmp/bench/beethoven.pdf
+
+      - name: Create benchmark manifest
+        run: |
+          cat > /tmp/bench/manifest.yaml <<'YAML'
+          cases:
+            - id: beethoven-op69-breitkopf
+              category: historical-scan-cello-piano
+              pdf: beethoven.pdf
+              notes: "IMSLP #52413, 34-page Breitkopf scan"
+          YAML
+
+      - name: Build dual-engine OMR image
+        run: docker build --progress=plain -t imslp-omr-benchmark backend
+
+      - name: Run Audiveris vs homr on the same 34-page PDF
+        run: |
+          mkdir -p /tmp/bench/results
+          docker run --rm             -v /tmp/bench:/bench             -e HOMR_COMMAND="uvx --python 3.11 --from homr==0.7.0 homr"             imslp-omr-benchmark             python3 -m app.benchmark.omr_compare               --manifest /bench/manifest.yaml               --engines audiveris,homr               --output /bench/results
+          cat /tmp/bench/results/results.csv
+          cat /tmp/bench/results/results.json
+
+      - name: Summarize MusicXML structure
+        run: |
+          python3 - <<'PY'
+          import json
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          out = {}
+          for engine in ("audiveris", "homr"):
+              path = Path("/tmp/bench/results/beethoven-op69-breitkopf") / engine / "recognized.musicxml"
+              xml = path.read_text(errors="replace")
+              root = ET.fromstring(xml)
+              parts = root.findall(".//part")
+              measures = root.findall(".//measure")
+              notes = [n for n in root.findall(".//note") if n.find("rest") is None]
+              rests = [n for n in root.findall(".//note") if n.find("rest") is not None]
+              out[engine] = {
+                  "bytes": len(xml.encode()),
+                  "parts": len(parts),
+                  "measures_total_across_parts": len(measures),
+                  "max_measures_in_part": max((len(p.findall("measure")) for p in parts), default=0),
+                  "pitched_note_elements": len(notes),
+                  "rests": len(rests),
+              }
+          Path("/tmp/bench/results/structure_summary.json").write_text(
+              json.dumps(out, ensure_ascii=False, indent=2)
+          )
+          print(json.dumps(out, ensure_ascii=False, indent=2))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: beethoven-audiveris-vs-homr
+          path: /tmp/bench/results
+          if-no-files-found: error
