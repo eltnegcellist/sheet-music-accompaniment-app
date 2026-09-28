@@ -26,7 +26,7 @@ ENV AUDIVERIS_HOME=/opt/audiveris \
 RUN apt-get update && apt-get install -y --no-install-recommends \
       python3 python3-pip python3-venv \
       tesseract-ocr tesseract-ocr-ita tesseract-ocr-eng libtesseract-dev \
-      poppler-utils libgomp1 \
+      poppler-utils libgomp1 libgl1 \
       curl ca-certificates \
       xdg-utils \
     && curl -fL -o /tmp/audiveris.deb \
@@ -78,7 +78,7 @@ COPY pyproject.toml ./
 # all homr dependencies.
 ENV UV_CACHE_DIR=/opt/uv-cache \
     UV_PYTHON_INSTALL_DIR=/opt/uv-python
-RUN uvx --python 3.11 --from 'homr==0.7.0' homr --help >/dev/null
+RUN uvx --python 3.11 --from 'homr==0.7.0' homr --init
 
 EXPOSE 8000
 CMD ["python3", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
