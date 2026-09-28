@@ -19,6 +19,7 @@ export function ServerSettings({ open, onClose, onSaved }: Props) {
   const [draft, setDraft] = useState<OmrServerConfig>({
     serverUrl: "",
     apiToken: "",
+    omrEngine: "audiveris",
   });
   const [testing, setTesting] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(
@@ -82,9 +83,38 @@ export function ServerSettings({ open, onClose, onSaved }: Props) {
 
         <p className="server-settings__lead">
           {ja
-            ? "Android版ではPDFの楽譜認識だけを、あなた自身が用意したAudiverisサーバーで実行します。解析後はPDFと解析結果を端末に保存するため、過去の曲はサーバーなしでも開けます。"
-            : "Android sends only PDF recognition to your own Audiveris server. Completed analyses and PDFs are cached on-device so previously opened scores remain available without the server."}
+            ? "Android版ではPDFの楽譜認識だけを、あなた自身が用意したOMRサーバーで実行します。従来のAudiverisと、ディープラーニングを使うhomrを選択できます。解析後はPDFと解析結果を端末に保存します。"
+            : "Android sends only PDF recognition to your own OMR server. You can choose classic Audiveris or neural homr. Completed analyses and PDFs are cached on-device."}
         </p>
+
+        <label className="server-settings__field">
+          <span>{ja ? "楽譜認識エンジン" : "Recognition engine"}</span>
+          <select
+            value={draft.omrEngine}
+            onChange={(e) =>
+              setDraft((d) => ({
+                ...d,
+                omrEngine: e.target.value === "homr" ? "homr" : "audiveris",
+              }))
+            }
+          >
+            <option value="audiveris">
+              {ja ? "Audiveris（従来方式）" : "Audiveris (classic)"}
+            </option>
+            <option value="homr">
+              {ja ? "homr（ニューラルOMR・試験運用）" : "homr (neural OMR, experimental)"}
+            </option>
+          </select>
+          <small className="server-settings__hint">
+            {draft.omrEngine === "homr"
+              ? ja
+                ? "深層学習で音高・リズム・大譜表を認識します。現在は精度比較中で、PDF上の小節ハイライトは利用できません。"
+                : "Uses deep learning for pitch, rhythm and grand-staff recognition. Accuracy is still being benchmarked; PDF measure highlighting is unavailable."
+              : ja
+                ? "現在の標準エンジンです。PDF上の小節位置も取得できます。"
+                : "Current default engine. It also provides PDF measure positions."}
+          </small>
+        </label>
 
         <label className="server-settings__field">
           <span>{ja ? "サーバーURL" : "Server URL"}</span>
