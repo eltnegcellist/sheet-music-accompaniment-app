@@ -10,24 +10,22 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6
-      - name: Fetch IMSLP ImageHandler with accepted cookies
+      - name: Retry Beethoven ImageHandler with issued userHash
         run: |
           set -euxo pipefail
           UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36'
-          COOKIE='redirectPassed=1; imslpdisclaimeraccepted=yes'
-          for spec in 'saintsaens:413948' 'beethoven:52413'; do
-            label="${spec%%:*}"
-            idx="${spec##*:}"
-            curl --compressed -A "$UA" -H "Cookie: $COOKIE"               -L --max-redirs 20 -sS -D "/tmp/$label.h"               "https://imslp.org/wiki/Special:IMSLPImageHandler/$idx"               -o "/tmp/$label.bin"
-            echo "===== $label ====="
-            tail -140 "/tmp/$label.h"
-            file "/tmp/$label.bin"
-            wc -c "/tmp/$label.bin"
-            head -c 32 "/tmp/$label.bin" | xxd
-            sha256sum "/tmp/$label.bin"
-            if file "/tmp/$label.bin" | grep -q HTML; then
-              echo "===== html urls ====="
-              grep -Eoi '(href|src)="[^"]+"' "/tmp/$label.bin" | tail -100 || true
-              grep -Eoi 'https?://[^"[:space:]<>]+' "/tmp/$label.bin" | tail -40 || true
-            fi
-          done
+          BASE='redirectPassed=1; imslpdisclaimeraccepted=yes'
+          URL='https://imslp.org/wiki/Special:IMSLPImageHandler/52413'
+
+          curl --compressed -A "$UA" -H "Cookie: $BASE"             -sS -D /tmp/first.h "$URL" -o /tmp/first.html
+          HASH="$(sed -n 's/.*[Ss]et-[Cc]ookie: userHash=\([^;]*\).*/\1/p' /tmp/first.h | tail -1 | tr -d '\r')"
+          echo "issued userHash=$HASH"
+          test -n "$HASH"
+
+          curl --compressed -A "$UA"             -H "Cookie: $BASE; userHash=$HASH"             -L --max-redirs 20 -sS -D /tmp/second.h             "$URL" -o /tmp/beethoven.bin
+
+          tail -140 /tmp/second.h
+          file /tmp/beethoven.bin
+          wc -c /tmp/beethoven.bin
+          head -c 32 /tmp/beethoven.bin | xxd
+          sha256sum /tmp/beethoven.bin
