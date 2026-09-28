@@ -149,6 +149,16 @@ def auth_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/capabilities")
+def capabilities() -> dict[str, object]:
+    """Describe server features used by Android compatibility checks."""
+    return {
+        "omr_engines": ["audiveris", "homr"],
+        "default_param_set": _PARAM_SET_ID,
+        "per_request_engine_selection": True,
+    }
+
+
 def _truthy(value: str | None) -> bool:
     if value is None:
         return False
