@@ -118,8 +118,10 @@ runs it in an isolated Python 3.11 environment via `uvx`, because homr 0.7
 requires Python 3.11+ while the existing FastAPI/Audiveris container uses the
 Ubuntu 22.04 system Python.
 
-The first neural recognition can take longer while model assets are prepared.
-homr currently does not provide Audiveris-compatible PDF measure bounding boxes,
+The neural model assets are pre-downloaded when the server Docker image is
+built. The first recognition after server start can still take longer because
+the ONNX sessions must warm up. homr currently does not provide
+Audiveris-compatible PDF measure bounding boxes,
 so **PDF measure highlighting is disabled for homr output**. Score-view
 playback still works.
 
