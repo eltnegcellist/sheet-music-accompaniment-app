@@ -19,7 +19,8 @@ jobs:
           set -euxo pipefail
           mkdir -p /tmp/bench
           curl -fL --retry 3             'https://s9.imslp.org/files/imglnks/usimg/e/e2/IMSLP413948-PMLP30030-Saint_Saens_Allegro_Mandozzi_Vc_Kl_-_Partitur.pdf'             -o /tmp/bench/saintsaens.pdf
-          pdfinfo /tmp/bench/saintsaens.pdf | grep '^Pages:'
+          file /tmp/bench/saintsaens.pdf
+          wc -c /tmp/bench/saintsaens.pdf
           sha256sum /tmp/bench/saintsaens.pdf
 
       - name: Create benchmark manifest
