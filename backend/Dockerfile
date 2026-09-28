@@ -26,7 +26,7 @@ ENV AUDIVERIS_HOME=/opt/audiveris \
 RUN apt-get update && apt-get install -y --no-install-recommends \
       python3 python3-pip python3-venv \
       tesseract-ocr tesseract-ocr-ita tesseract-ocr-eng libtesseract-dev \
-      poppler-utils \
+      poppler-utils libgomp1 \
       curl ca-certificates \
       xdg-utils \
     && curl -fL -o /tmp/audiveris.deb \
@@ -60,7 +60,8 @@ RUN python3 -m pip install --no-cache-dir \
       "numpy>=1.26" \
       "music21>=9.0" \
       "pytest>=8.3.0" \
-      "httpx>=0.27.0"
+      "httpx>=0.27.0" \
+      "uv==0.12.19"
 
 COPY app ./app
 # params/ holds the YAML param sets that `/analyze` selects via
@@ -69,6 +70,15 @@ COPY app ./app
 # carry them so the default behaviour matches what the tests measure.
 COPY params ./params
 COPY pyproject.toml ./
+
+# homr 0.7 requires Python >=3.11 while Ubuntu 22.04's system Python is 3.10.
+# Keep the FastAPI/Audiveris environment unchanged and let uv manage a
+# separate Python 3.11 environment for neural OMR. Pre-resolve it at image
+# build time so the first Android request does not need to install Python and
+# all homr dependencies.
+ENV UV_CACHE_DIR=/opt/uv-cache \
+    UV_PYTHON_INSTALL_DIR=/opt/uv-python
+RUN uvx --python 3.11 --from 'homr[cpu]==0.7.0' homr --help >/dev/null
 
 EXPOSE 8000
 CMD ["python3", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
