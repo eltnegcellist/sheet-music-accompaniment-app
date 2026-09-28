@@ -1,5 +1,9 @@
 import type { AnalyzeResponse } from "../types";
-import { authHeaders, configuredServerUrl } from "./serverConfig";
+import {
+  authHeaders,
+  configuredOmrEngine,
+  configuredServerUrl,
+} from "./serverConfig";
 
 function resolveBackendUrl(): string {
   // Desktop Tauri injects its bundled local sidecar URL. Android has no
@@ -39,6 +43,11 @@ export async function analyzePdf(
   if (musicXml) form.append("music_xml", musicXml);
   if (options.soloPdf) form.append("solo_pdf", options.soloPdf);
   if (options.force) form.append("force", "true");
+  // Only self-hosted/Android server requests carry an engine preference.
+  // Desktop Tauri continues to follow PIPELINE_PARAM_SET in its sidecar.
+  if (configuredServerUrl()) {
+    form.append("omr_engine", configuredOmrEngine());
+  }
 
   const response = await fetch(`${backendUrl()}/analyze`, {
     method: "POST",
