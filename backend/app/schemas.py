@@ -16,6 +16,10 @@ class TimeSignatureModel(BaseModel):
 
 class AnalyzeResponse(BaseModel):
     music_xml: str
+    omr_engine: str | None = Field(
+        default=None,
+        description="OMR engine actually used for PDF recognition: audiveris | homr. None when uploaded MusicXML bypassed OMR.",
+    )
     score_title: str | None = None
     accompaniment_part_id: str | None
     solo_part_id: str | None = None

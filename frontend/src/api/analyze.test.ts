@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getCacheList } from "./analyze";
+import { analyzePdf, getCacheList } from "./analyze";
+import { saveServerConfig } from "./serverConfig";
 
 // resolveBackendUrl is module-private, but every public client function
 // reads through `backendUrl()` so we can pin the priority chain by
@@ -10,6 +11,7 @@ describe("backend URL resolution", () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(() => {
+    localStorage.clear();
     delete (window as { __BACKEND_URL__?: string }).__BACKEND_URL__;
     // import.meta.env is read-only at runtime under Vitest; we can't undo
     // a value Vite injected at build time. Each test that needs a
@@ -64,3 +66,77 @@ describe("backend URL resolution", () => {
     expect(captured.url).toMatch(/^https?:\/\/.+\/cache$/);
   });
 });
+
+
+describe("self-hosted OMR engine selection", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    localStorage.clear();
+    vi.restoreAllMocks();
+  });
+
+  it("sends the selected neural engine with Android/self-hosted analyze", async () => {
+    saveServerConfig({
+      serverUrl: "https://omr.example.test",
+      apiToken: "token",
+      omrEngine: "homr",
+    });
+
+    let requestBody: FormData | null = null;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            omr_engines: ["audiveris", "homr"],
+            per_request_engine_selection: true,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockImplementationOnce(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        requestBody = init?.body as FormData;
+        return new Response(
+          JSON.stringify({
+            music_xml: "<score-partwise/>",
+            omr_engine: "homr",
+            measures: [],
+            warnings: [],
+            page_sizes: [],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const pdf = new File(["pdf"], "score.pdf", { type: "application/pdf" });
+    await analyzePdf(pdf);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "https://omr.example.test/capabilities",
+      { headers: { Authorization: "Bearer token" } },
+    );
+    expect(requestBody?.get("omr_engine")).toBe("homr");
+  });
+});
+
+
+  it("refuses neural analysis before upload when server capabilities are missing", async () => {
+    saveServerConfig({
+      serverUrl: "https://old.example.test",
+      apiToken: "",
+      omrEngine: "homr",
+    });
+
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response("not found", { status: 404 }));
+
+    const pdf = new File(["pdf"], "score.pdf", { type: "application/pdf" });
+
+    await expect(analyzePdf(pdf)).rejects.toThrow("最新版");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });

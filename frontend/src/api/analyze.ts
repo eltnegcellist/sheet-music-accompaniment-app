@@ -1,5 +1,9 @@
 import type { AnalyzeResponse } from "../types";
-import { authHeaders, configuredServerUrl } from "./serverConfig";
+import {
+  authHeaders,
+  configuredOmrEngine,
+  configuredServerUrl,
+} from "./serverConfig";
 
 function resolveBackendUrl(): string {
   // Desktop Tauri injects its bundled local sidecar URL. Android has no
@@ -34,11 +38,45 @@ export async function analyzePdf(
     throw new Error("PDF か MusicXML のどちらかを選択してください。");
   }
 
+  const serverUrl = configuredServerUrl();
+  const selectedEngine = configuredOmrEngine();
+
+  // A pre-v0.2.3 server may silently ignore unknown multipart fields.
+  // For neural requests, require explicit capability support before uploading
+  // the PDF so a "homr" selection can never fall back to Audiveris unnoticed.
+  if (serverUrl && selectedEngine === "homr") {
+    const capabilities = await fetch(`${serverUrl}/capabilities`, {
+      headers: authHeaders(),
+    });
+    if (!capabilities.ok) {
+      throw new Error(
+        "OMRサーバーがニューラルOMR対応を確認できません。サーバーを最新版へ更新してください。",
+      );
+    }
+    const body = (await capabilities.json()) as {
+      omr_engines?: unknown;
+      per_request_engine_selection?: unknown;
+    };
+    const engines = Array.isArray(body.omr_engines)
+      ? body.omr_engines.filter((item): item is string => typeof item === "string")
+      : [];
+    if (!engines.includes("homr") || body.per_request_engine_selection !== true) {
+      throw new Error(
+        "このOMRサーバーはhomrの選択に対応していません。サーバーを最新版へ更新してください。",
+      );
+    }
+  }
+
   const form = new FormData();
   if (pdf) form.append("pdf", pdf);
   if (musicXml) form.append("music_xml", musicXml);
   if (options.soloPdf) form.append("solo_pdf", options.soloPdf);
   if (options.force) form.append("force", "true");
+  // Only self-hosted/Android server requests carry an engine preference.
+  // Desktop Tauri continues to follow PIPELINE_PARAM_SET in its sidecar.
+  if (serverUrl) {
+    form.append("omr_engine", selectedEngine);
+  }
 
   const response = await fetch(`${backendUrl()}/analyze`, {
     method: "POST",
@@ -58,6 +96,8 @@ export interface CacheEntry {
   param_set_id: string;
   pdf_name: string;
   timestamp: number;
+  /** Present for Android-local entries so two OMR engines can coexist. */
+  engine?: "audiveris" | "homr";
   /** Android stores completed analyses on-device; desktop entries are server-backed. */
   source?: "server" | "local";
 }

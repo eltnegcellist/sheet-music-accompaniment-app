@@ -1,6 +1,9 @@
+export type OmrEngine = "audiveris" | "homr";
+
 export interface OmrServerConfig {
   serverUrl: string;
   apiToken: string;
+  omrEngine: OmrEngine;
 }
 
 const STORAGE_KEY = "imslp-accompanist.omr-server.v1";
@@ -10,17 +13,22 @@ function normalizeServerUrl(value: string): string {
 }
 
 export function getServerConfig(): OmrServerConfig {
-  if (typeof window === "undefined") return { serverUrl: "", apiToken: "" };
+  if (typeof window === "undefined") {
+    return { serverUrl: "", apiToken: "", omrEngine: "audiveris" };
+  }
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { serverUrl: "", apiToken: "" };
+    if (!raw) {
+      return { serverUrl: "", apiToken: "", omrEngine: "audiveris" };
+    }
     const parsed = JSON.parse(raw) as Partial<OmrServerConfig>;
     return {
       serverUrl: normalizeServerUrl(parsed.serverUrl ?? ""),
       apiToken: parsed.apiToken ?? "",
+      omrEngine: parsed.omrEngine === "homr" ? "homr" : "audiveris",
     };
   } catch {
-    return { serverUrl: "", apiToken: "" };
+    return { serverUrl: "", apiToken: "", omrEngine: "audiveris" };
   }
 }
 
@@ -28,6 +36,7 @@ export function saveServerConfig(config: OmrServerConfig): void {
   const normalized: OmrServerConfig = {
     serverUrl: normalizeServerUrl(config.serverUrl),
     apiToken: config.apiToken.trim(),
+    omrEngine: config.omrEngine,
   };
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
 }
@@ -39,6 +48,10 @@ export function hasConfiguredServer(): boolean {
 export function configuredServerUrl(): string | null {
   const url = getServerConfig().serverUrl;
   return url || null;
+}
+
+export function configuredOmrEngine(): OmrEngine {
+  return getServerConfig().omrEngine;
 }
 
 export function authHeaders(): Record<string, string> {
@@ -74,6 +87,32 @@ export async function testServerConnection(
     if (!auth.ok) {
       return { ok: false, message: `/auth/check: HTTP ${auth.status}` };
     }
+
+    const capabilities = await fetch(`${serverUrl}/capabilities`, { headers });
+    if (capabilities.ok) {
+      const body = (await capabilities.json()) as {
+        omr_engines?: unknown;
+        per_request_engine_selection?: unknown;
+      };
+      const engines = Array.isArray(body.omr_engines)
+        ? body.omr_engines.filter((item): item is string => typeof item === "string")
+        : [];
+      if (
+        config.omrEngine === "homr" &&
+        (!engines.includes("homr") || body.per_request_engine_selection !== true)
+      ) {
+        return {
+          ok: false,
+          message: "このサーバーはニューラルOMR (homr) の選択に対応していません。サーバーを更新してください。",
+        };
+      }
+    } else if (config.omrEngine === "homr") {
+      return {
+        ok: false,
+        message: "このサーバーはニューラルOMR対応を確認できません。サーバーを最新版へ更新してください。",
+      };
+    }
+
     return { ok: true, message: "接続できました。OMRサーバーを利用できます。" };
   } catch (error) {
     return {

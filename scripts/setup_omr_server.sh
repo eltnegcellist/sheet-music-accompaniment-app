@@ -56,6 +56,10 @@ else
   echo "  Server URL: http://<this-computer-LAN-IP>:$PORT"
 fi
 echo "  API token: $TOKEN"
+echo "  OMR engines: Audiveris + neural homr 0.7"
+echo ""
+echo "In Android v0.2.3+, choose the engine in OMR server settings."
+echo "Neural model assets are downloaded while the Docker image is built; first inference may still need a short warm-up."
 echo ""
 echo "Connection test:"
 echo "  curl http://127.0.0.1:$PORT/health"

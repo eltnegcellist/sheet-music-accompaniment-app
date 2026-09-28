@@ -39,6 +39,14 @@ def test_health_returns_ok(client) -> None:
     assert resp.json() == {"status": "ok"}
 
 
+def test_capabilities_advertise_neural_engine(client) -> None:
+    resp = client.get("/capabilities")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["omr_engines"] == ["audiveris", "homr"]
+    assert body["per_request_engine_selection"] is True
+
+
 def test_cache_listing_starts_empty(client) -> None:
     resp = client.get("/cache")
     assert resp.status_code == 200
@@ -79,3 +87,17 @@ def test_cors_allowlist_honours_env(monkeypatch: pytest.MonkeyPatch) -> None:
             },
         )
         assert resp.headers.get("access-control-allow-origin") in (None, "")
+
+
+def test_engine_override_maps_to_expected_param_sets() -> None:
+    import app.main as main_module
+
+    assert main_module._param_set_for_engine("audiveris") == "v5_real_pdf"
+    assert main_module._param_set_for_engine("homr") == "v6_homr"
+
+
+def test_engine_override_rejects_unknown_value() -> None:
+    import app.main as main_module
+
+    with pytest.raises(ValueError, match="Unsupported OMR engine"):
+        main_module._param_set_for_engine("unknown")

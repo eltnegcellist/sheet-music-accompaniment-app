@@ -16,9 +16,15 @@ homr 0.7 uses learned segmentation followed by transformer-based semantic
 recognition and outputs MusicXML. It supports grand-staff/piano-form notation,
 which matches this application's accompaniment use case.
 
-The application rasterizes PDF pages one at a time at 300 DPI to bound memory,
-then passes the ordered image paths to homr in one invocation. Current homr
-creates a merged MusicXML file for multi-image input.
+The application rasterizes PDF pages one at a time at 300 DPI to bound memory.
+The **published PyPI 0.7.0 CLI** accepts one image or one directory, so the
+adapter passes the rendered-page directory to homr. homr processes the images
+in filename order and writes one MusicXML file per page; this application then
+concatenates those page outputs into one score.
+
+The current upstream main branch has since evolved toward multi-image/merged
+output behavior. We intentionally target the pinned PyPI 0.7.0 interface here
+for reproducibility.
 
 ## Local setup
 
@@ -31,9 +37,14 @@ source .venv-homr/bin/activate
 pip install -e ".[dev,homr]"
 ```
 
-The `homr` optional dependency installs `homr[cpu]==0.7.0`, including the
-ONNX Runtime CPU inference backend. Model assets are managed by homr when it
-runs. An existing launcher can be selected with `HOMR_COMMAND`.
+The `homr` optional dependency pins `homr==0.7.0`. The published 0.7.0
+package includes its CPU inference dependencies; unlike current upstream main,
+the PyPI 0.7.0 metadata does not publish a `cpu` extra. An existing launcher
+can be selected with `HOMR_COMMAND`.
+
+The Docker image runs `homr --init` at build time so segmentation,
+transformer and title-OCR model assets are downloaded into the image before the
+server is started. This avoids a model download on the first Android analysis.
 
 To run the API with neural OMR:
 
@@ -131,3 +142,18 @@ such as Sheet Music Transformer or Acai OMR only if their inference setup is
 reproducible and their licenses/dependencies are suitable. The benchmark format
 is intentionally engine-neutral so those outputs can be compared against the
 same corpus later.
+
+## Self-hosted Android server
+
+The production Docker image now keeps the existing FastAPI/Audiveris Python
+environment unchanged and installs `uv 0.12.19`. At image build time it
+prepares a separate Python 3.11 environment for `homr==0.7.0`.
+
+The Android client sends `omr_engine=audiveris` or `omr_engine=homr` with
+self-hosted analysis requests. The server maps those to `v5_real_pdf` and
+`v6_homr` respectively. Desktop/Tauri requests omit the field and continue to
+follow `PIPELINE_PARAM_SET`.
+
+`GET /capabilities` advertises supported engines and whether per-request
+selection is available. Android uses that endpoint during connection testing so
+an old server cannot silently ignore a homr selection.

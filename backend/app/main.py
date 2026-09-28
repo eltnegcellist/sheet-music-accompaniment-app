@@ -58,24 +58,39 @@ _PARAMS_DIR = resource_root() / "params"
 _analyze_cache = AnalyzeCache()
 
 
-def _load_active_params() -> tuple[str, dict | None]:
-    """Resolve the active param set; degrade to None on any loader failure.
+def _param_set_for_engine(engine_override: str | None) -> str:
+    """Resolve an optional per-request OMR engine to a parameter set."""
+    if engine_override is None or not engine_override.strip():
+        return _PARAM_SET_ID
+    engine = engine_override.strip().lower()
+    if engine == "audiveris":
+        return "v5_real_pdf"
+    if engine == "homr":
+        return "v6_homr"
+    raise ValueError(f"Unsupported OMR engine: {engine_override}")
 
-    Returning None preserves the pre-W-01 behaviour (no postprocess) so a
-    broken YAML never takes the API down.
+
+def _load_active_params(
+    engine_override: str | None = None,
+) -> tuple[str, dict | None]:
+    """Resolve the active param set; degrade to None on loader failure.
+
+    Android/self-hosted callers may select an OMR engine per request.
+    Desktop callers omit the override and continue to use PIPELINE_PARAM_SET.
     """
+    selected_param_set = _param_set_for_engine(engine_override)
     try:
         resolved = load_params(
-            _PARAM_SET_ID,
+            selected_param_set,
             _PARAMS_DIR,
             schema_path=_PARAMS_DIR / "schema.json",
         )
     except (ParamsError, FileNotFoundError) as exc:
         logger.warning(
             "Falling back to no-params: failed to load %s — %s",
-            _PARAM_SET_ID, exc,
+            selected_param_set, exc,
         )
-        return _PARAM_SET_ID, None
+        return selected_param_set, None
     return resolved.param_set_id(), resolved.data
 
 
@@ -134,6 +149,16 @@ def auth_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/capabilities")
+def capabilities() -> dict[str, object]:
+    """Describe server features used by Android compatibility checks."""
+    return {
+        "omr_engines": ["audiveris", "homr"],
+        "default_param_set": _PARAM_SET_ID,
+        "per_request_engine_selection": True,
+    }
+
+
 def _truthy(value: str | None) -> bool:
     if value is None:
         return False
@@ -146,6 +171,7 @@ async def analyze(
     music_xml: UploadFile | None = File(default=None),
     solo_pdf: UploadFile | None = File(default=None),
     force: str | None = Form(default=None),
+    omr_engine: str | None = Form(default=None),
 ) -> AnalyzeResponse:
     if pdf is None and music_xml is None:
         raise HTTPException(400, "Either pdf or music_xml must be provided.")
@@ -192,7 +218,10 @@ async def analyze(
                 user_xml_bytes,
             )
 
-        active_param_set_id, params = _load_active_params()
+        try:
+            active_param_set_id, params = _load_active_params(omr_engine)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
         if cache_key is not None and not force_reanalyze:
             cached = _analyze_cache.get(cache_key, active_param_set_id)
             if cached is not None:
@@ -210,6 +239,7 @@ async def analyze(
                 _analyze_cache.invalidate(cache_key_pdf_only)
 
         warnings: list[str] = []
+        used_omr_engine: str | None = None
         # When the caller supplies a valid MusicXML we can skip Audiveris
         # entirely. That's ~20x faster on long scores and sidesteps Audiveris
         # bugs (NullPointerExceptions in reduceScores/Voices occur on some
@@ -251,6 +281,8 @@ async def analyze(
             full_pdf_for_omr = pdf_path
             inferred_solo_pdf: Path | None = None
 
+            omr_cfg = (params or {}).get("omr") or {}
+            used_omr_engine = str(omr_cfg.get("engine") or "audiveris").lower()
             try:
                 omr_result = run_omr_via_pipeline(
                     full_pdf_for_omr,
@@ -400,6 +432,7 @@ async def analyze(
 
         response = AnalyzeResponse(
             music_xml=merged_xml,
+            omr_engine=used_omr_engine,
             score_title=score_title,
             accompaniment_part_id=accompaniment_part_id,
             solo_part_id=solo_part_id,

@@ -1,5 +1,6 @@
 import type { AnalyzeResponse } from "../types";
 import type { CacheEntry } from "./analyze";
+import type { OmrEngine } from "./serverConfig";
 
 const DB_NAME = "imslp-accompanist-android";
 const DB_VERSION = 1;
@@ -11,6 +12,7 @@ interface StoredAnalysis {
   timestamp: number;
   pdf_blob: Blob;
   analysis: AnalyzeResponse;
+  engine?: OmrEngine;
 }
 
 function openDb(): Promise<IDBDatabase> {
@@ -52,28 +54,37 @@ async function pdfKey(pdf: File): Promise<string> {
 function toCacheEntry(item: StoredAnalysis): CacheEntry {
   return {
     key: item.key,
-    param_set_id: "android-local",
+    param_set_id: `android-local:${item.engine ?? "audiveris"}`,
     pdf_name: item.pdf_name,
     timestamp: item.timestamp,
     source: "local",
+    engine: item.engine ?? "audiveris",
   };
 }
 
 export async function putAndroidCache(
   pdf: File,
   analysis: AnalyzeResponse,
+  engine: OmrEngine = "audiveris",
 ): Promise<CacheEntry> {
   const db = await openDb();
   try {
+    const baseKey = await pdfKey(pdf);
     const item: StoredAnalysis = {
-      key: await pdfKey(pdf),
+      key: `${baseKey}:${engine}`,
       pdf_name: pdf.name,
       timestamp: Date.now() / 1000,
       pdf_blob: pdf.slice(0, pdf.size, pdf.type || "application/pdf"),
       analysis,
+      engine,
     };
     const tx = db.transaction(STORE, "readwrite");
-    tx.objectStore(STORE).put(item);
+    const store = tx.objectStore(STORE);
+    store.put(item);
+    // v0.2.2 and earlier used the bare PDF hash and therefore represented
+    // the Audiveris result. Remove that legacy duplicate when Audiveris is
+    // analyzed again; keep it when homr is added so A/B results can coexist.
+    if (engine === "audiveris") store.delete(baseKey);
     await transactionDone(tx);
     return toCacheEntry(item);
   } finally {
