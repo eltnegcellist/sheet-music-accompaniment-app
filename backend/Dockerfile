@@ -78,7 +78,7 @@ COPY pyproject.toml ./
 # all homr dependencies.
 ENV UV_CACHE_DIR=/opt/uv-cache \
     UV_PYTHON_INSTALL_DIR=/opt/uv-python
-RUN uvx --python 3.11 --from 'homr[cpu]==0.7.0' homr --help >/dev/null
+RUN uvx --python 3.11 --from 'homr==0.7.0' homr --help >/dev/null
 
 EXPOSE 8000
 CMD ["python3", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
