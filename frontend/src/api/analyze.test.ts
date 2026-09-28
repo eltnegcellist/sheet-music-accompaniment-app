@@ -85,22 +85,58 @@ describe("self-hosted OMR engine selection", () => {
     });
 
     let requestBody: FormData | null = null;
-    globalThis.fetch = vi.fn(async (_input, init) => {
-      requestBody = init?.body as FormData;
-      return new Response(
-        JSON.stringify({
-          music_xml: "<score-partwise/>",
-          measures: [],
-          warnings: [],
-          page_sizes: [],
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
-    }) as unknown as typeof fetch;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            omr_engines: ["audiveris", "homr"],
+            per_request_engine_selection: true,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockImplementationOnce(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        requestBody = init?.body as FormData;
+        return new Response(
+          JSON.stringify({
+            music_xml: "<score-partwise/>",
+            omr_engine: "homr",
+            measures: [],
+            warnings: [],
+            page_sizes: [],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const pdf = new File(["pdf"], "score.pdf", { type: "application/pdf" });
     await analyzePdf(pdf);
 
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "https://omr.example.test/capabilities",
+      { headers: { Authorization: "Bearer token" } },
+    );
     expect(requestBody?.get("omr_engine")).toBe("homr");
   });
 });
+
+
+  it("refuses neural analysis before upload when server capabilities are missing", async () => {
+    saveServerConfig({
+      serverUrl: "https://old.example.test",
+      apiToken: "",
+      omrEngine: "homr",
+    });
+
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response("not found", { status: 404 }));
+
+    const pdf = new File(["pdf"], "score.pdf", { type: "application/pdf" });
+
+    await expect(analyzePdf(pdf)).rejects.toThrow("最新版");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
