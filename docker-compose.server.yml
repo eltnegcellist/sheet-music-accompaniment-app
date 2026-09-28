@@ -12,7 +12,7 @@ services:
       APP_DATA_DIR: /data
       ANALYZE_CACHE_DIR: /data/cache/analyze
       PIPELINE_PARAM_SET: ${PIPELINE_PARAM_SET:-v5_real_pdf}
-      HOMR_COMMAND: "uvx --python 3.11 --from homr[cpu]==0.7.0 homr"
+      HOMR_COMMAND: "uvx --python 3.11 --from homr==0.7.0 homr"
       UV_CACHE_DIR: /opt/uv-cache
       UV_PYTHON_INSTALL_DIR: /opt/uv-python
       PYTHONUNBUFFERED: "1"
