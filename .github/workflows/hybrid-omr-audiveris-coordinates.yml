@@ -115,21 +115,27 @@ jobs:
               records=[]
               for si,system in enumerate(systems,1):
                   parts=system.findall('./part')
-                  piano_candidates=[p for p in parts if len(p.findall('./staff'))==2]
-                  if len(piano_candidates)!=1:
-                      raise RuntimeError(f'{case} system {si}: expected exactly one 2-staff piano part, got {len(piano_candidates)}')
-                  piano=piano_candidates[0]
-                  p_staves=piano.findall('./staff')
+                  # Audiveris may split the piano grand staff into separate
+                  # logical parts on difficult systems. Use its geometric Staff
+                  # coordinates instead: in cello+piano scores the bottom two
+                  # detected staves are the piano grand staff.
+                  all_staves=[
+                      s for p in parts
+                      for s in p.findall('./staff')
+                  ]
+                  if len(all_staves) < 3:
+                      raise RuntimeError(f'{case} system {si}: expected at least 3 detected staves, got {len(all_staves)}')
+                  ordered=sorted(
+                      all_staves,
+                      key=lambda s: sum(staff_bounds(s)[:2]) / 2,
+                  )
+                  p_staves=ordered[-2:]
+                  solo_staves=ordered[:-2]
                   p_bounds=[staff_bounds(s) for s in p_staves]
                   piano_top=min(b[0] for b in p_bounds)*sy
                   piano_bottom=max(b[1] for b in p_bounds)*sy
                   left=min(b[2] for b in p_bounds)*sx
                   right=max(b[3] for b in p_bounds)*sx
-
-                  solo_staves=[
-                      s for p in parts if p is not piano
-                      for s in p.findall('./staff')
-                  ]
                   if solo_staves:
                       solo_bottom=max(staff_bounds(s)[1] for s in solo_staves)*sy
                       lo=int(max(0,solo_bottom+4))
