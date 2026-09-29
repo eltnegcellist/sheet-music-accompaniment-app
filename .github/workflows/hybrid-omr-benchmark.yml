@@ -1,0 +1,290 @@
+name: hybrid-omr-benchmark
+
+on:
+  push:
+    branches:
+      - "experiment/omr-real-score-benchmark"
+    paths:
+      - ".github/workflows/hybrid-omr-benchmark.yml"
+
+jobs:
+  hybrid:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download exact IMSLP scores
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/hybrid
+          curl -fL --retry 3 \
+            'https://s9.imslp.org/files/imglnks/usimg/8/80/IMSLP52413-PMLP04421-Beethoven_Werke_Breitkopf_Serie_13_No_107_Op_69.pdf' \
+            -o /tmp/hybrid/beethoven.pdf
+          curl -fL --retry 3 \
+            'https://s9.imslp.org/files/imglnks/usimg/e/e2/IMSLP413948-PMLP30030-Saint_Saens_Allegro_Mandozzi_Vc_Kl_-_Partitur.pdf' \
+            -o /tmp/hybrid/saintsaens.pdf
+
+      - name: Prepare representative one-page PDFs
+        run: |
+          python3 -m pip install --quiet pypdf opencv-python-headless
+          python3 - <<'PY'
+          from pathlib import Path
+          from pypdf import PdfReader, PdfWriter
+
+          root=Path('/tmp/hybrid')
+          specs=[
+              ('beethoven',3,'beethoven-p03',24),
+              ('beethoven',11,'beethoven-p11',18),
+              ('beethoven',24,'beethoven-p24',29),
+              ('saintsaens',1,'saint-p01',26),
+          ]
+          for source,page,case,expected in specs:
+              reader=PdfReader(root/f'{source}.pdf')
+              writer=PdfWriter(); writer.add_page(reader.pages[page-1])
+              with (root/f'{case}.pdf').open('wb') as fh: writer.write(fh)
+          PY
+
+      - name: Build current dual-engine server image
+        run: docker build --progress=plain -t imslp-hybrid-benchmark backend
+
+      - name: Run Audiveris structure pass
+        run: |
+          cat > /tmp/hybrid/manifest.yaml <<'YAML'
+          cases:
+            - id: beethoven-p03
+              category: historical-scan-opening
+              pdf: beethoven-p03.pdf
+            - id: beethoven-p11
+              category: historical-scan-dense
+              pdf: beethoven-p11.pdf
+            - id: beethoven-p24
+              category: historical-scan-late
+              pdf: beethoven-p24.pdf
+            - id: saint-p01
+              category: clean-typeset-opening
+              pdf: saint-p01.pdf
+          YAML
+          docker run --rm \
+            -v /tmp/hybrid:/bench \
+            imslp-hybrid-benchmark \
+            python3 -m app.benchmark.omr_compare \
+              --manifest /bench/manifest.yaml \
+              --engines audiveris \
+              --output /bench/audiveris-results
+
+      - name: Rasterize pages at homr DPI
+        run: |
+          mkdir -p /tmp/hybrid/pages
+          for case in beethoven-p03 beethoven-p11 beethoven-p24 saint-p01; do
+            pdftoppm -png -r 300 -f 1 -singlefile \
+              "/tmp/hybrid/$case.pdf" "/tmp/hybrid/pages/$case"
+          done
+
+      - name: Detect systems and crop only piano grand staves
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          import cv2
+          import numpy as np
+          import xml.etree.ElementTree as ET
+
+          root=Path('/tmp/hybrid')
+          pages=root/'pages'
+          crops=root/'crops'
+          crops.mkdir(exist_ok=True)
+          expected={'beethoven-p03':24,'beethoven-p11':18,'beethoven-p24':29,'saint-p01':26}
+          audit={}
+
+          def audiveris_has_piano(case):
+              p=root/'audiveris-results'/case/'audiveris'/'recognized.musicxml'
+              x=ET.fromstring(p.read_text(errors='replace'))
+              names=[(n.text or '').lower() for n in x.findall('./part-list/score-part/part-name')]
+              return any('piano' in n or 'klavier' in n for n in names), names
+
+          def staff_centers(img):
+              gray=cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
+              bw=cv2.threshold(gray,200,255,cv2.THRESH_BINARY_INV)[1]
+              k=max(40,img.shape[1]//12)
+              horiz=cv2.morphologyEx(
+                  bw, cv2.MORPH_OPEN,
+                  cv2.getStructuringElement(cv2.MORPH_RECT,(k,1))
+              )
+              score=(horiz>0).sum(axis=1)
+              rows=np.where(score>img.shape[1]*0.30)[0]
+              line_centers=[]
+              if len(rows):
+                  s=p=int(rows[0])
+                  for rr in rows[1:]:
+                      rr=int(rr)
+                      if rr<=p+3: p=rr
+                      else:
+                          line_centers.append((s+p)//2); s=p=rr
+                  line_centers.append((s+p)//2)
+              diffs=np.diff(line_centers)
+              small=[int(d) for d in diffs if d < np.percentile(diffs,45)] if len(diffs) else [10]
+              line_gap=max(4,float(np.median(small)))
+              staves=[]; cur=[line_centers[0]]
+              for a,b in zip(line_centers,line_centers[1:]):
+                  if b-a <= line_gap*2.6:
+                      cur.append(b)
+                  else:
+                      if 3 <= len(cur) <= 7:
+                          staves.append(cur)
+                      cur=[b]
+              if 3 <= len(cur) <= 7:
+                  staves.append(cur)
+              centers=[float(np.mean(s)) for s in staves]
+              spans=[max(s)-min(s) for s in staves]
+              return centers, float(np.median(spans) if spans else line_gap*4), bw
+
+          for case in expected:
+              has_piano,names=audiveris_has_piano(case)
+              if not has_piano:
+                  raise RuntimeError(f'{case}: Audiveris did not identify a Piano part: {names}')
+              img=cv2.imread(str(pages/f'{case}.png'))
+              centers,staff_span,bw=staff_centers(img)
+              if len(centers) < 3:
+                  raise RuntimeError(f'{case}: too few detected staves: {centers}')
+
+              # Cello+piano pages repeat [solo staff, piano treble, piano bass].
+              # If the final bass staff is too broken to pass the horizontal-line
+              # detector, infer it from the median treble-to-bass spacing.
+              full_triplets=len(centers)//3
+              tb_gaps=[
+                  centers[i+2]-centers[i+1]
+                  for i in range(0,full_triplets*3,3)
+                  if i+2 < len(centers)
+              ]
+              typical_tb=float(np.median(tb_gaps)) if tb_gaps else staff_span*4
+              if len(centers)%3==2:
+                  centers.append(centers[-1]+typical_tb)
+              if len(centers)%3 != 0:
+                  raise RuntimeError(f'{case}: staff count not compatible with 3-staff systems: {centers}')
+
+              # Row ink density gives a clean whitespace boundary between solo
+              # and piano staves, avoiding cello notes while preserving piano
+              # ledger notes/dynamics.
+              density=(bw>0).sum(axis=1).astype(np.float32)
+              win=max(5,int(staff_span*0.35))
+              smooth=np.convolve(density,np.ones(win)/win,mode='same')
+              systems=[]
+              outdir=crops/case; outdir.mkdir(parents=True,exist_ok=True)
+              triples=[centers[i:i+3] for i in range(0,len(centers),3)]
+              for idx,(solo,treble,bass) in enumerate(triples):
+                  line_margin=max(5,staff_span*0.65)
+                  lo=max(0,int(solo+line_margin))
+                  hi=min(img.shape[0]-1,int(treble-line_margin))
+                  if hi>lo:
+                      y0=lo+int(np.argmin(smooth[lo:hi+1]))
+                  else:
+                      y0=int((solo+treble)/2)
+
+                  if idx+1 < len(triples):
+                      next_solo=triples[idx+1][0]
+                      lo2=max(0,int(bass+line_margin))
+                      hi2=min(img.shape[0]-1,int(next_solo-line_margin))
+                      if hi2>lo2:
+                          y1=lo2+int(np.argmin(smooth[lo2:hi2+1]))
+                      else:
+                          y1=int((bass+next_solo)/2)
+                  else:
+                      y1=min(img.shape[0], int(bass + max(typical_tb,staff_span*3)*0.8))
+
+                  # Keep full horizontal context; homr's own autocrop removes margins.
+                  y0=max(0,y0-4); y1=min(img.shape[0],y1+4)
+                  crop=img[y0:y1,:]
+                  path=outdir/f'system_{idx+1:02d}.png'
+                  cv2.imwrite(str(path),crop)
+                  systems.append({'index':idx+1,'solo':solo,'treble':treble,'bass':bass,'y0':y0,'y1':y1,'height':y1-y0})
+
+              audit[case]={
+                  'expected_measures':expected[case],
+                  'audiveris_part_names':names,
+                  'staff_centers':centers,
+                  'staff_span':staff_span,
+                  'systems':systems,
+              }
+
+          (root/'crop_audit.json').write_text(json.dumps(audit,indent=2))
+          print(json.dumps(audit,indent=2))
+          PY
+
+      - name: Run homr only on cropped piano systems
+        run: |
+          set -euxo pipefail
+          for case in beethoven-p03 beethoven-p11 beethoven-p24 saint-p01; do
+            docker run --rm \
+              -v /tmp/hybrid:/bench \
+              -e HOMR_COMMAND="uvx --python 3.11 --from homr==0.7.0 homr" \
+              imslp-hybrid-benchmark \
+              sh -lc "uvx --python 3.11 --from homr==0.7.0 homr /bench/crops/$case"
+          done
+
+      - name: Merge system XML and score hybrid output
+        run: |
+          docker run --rm -v /tmp/hybrid:/bench imslp-hybrid-benchmark python3 - <<'PY'
+          from pathlib import Path
+          import json
+          import xml.etree.ElementTree as ET
+          from app.music.musicxml_concat import concat_musicxml
+          from app.pipeline.scoring_facade import evaluate_musicxml_metrics
+
+          root=Path('/bench')
+          expected={'beethoven-p03':24,'beethoven-p11':18,'beethoven-p24':29,'saint-p01':26}
+          summary={}
+          outroot=root/'hybrid-results'; outroot.mkdir(exist_ok=True)
+
+          for case,truth in expected.items():
+              cropdir=root/'crops'/case
+              xmls=[]
+              crop_details=[]
+              for p in sorted(cropdir.glob('system_*.musicxml')):
+                  text=p.read_text(errors='replace')
+                  xmls.append(text)
+                  x=ET.fromstring(text)
+                  parts=x.findall('./part')
+                  crop_details.append({
+                      'file':p.name,
+                      'parts':len(parts),
+                      'measures':max((len(part.findall('measure')) for part in parts),default=0),
+                      'pitched_notes':len([n for n in x.findall('.//note') if n.find('pitch') is not None]),
+                      'rests':len([n for n in x.findall('.//note') if n.find('rest') is not None]),
+                  })
+              if not xmls:
+                  raise RuntimeError(f'{case}: no homr system MusicXML output')
+
+              merged=concat_musicxml(xmls)
+              caseout=outroot/case; caseout.mkdir(exist_ok=True)
+              (caseout/'hybrid.musicxml').write_text(merged)
+              x=ET.fromstring(merged)
+              parts=x.findall('./part')
+              measures=max((len(part.findall('measure')) for part in parts),default=0)
+              pitched=len([n for n in x.findall('.//note') if n.find('pitch') is not None])
+              rests=len([n for n in x.findall('.//note') if n.find('rest') is not None])
+              intrinsic=evaluate_musicxml_metrics(merged)
+              summary[case]={
+                  'expected_measures':truth,
+                  'hybrid_parts':len(parts),
+                  'hybrid_measures':measures,
+                  'measure_error':measures-truth,
+                  'pitched_notes':pitched,
+                  'rests':rests,
+                  'intrinsic':intrinsic,
+                  'systems':crop_details,
+              }
+
+          (outroot/'hybrid_summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2))
+          print(json.dumps(summary,ensure_ascii=False,indent=2))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hybrid-audiveris-layout-homr-piano-benchmark
+          path: |
+            /tmp/hybrid/crop_audit.json
+            /tmp/hybrid/crops
+            /tmp/hybrid/hybrid-results
+            /tmp/hybrid/audiveris-results
+          if-no-files-found: error
