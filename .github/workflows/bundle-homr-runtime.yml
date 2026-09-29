@@ -1,9 +1,7 @@
 name: bundle-homr-runtime
 
 on:
-  push:
-    branches:
-      - "experiment/omr-real-score-benchmark"
+  workflow_dispatch:
 
 jobs:
   bundle:
