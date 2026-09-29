@@ -67,7 +67,7 @@ jobs:
               sh -lc "pdftoppm -png -r 300 -f 1 -singlefile /bench/$case.pdf /bench/pages/$case"
           done
 
-      - name: Constrain by Audiveris systems and redetect staves visually
+      - name: Constrain by Audiveris systems and infer missing piano staves
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -81,77 +81,13 @@ jobs:
           expected={'beethoven-p03':24,'beethoven-p11':18,'beethoven-p24':29,'saint-p01':26}
           audit={}
 
-          def staff_line_ys(staff):
+          def staff_center(staff):
               ys=[]
               for line in staff.findall('./lines/line'):
                   pts=[float(p.get('y')) for p in line.findall('./point') if p.get('y') is not None]
                   if pts:
                       ys.append(float(np.mean(pts)))
-              return ys
-
-          def system_anchor(system):
-              ys=[]
-              for staff in system.findall('./part/staff'):
-                  ys.extend(staff_line_ys(staff))
-              if not ys:
-                  return None
-              return float(np.mean(ys))
-
-          def detect_staff_centers(img, y0, y1):
-              region=img[y0:y1,:]
-              gray=cv2.cvtColor(region,cv2.COLOR_BGR2GRAY)
-              bw=cv2.threshold(gray,205,255,cv2.THRESH_BINARY_INV)[1]
-              # Long horizontal morphology isolates staff lines but tolerates
-              # old-scan breaks better than requiring full-width lines.
-              k=max(45,img.shape[1]//15)
-              horiz=cv2.morphologyEx(
-                  bw, cv2.MORPH_OPEN,
-                  cv2.getStructuringElement(cv2.MORPH_RECT,(k,1))
-              )
-              score=(horiz>0).sum(axis=1)
-              rows=np.where(score > img.shape[1]*0.16)[0]
-              if len(rows)==0:
-                  return [], bw
-              # Collapse thick/duplicate rows.
-              lines=[]
-              s=p=int(rows[0])
-              for rr in rows[1:]:
-                  rr=int(rr)
-                  if rr <= p+3:
-                      p=rr
-                  else:
-                      lines.append((s+p)/2); s=p=rr
-              lines.append((s+p)/2)
-              if len(lines)<5:
-                  return [], bw
-
-              diffs=np.diff(lines)
-              positive=[d for d in diffs if 3 <= d <= 80]
-              gap=float(np.median(sorted(positive)[:max(4,len(positive)//2)])) if positive else 12.0
-
-              # Score every run of five roughly equally-spaced horizontal
-              # lines; greedily keep non-overlapping candidates.
-              candidates=[]
-              for i in range(len(lines)-4):
-                  five=np.array(lines[i:i+5],dtype=float)
-                  ds=np.diff(five)
-                  med=float(np.median(ds))
-                  if med < max(4,gap*0.55) or med > max(40,gap*2.2):
-                      continue
-                  cv=float(np.std(ds)/(med+1e-6))
-                  if cv <= 0.35:
-                      candidates.append((cv,float(np.mean(five)),i,i+4,med))
-              candidates.sort()
-              chosen=[]
-              used=set()
-              for cand in candidates:
-                  _,center,a,b,_=cand
-                  ids=set(range(a,b+1))
-                  if used & ids:
-                      continue
-                  chosen.append(cand); used |= ids
-              centers=sorted([c[1]+y0 for c in chosen])
-              return centers, bw
+              return float(np.mean(ys)) if ys else None
 
           for case,truth in expected.items():
               omrs=list((prev/'audiveris-results'/case/'audiveris').rglob('*.omr'))
@@ -165,109 +101,125 @@ jobs:
               if img is None:
                   raise RuntimeError(f'{case}: page image missing')
               picture=x.find('./picture')
-              src_h=float(picture.get('height'))
-              sy=img.shape[0]/src_h
-
+              sy=img.shape[0]/float(picture.get('height'))
               systems=x.findall('./page/system')
-              anchors=[]
-              for sys in systems:
-                  a=system_anchor(sys)
-                  anchors.append(a*sy if a is not None else None)
 
-              # Fill any missing anchors by interpolation so every Audiveris
-              # System still defines a local search region.
+              sys_centers=[]
+              for system in systems:
+                  vals=[]
+                  for st in system.findall('./part/staff'):
+                      v=staff_center(st)
+                      if v is not None:
+                          vals.append(v*sy)
+                  # Deduplicate physical staves that may be represented by
+                  # multiple logical parts.
+                  vals=sorted(vals)
+                  dedup=[]
+                  for v in vals:
+                      if not dedup or abs(v-dedup[-1])>8:
+                          dedup.append(v)
+                  sys_centers.append(dedup)
+
+              complete=[v[-3:] for v in sys_centers if len(v)>=3]
+              if not complete:
+                  raise RuntimeError(f'{case}: no complete 3-staff system to learn spacing')
+              d1=float(np.median([v[1]-v[0] for v in complete]))
+              d2=float(np.median([v[2]-v[0] for v in complete]))
+              d12=d2-d1
+
+              # Use available staff geometry as the System anchor. A final
+              # system with only the cello staff still gets a valid region.
+              anchors=[]
+              for i,vals in enumerate(sys_centers):
+                  if vals:
+                      # Anchor on the top/solo staff rather than the mean, so
+                      # missing piano staves do not pull the system upward.
+                      anchors.append(vals[0])
+                  else:
+                      anchors.append(None)
               for i,a in enumerate(anchors):
-                  if a is not None:
-                      continue
+                  if a is not None: continue
                   before=next((anchors[j] for j in range(i-1,-1,-1) if anchors[j] is not None),None)
                   after=next((anchors[j] for j in range(i+1,len(anchors)) if anchors[j] is not None),None)
-                  if before is not None and after is not None:
-                      anchors[i]=(before+after)/2
-                  elif before is not None:
-                      anchors[i]=before+img.shape[0]/max(5,len(anchors))
-                  elif after is not None:
-                      anchors[i]=after-img.shape[0]/max(5,len(anchors))
-                  else:
-                      anchors[i]=(i+0.5)*img.shape[0]/len(anchors)
+                  step=float(np.median(np.diff([z for z in anchors if z is not None]))) if sum(z is not None for z in anchors)>1 else img.shape[0]/len(anchors)
+                  anchors[i]=(before+step if before is not None else after-step)
 
               boundaries=[0]
               for a,b in zip(anchors,anchors[1:]):
+                  # Midpoint between solo-staff anchors cleanly separates
+                  # neighboring cello+piano systems.
                   boundaries.append(int((a+b)/2))
               boundaries.append(img.shape[0])
 
               gray=cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
-              bw_full=cv2.threshold(gray,210,255,cv2.THRESH_BINARY_INV)[1]
-              density=(bw_full>0).sum(axis=1).astype(np.float32)
+              bw=cv2.threshold(gray,210,255,cv2.THRESH_BINARY_INV)[1]
+              density=(bw>0).sum(axis=1).astype(np.float32)
               smooth=np.convolve(density,np.ones(13)/13,mode='same')
 
               case_out=out/case; case_out.mkdir(parents=True,exist_ok=True)
               records=[]
-              for si,system in enumerate(systems,1):
+              for si,(system,vals) in enumerate(zip(systems,sys_centers),1):
                   region0=max(0,boundaries[si-1])
                   region1=min(img.shape[0],boundaries[si])
-                  centers,_=detect_staff_centers(img,region0,region1)
 
-                  # Typical cello+piano system should expose 3 staves. If the
-                  # detector has extras, the bottom three real staff centers
-                  # are the safest candidates because lyrics/text tend to sit
-                  # outside the long-horizontal-line pattern.
-                  if len(centers) >= 3:
-                      selected=centers[-3:]
-                      solo,treble,bass=selected
-                  elif len(centers)==2:
-                      # Audiveris may have retained the solo staff while CV
-                      # catches only the piano pair; accept the visual pair.
-                      treble,bass=centers
-                      solo=None
+                  source='audiveris'
+                  if len(vals)>=3:
+                      solo,treble,bass=vals[-3:]
+                  elif len(vals)==1:
+                      # Key recovery case: Audiveris dropped the complete
+                      # piano grand staff. Infer it from this page's median
+                      # inter-staff geometry learned above.
+                      solo=vals[0]
+                      treble=solo+d1
+                      bass=solo+d2
+                      source='inferred-from-page-spacing'
+                  elif len(vals)==2:
+                      a,b=vals
+                      gap=b-a
+                      possibilities=[
+                          (abs(gap-d1),'solo+treble',(a,b,a+d2)),
+                          (abs(gap-d12),'treble+bass',(a-d1,a,b)),
+                          (abs(gap-d2),'solo+bass',(a,a+d1,b)),
+                      ]
+                      _,label,(solo,treble,bass)=min(possibilities,key=lambda z:z[0])
+                      source='inferred-'+label
                   else:
-                      # Last fallback: use whatever Staff y values Audiveris did
-                      # preserve and combine with global horizontal projection.
-                      aud_ys=[]
-                      for st in system.findall('./part/staff'):
-                          aud_ys.extend([y*sy for y in staff_line_ys(st)])
-                      aud_centers=[]
-                      if aud_ys:
-                          aud_ys=sorted(aud_ys)
-                          for k in range(0,len(aud_ys),5):
-                              block=aud_ys[k:k+5]
-                              if block: aud_centers.append(float(np.mean(block)))
-                      pool=sorted(set([round(v,1) for v in centers+aud_centers]))
-                      if len(pool)<2:
-                          raise RuntimeError(f'{case} system {si}: cannot identify two piano staves; cv={centers} aud={aud_centers}')
-                      treble,bass=pool[-2:]
-                      solo=pool[-3] if len(pool)>=3 else None
+                      solo=float(anchors[si-1])
+                      treble=solo+d1
+                      bass=solo+d2
+                      source='inferred-from-system-anchor'
 
-                  # Top boundary: minimum-ink whitespace between solo and piano.
-                  if solo is not None and treble-solo>20:
-                      lo=int(max(region0,solo+8))
-                      hi=int(min(region1-1,treble-8))
-                      y0=lo+int(np.argmin(smooth[lo:hi+1])) if hi>lo else int((solo+treble)/2)
-                  else:
-                      y0=max(region0,int(treble-(bass-treble)*0.7))
+                  # Keep inferred positions inside the local System region.
+                  if bass >= region1:
+                      shift=bass-(region1-12)
+                      solo-=shift; treble-=shift; bass-=shift
+                  if solo < region0:
+                      shift=region0+12-solo
+                      solo+=shift; treble+=shift; bass+=shift
 
-                  # Bottom boundary never crosses the Audiveris System region,
-                  # preventing the p3 contamination seen in Hybrid A.
+                  lo=int(max(region0,solo+8))
+                  hi=int(min(region1-1,treble-8))
+                  y0=lo+int(np.argmin(smooth[lo:hi+1])) if hi>lo else int((solo+treble)/2)
+
                   gap=max(20,bass-treble)
-                  search_lo=int(min(region1-1,bass+8))
-                  search_hi=int(min(region1-1,bass+gap*0.9))
-                  if search_hi>search_lo:
-                      y1=search_lo+int(np.argmin(smooth[search_lo:search_hi+1]))
-                  else:
-                      y1=region1
-                  y1=min(y1,region1)
-
+                  lo2=int(min(region1-1,bass+8))
+                  hi2=int(min(region1-1,bass+gap*0.9))
+                  y1=lo2+int(np.argmin(smooth[lo2:hi2+1])) if hi2>lo2 else region1
                   y0=max(region0,y0-5); y1=min(region1,y1+5)
-                  # Full page width is intentional; homr autocrops horizontally
-                  # and keeping clefs/key signatures is critical.
+                  if y1-y0 < 80:
+                      y0=max(region0,int(treble-gap*0.7))
+                      y1=min(region1,int(bass+gap*0.8))
+
                   crop=img[y0:y1,:]
                   path=case_out/f'system_{si:02d}.png'
                   cv2.imwrite(str(path),crop)
                   records.append({
                       'system':si,
                       'audiveris_stacks':len(system.findall('./stack')),
+                      'audiveris_staff_centers':vals,
+                      'spacing_template':{'solo_to_treble':d1,'solo_to_bass':d2},
+                      'selected':{'solo':solo,'treble':treble,'bass':bass,'source':source},
                       'region':[region0,region1],
-                      'cv_staff_centers':centers,
-                      'selected':{'solo':solo,'treble':treble,'bass':bass},
                       'crop_y':[y0,y1],
                   })
 
