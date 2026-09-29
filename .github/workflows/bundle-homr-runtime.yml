@@ -1,0 +1,50 @@
+name: bundle-homr-runtime
+
+on:
+  push:
+    branches:
+      - "experiment/omr-real-score-benchmark"
+
+jobs:
+  bundle:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.12.19"
+
+      - name: Build portable homr 0.7 runtime
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT=/tmp/homr-bundle
+          rm -rf "$ROOT"
+          mkdir -p "$ROOT/home"
+
+          uv python install 3.11 --install-dir "$ROOT/python"
+          PYBIN="$(find "$ROOT/python" -type f -path '*/bin/python3.11' | head -n1)"
+          test -x "$PYBIN"
+
+          uv venv "$ROOT/venv" --python "$PYBIN"
+          uv pip install --python "$ROOT/venv/bin/python" 'homr==0.7.0'
+
+          HOME="$ROOT/home" "$ROOT/venv/bin/homr" --init
+
+          echo "Python:"
+          "$ROOT/venv/bin/python" --version
+          echo "homr:"
+          HOME="$ROOT/home" "$ROOT/venv/bin/homr" --help | head -20
+          echo "Bundle size:"
+          du -sh "$ROOT"
+
+          tar -C /tmp -czf /tmp/homr-bundle-linux-x86_64.tar.gz homr-bundle
+          ls -lh /tmp/homr-bundle-linux-x86_64.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: homr-bundle-linux-x86_64
+          path: /tmp/homr-bundle-linux-x86_64.tar.gz
+          if-no-files-found: error
+          compression-level: 0
