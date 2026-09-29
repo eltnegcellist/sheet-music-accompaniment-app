@@ -77,8 +77,8 @@ jobs:
         run: |
           mkdir -p /tmp/hybrid/pages
           for case in beethoven-p03 beethoven-p11 beethoven-p24 saint-p01; do
-            pdftoppm -png -r 300 -f 1 -singlefile \
-              "/tmp/hybrid/$case.pdf" "/tmp/hybrid/pages/$case"
+            docker run --rm -v /tmp/hybrid:/bench imslp-hybrid-benchmark \
+              sh -lc "pdftoppm -png -r 300 -f 1 -singlefile /bench/$case.pdf /bench/pages/$case"
           done
 
       - name: Detect systems and crop only piano grand staves
