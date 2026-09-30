@@ -173,3 +173,30 @@ def test_run_helper_selects_homr_from_params(tmp_path, monkeypatch):
 
     assert calls == [(240, 90, True)]
     assert result.warnings == ["from homr"]
+
+
+def test_engine_selects_hybrid_from_params(monkeypatch):
+    monkeypatch.delenv("OMR_ENGINE", raising=False)
+    params = {
+        "omr": {
+            "engine": "hybrid",
+            "homr": {
+                "dpi": 300,
+                "timeout_sec": 120,
+                "coreml_encoder": False,
+            },
+            "hybrid": {
+                "duration_floor": 0.75,
+                "strong_duration_gain": 0.12,
+                "minimum_score_gain": 0.03,
+                "fragmentation_part_limit": 3,
+                "minimum_safe_pitch_rate": 0.5,
+                "minimum_safe_pitch_notes": 8,
+            },
+        }
+    }
+    assert configured_engine(params) == "hybrid"
+    driver = configured_driver(params)
+    assert driver.func is omr_engine.run_hybrid
+    assert driver.keywords["homr_dpi"] == 300
+    assert driver.keywords["minimum_safe_pitch_rate"] == 0.5
