@@ -46,7 +46,7 @@ describe("OMR server config", () => {
       .mockResolvedValueOnce(new Response('{"status":"ok"}', { status: 200 }))
       .mockResolvedValueOnce(
         new Response(
-          '{"omr_engines":["audiveris","homr"],"per_request_engine_selection":true}',
+          '{"omr_engines":["audiveris","homr","hybrid"],"per_request_engine_selection":true}',
           { status: 200, headers: { "content-type": "application/json" } },
         ),
       );
@@ -111,3 +111,30 @@ describe("OMR server config", () => {
     expect(result.ok).toBe(true);
   });
 });
+
+
+  it("stores and accepts hybrid when the server advertises support", async () => {
+    saveServerConfig({
+      serverUrl: "https://hybrid.example.test",
+      apiToken: "token",
+      omrEngine: "hybrid",
+    });
+    expect(getServerConfig().omrEngine).toBe("hybrid");
+
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response('{"status":"ok"}', { status: 200 }))
+      .mockResolvedValueOnce(new Response('{"status":"ok"}', { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(
+          '{"omr_engines":["audiveris","homr","hybrid"],"per_request_engine_selection":true}',
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
+
+    const result = await testServerConnection({
+      serverUrl: "https://hybrid.example.test",
+      apiToken: "token",
+      omrEngine: "hybrid",
+    });
+    expect(result.ok).toBe(true);
+  });
