@@ -1,0 +1,32 @@
+name: resolve-imslp-benchmark-files
+
+on:
+  push:
+    branches:
+      - "experiment/omr-real-score-benchmark"
+    paths:
+      - ".github/workflows/resolve-imslp-benchmark-files.yml"
+
+jobs:
+  resolve:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Resolve file URLs from IMSLP work pages
+        shell: bash
+        run: |
+          set -euxo pipefail
+          UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36'
+          mkdir -p /tmp/imslp-pages
+          fetch() {
+            key="$1"
+            url="$2"
+            curl --compressed -A "$UA" -fsSL "$url" -o "/tmp/imslp-pages/$key.html"
+            echo "===== $key ====="
+            grep -Eo 'https?://[^"'\'' <>]+/files/imglnks/[^"'\'' <>]+\.pdf' "/tmp/imslp-pages/$key.html" | sort -u || true
+            grep -n -E '112439|112440|116248|40771|291389|413948|imglnks|ImagefromIndex' "/tmp/imslp-pages/$key.html" | head -120 || true
+          }
+          fetch brahms 'https://imslp.org/wiki/Cello_Sonata_No.1,_Op.38_(Brahms,_Johannes)'
+          fetch chopin 'https://imslp.org/wiki/Cello_Sonata,_Op.65_(Chopin,_Fr%C3%A9d%C3%A9ric)'
+          fetch mendelssohn 'https://imslp.org/wiki/Variations_concertantes,_Op.17_(Mendelssohn,_Felix)'
+          fetch saint 'https://imslp.org/wiki/Allegro_appassionato,_Op.43_(Saint-Sa%C3%ABns,_Camille)'
