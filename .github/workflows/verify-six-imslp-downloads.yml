@@ -25,11 +25,23 @@ jobs:
             [291389]='https://imslp.org/images/f/ff/PMLP30030-Saint-Saens_-_Allegro_Appassionato_Op43_%28E_Schroeder%29_for_Cello_and_Piano.pdf'
             [413948]='https://imslp.org/images/e/e2/PMLP30030-Saint_Saens_Allegro_Mandozzi_Vc_Kl_-_Partitur.pdf'
           )
+          failed=0
           for id in 112439 112440 116248 40771 291389 413948; do
-            curl -fL --retry 3 --connect-timeout 20 --max-time 180 \
+            set +e
+            curl --compressed -fL --retry 2 --connect-timeout 20 --max-time 180 \
               -A 'Mozilla/5.0' "${URLS[$id]}" -o "/tmp/six/$id.pdf"
-            file "/tmp/six/$id.pdf"
-            test "$(head -c 5 "/tmp/six/$id.pdf")" = '%PDF-'
-            size=$(stat -c %s "/tmp/six/$id.pdf")
-            echo "RESULT $id bytes=$size sha256=$(sha256sum "/tmp/six/$id.pdf" | awk '{print $1}')"
+            rc=$?
+            set -e
+            kind="$(file -b "/tmp/six/$id.pdf" 2>/dev/null || true)"
+            prefix="$(head -c 5 "/tmp/six/$id.pdf" 2>/dev/null || true)"
+            size="$(stat -c %s "/tmp/six/$id.pdf" 2>/dev/null || echo 0)"
+            if [ "$rc" -eq 0 ] && [ "$prefix" = '%PDF-' ]; then
+              echo "RESULT $id OK bytes=$size kind=$kind sha256=$(sha256sum "/tmp/six/$id.pdf" | awk '{print $1}')"
+            else
+              echo "RESULT $id BLOCKED_OR_NOT_PDF rc=$rc bytes=$size kind=$kind prefix=$(printf %q "$prefix")"
+              head -c 500 "/tmp/six/$id.pdf" 2>/dev/null | tr '\n' ' ' || true
+              echo
+              failed=1
+            fi
           done
+          exit "$failed"
