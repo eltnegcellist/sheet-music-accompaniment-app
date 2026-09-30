@@ -44,7 +44,7 @@ export async function analyzePdf(
   // A pre-v0.2.3 server may silently ignore unknown multipart fields.
   // For neural requests, require explicit capability support before uploading
   // the PDF so a "homr" selection can never fall back to Audiveris unnoticed.
-  if (serverUrl && selectedEngine === "homr") {
+  if (serverUrl && selectedEngine !== "audiveris") {
     const capabilities = await fetch(`${serverUrl}/capabilities`, {
       headers: authHeaders(),
     });
@@ -60,9 +60,11 @@ export async function analyzePdf(
     const engines = Array.isArray(body.omr_engines)
       ? body.omr_engines.filter((item): item is string => typeof item === "string")
       : [];
-    if (!engines.includes("homr") || body.per_request_engine_selection !== true) {
+    if (!engines.includes(selectedEngine) || body.per_request_engine_selection !== true) {
       throw new Error(
-        "このOMRサーバーはhomrの選択に対応していません。サーバーを最新版へ更新してください。",
+        selectedEngine === "hybrid"
+          ? "このOMRサーバーはハイブリッドOMRに対応していません。サーバーを最新版へ更新してください。"
+          : "このOMRサーバーはhomrの選択に対応していません。サーバーを最新版へ更新してください。",
       );
     }
   }
@@ -97,7 +99,7 @@ export interface CacheEntry {
   pdf_name: string;
   timestamp: number;
   /** Present for Android-local entries so two OMR engines can coexist. */
-  engine?: "audiveris" | "homr";
+  engine?: "audiveris" | "homr" | "hybrid";
   /** Android stores completed analyses on-device; desktop entries are server-backed. */
   source?: "server" | "local";
 }
