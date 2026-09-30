@@ -12,6 +12,7 @@ android {
         targetSdk = 35
         versionCode = 6
         versionName = "0.2.4"
+        testInstrumentationRunner = "app.imslp.accompanist.UpgradeSmokeInstrumentation"
     }
 
     val releaseKeystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
@@ -25,6 +26,8 @@ android {
             }
         }
     }
+
+    testBuildType = "release"
 
     buildTypes {
         release {
