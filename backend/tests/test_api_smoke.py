@@ -43,7 +43,7 @@ def test_capabilities_advertise_neural_engine(client) -> None:
     resp = client.get("/capabilities")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["omr_engines"] == ["audiveris", "homr"]
+    assert body["omr_engines"] == ["audiveris", "homr", "hybrid"]
     assert body["per_request_engine_selection"] is True
 
 
@@ -94,6 +94,7 @@ def test_engine_override_maps_to_expected_param_sets() -> None:
 
     assert main_module._param_set_for_engine("audiveris") == "v5_real_pdf"
     assert main_module._param_set_for_engine("homr") == "v6_homr"
+    assert main_module._param_set_for_engine("hybrid") == "v7_hybrid"
 
 
 def test_engine_override_rejects_unknown_value() -> None:
