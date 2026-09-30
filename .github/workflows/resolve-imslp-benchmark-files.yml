@@ -25,7 +25,7 @@ jobs:
           pages={
             "brahms":"https://imslp.org/wiki/Cello_Sonata_No.1,_Op.38_(Brahms,_Johannes)",
             "chopin":"https://imslp.org/wiki/Cello_Sonata,_Op.65_(Chopin,_Fr%C3%A9d%C3%A9ric)",
-            "mendelssohn":"https://imslp.org/wiki/Variations_concertantes,_Op.17_(Mendelssohn,_Felix)",
+            "mendelssohn":"https://imslp.org/wiki/Variations_Concertantes,_Op.17_(Mendelssohn,_Felix)",
             "saint":"https://imslp.org/wiki/Allegro_appassionato,_Op.43_(Saint-Sa%C3%ABns,_Camille)",
           }
           wanted={
