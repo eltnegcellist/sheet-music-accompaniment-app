@@ -140,3 +140,55 @@ describe("self-hosted OMR engine selection", () => {
     await expect(analyzePdf(pdf)).rejects.toThrow("最新版");
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+
+describe("hybrid OMR analyze preflight", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    localStorage.clear();
+    vi.restoreAllMocks();
+  });
+
+  it("sends hybrid only after the server advertises hybrid support", async () => {
+    saveServerConfig({
+      serverUrl: "https://hybrid.example.test",
+      apiToken: "token",
+      omrEngine: "hybrid",
+    });
+
+    let requestBody: FormData | null = null;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            omr_engines: ["audiveris", "homr", "hybrid"],
+            per_request_engine_selection: true,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockImplementationOnce(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        requestBody = init?.body as FormData;
+        return new Response(
+          JSON.stringify({
+            music_xml: "<score-partwise/>",
+            omr_engine: "hybrid",
+            measures: [],
+            warnings: [],
+            page_sizes: [],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const pdf = new File(["pdf"], "score.pdf", { type: "application/pdf" });
+    const result = await analyzePdf(pdf);
+
+    expect(result.omr_engine).toBe("hybrid");
+    expect(requestBody?.get("omr_engine")).toBe("hybrid");
+  });
+});
