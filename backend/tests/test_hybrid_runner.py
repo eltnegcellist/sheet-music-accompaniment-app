@@ -137,4 +137,4 @@ def test_hybrid_fuses_contiguous_matches_when_homr_has_trailing_extra_measures(
 
     assert result.music_xml.count("<step>D</step>") >= 2
     assert any("音高をhomr結果から採用" in w for w in result.warnings)
-\n
+\n\n
