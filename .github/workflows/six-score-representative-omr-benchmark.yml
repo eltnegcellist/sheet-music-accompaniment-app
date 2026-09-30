@@ -1,0 +1,397 @@
+name: six-score-representative-omr-benchmark
+
+on:
+  push:
+    branches: ["experiment/omr-real-score-benchmark"]
+    paths: [".github/workflows/six-score-representative-omr-benchmark.yml"]
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download exact six uploaded-score byte matches
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/sixbench
+          curl -fL 'https://s9.imslp.org/files/imglnks/usimg/4/43/IMSLP112439-PMLP43440-Brahms_Werke_Band_10_Breitkopf_JB_39_Op_38_scan.pdf' -o /tmp/sixbench/112439.pdf
+          curl -fL 'https://s9.imslp.org/files/imglnks/usimg/e/e0/IMSLP112440-PMLP43440-Brahms_Werke_Band_10_Breitkopf_JB_39_Op_38_filter.pdf' -o /tmp/sixbench/112440.pdf
+          curl -fL 'https://s9.imslp.org/files/imglnks/usimg/3/33/IMSLP116248-PMLP05808-FChopin_Cello_Sonata%2C_Op.65_BH11_piano_score.pdf' -o /tmp/sixbench/116248.pdf
+          curl -fL 'https://s9.imslp.org/files/imglnks/usimg/3/3f/IMSLP40771-PMLP18960-Mendelssohn_-_Variations_Concertantes_Op17_CelloPiano.pdf' -o /tmp/sixbench/40771.pdf
+          curl -fL 'https://imslp.eu/files/imglnks/euimg/f/ff/IMSLP291389-PMLP30030-Saint-Saens_-_Allegro_Appassionato_Op43_%28E_Schroeder%29_for_Cello_and_Piano.pdf' -o /tmp/sixbench/291389.pdf
+          curl -fL 'https://s9.imslp.org/files/imglnks/usimg/e/e2/IMSLP413948-PMLP30030-Saint_Saens_Allegro_Mandozzi_Vc_Kl_-_Partitur.pdf' -o /tmp/sixbench/413948.pdf
+          python3 - <<'PY'
+          from pathlib import Path
+          expected={
+            "112439.pdf":(4062302,"467d2a42dfdb7fcf3344ea9f38759f955ed90c7aa7d37a735cd43ce5ff3812c9"),
+            "112440.pdf":(3194195,"38018a8e985c27a59bac9006c7733fbe954be9e891f349be9b8f513cfcfadcff"),
+            "116248.pdf":(3914348,"b3d68168b9bd709a922e7f56ffadc7e9d1f48e89f0af9f63e4ef4496ae7f5bf5"),
+            "40771.pdf":(1961503,"559f1a817699961b415cd1c0a017618e809accd5c6f56d1927fa8b7b62b2f5f9"),
+            "291389.pdf":(1566525,"757e364c1f30fc763c888e96d96249b9cb0949d27a15d5d5de0286ca900c9037"),
+            "413948.pdf":(146304,"4d53009476080dfc66ad3701ab8dfd712746d8136fc97c22591e1b6713981dac"),
+          }
+          import hashlib
+          root=Path("/tmp/sixbench")
+          for name,(size,digest) in expected.items():
+            p=root/name
+            got=hashlib.sha256(p.read_bytes()).hexdigest()
+            assert p.stat().st_size==size,(name,p.stat().st_size,size)
+            assert got==digest,(name,got,digest)
+            print("BYTE_MATCH",name,size,got)
+          PY
+
+      - name: Extract representative pages
+        run: |
+          python3 -m pip install --quiet pypdf opencv-python-headless
+          python3 - <<'PY'
+          from pathlib import Path
+          from pypdf import PdfReader, PdfWriter
+          root=Path("/tmp/sixbench")
+          specs=[
+              ("112439.pdf", 1, "brahms-raw-p01"),
+              ("112439.pdf", 6, "brahms-raw-p06"),
+              ("112439.pdf", 10, "brahms-raw-p10"),
+              ("112440.pdf", 1, "brahms-filter-p01"),
+              ("112440.pdf", 6, "brahms-filter-p06"),
+              ("112440.pdf", 10, "brahms-filter-p10"),
+              ("116248.pdf", 1, "chopin-p01"),
+              ("116248.pdf", 5, "chopin-p05"),
+              ("116248.pdf", 11, "chopin-p11"),
+              ("40771.pdf", 1, "mendelssohn-p01"),
+              ("40771.pdf", 4, "mendelssohn-p04"),
+              ("40771.pdf", 9, "mendelssohn-p09"),
+              ("291389.pdf", 6, "saint-scan-p06"),
+              ("291389.pdf", 10, "saint-scan-p10"),
+              ("291389.pdf", 14, "saint-scan-p14"),
+              ("413948.pdf", 1, "saint-clean-p01"),
+              ("413948.pdf", 4, "saint-clean-p04"),
+              ("413948.pdf", 8, "saint-clean-p08"),
+          ]
+          for source,page,case in specs:
+            reader=PdfReader(root/source)
+            writer=PdfWriter()
+            writer.add_page(reader.pages[page-1])
+            with (root/f"{case}.pdf").open("wb") as fh:
+              writer.write(fh)
+            print("PAGE",case,"source",source,"page",page)
+          PY
+
+      - name: Build current dual-engine server
+        run: docker build --progress=plain -t six-score-omr backend
+
+      - name: Create benchmark manifest
+        run: |
+          cat > /tmp/sixbench/manifest.yaml <<'YAML'
+          cases:
+            - id: brahms-raw-p01
+              pdf: brahms-raw-p01.pdf
+            - id: brahms-raw-p06
+              pdf: brahms-raw-p06.pdf
+            - id: brahms-raw-p10
+              pdf: brahms-raw-p10.pdf
+            - id: brahms-filter-p01
+              pdf: brahms-filter-p01.pdf
+            - id: brahms-filter-p06
+              pdf: brahms-filter-p06.pdf
+            - id: brahms-filter-p10
+              pdf: brahms-filter-p10.pdf
+            - id: chopin-p01
+              pdf: chopin-p01.pdf
+            - id: chopin-p05
+              pdf: chopin-p05.pdf
+            - id: chopin-p11
+              pdf: chopin-p11.pdf
+            - id: mendelssohn-p01
+              pdf: mendelssohn-p01.pdf
+            - id: mendelssohn-p04
+              pdf: mendelssohn-p04.pdf
+            - id: mendelssohn-p09
+              pdf: mendelssohn-p09.pdf
+            - id: saint-scan-p06
+              pdf: saint-scan-p06.pdf
+            - id: saint-scan-p10
+              pdf: saint-scan-p10.pdf
+            - id: saint-scan-p14
+              pdf: saint-scan-p14.pdf
+            - id: saint-clean-p01
+              pdf: saint-clean-p01.pdf
+            - id: saint-clean-p04
+              pdf: saint-clean-p04.pdf
+            - id: saint-clean-p08
+              pdf: saint-clean-p08.pdf
+          YAML
+
+      - name: Run full-page Audiveris and homr on all 18 pages
+        run: |
+          docker run --rm \
+            -v /tmp/sixbench:/bench \
+            -e HOMR_COMMAND="uvx --python 3.11 --from homr==0.7.0 homr" \
+            six-score-omr \
+            python3 -m app.benchmark.omr_compare \
+              --manifest /bench/manifest.yaml \
+              --engines audiveris,homr \
+              --output /bench/fullpage-results
+
+      - name: Rasterize at 300 DPI
+        run: |
+          mkdir -p /tmp/sixbench/pages
+          for case in brahms-raw-p01 brahms-raw-p06 brahms-raw-p10 brahms-filter-p01 brahms-filter-p06 brahms-filter-p10 chopin-p01 chopin-p05 chopin-p11 mendelssohn-p01 mendelssohn-p04 mendelssohn-p09 saint-scan-p06 saint-scan-p10 saint-scan-p14 saint-clean-p01 saint-clean-p04 saint-clean-p08; do
+            docker run --rm -v /tmp/sixbench:/bench six-score-omr \
+              sh -lc "pdftoppm -png -r 300 -f 1 -singlefile /bench/$case.pdf /bench/pages/$case"
+          done
+
+      - name: Build piano-only system crops and Audiveris system map
+        run: |
+          python3 - <<'PY'
+          from __future__ import annotations
+          from pathlib import Path
+          import cv2, json, numpy as np, zipfile, xml.etree.ElementTree as ET
+
+          ROOT=Path("/tmp/sixbench")
+          CASES="brahms-raw-p01 brahms-raw-p06 brahms-raw-p10 brahms-filter-p01 brahms-filter-p06 brahms-filter-p10 chopin-p01 chopin-p05 chopin-p11 mendelssohn-p01 mendelssohn-p04 mendelssohn-p09 saint-scan-p06 saint-scan-p10 saint-scan-p14 saint-clean-p01 saint-clean-p04 saint-clean-p08".split()
+
+          def tag(el): return el.tag.rsplit("}",1)[-1]
+
+          def find_omr(case):
+            found=list((ROOT/"fullpage-results"/case/"audiveris").rglob("*.omr"))
+            if len(found)!=1:
+              raise RuntimeError(f"{case}: expected one omr, got {found}")
+            return found[0]
+
+          def cv_crop(case,img):
+            gray=cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
+            bw=cv2.threshold(gray,200,255,cv2.THRESH_BINARY_INV)[1]
+            k=max(40,img.shape[1]//12)
+            horiz=cv2.morphologyEx(bw,cv2.MORPH_OPEN,cv2.getStructuringElement(cv2.MORPH_RECT,(k,1)))
+            score=(horiz>0).sum(axis=1)
+            rows=np.where(score>img.shape[1]*0.30)[0]
+            line_centers=[]
+            if len(rows):
+              s=p=int(rows[0])
+              for rr in rows[1:]:
+                rr=int(rr)
+                if rr<=p+3:p=rr
+                else:line_centers.append((s+p)//2);s=p=rr
+              line_centers.append((s+p)//2)
+            if len(line_centers)<8:
+              return [],{"reason":"too_few_staff_lines","line_count":len(line_centers)}
+            diffs=np.diff(line_centers)
+            small=[int(d) for d in diffs if d < np.percentile(diffs,45)]
+            line_gap=max(4,float(np.median(small)))
+            staves=[];cur=[line_centers[0]]
+            for a,b in zip(line_centers,line_centers[1:]):
+              if b-a<=line_gap*2.6:cur.append(b)
+              else:
+                if 3<=len(cur)<=7:staves.append(cur)
+                cur=[b]
+            if 3<=len(cur)<=7:staves.append(cur)
+            centers=[float(np.mean(s)) for s in staves]
+            spans=[max(s)-min(s) for s in staves]
+            if len(centers)<3:
+              return [],{"reason":"too_few_staves","centers":centers}
+            staff_span=float(np.median(spans))
+            full=len(centers)//3
+            tb=[centers[i+2]-centers[i+1] for i in range(0,full*3,3)]
+            typical_tb=float(np.median(tb)) if tb else staff_span*4
+            if len(centers)%3==2: centers.append(centers[-1]+typical_tb)
+            if len(centers)%3!=0:
+              return [],{"reason":"not_three_staff_systems","centers":centers}
+            density=(bw>0).sum(axis=1).astype(np.float32)
+            win=max(5,int(staff_span*0.35))
+            smooth=np.convolve(density,np.ones(win)/win,mode="same")
+            triples=[centers[i:i+3] for i in range(0,len(centers),3)]
+            outdir=ROOT/"system-crops"/case;outdir.mkdir(parents=True,exist_ok=True)
+            info=[]
+            for idx,(solo,treble,bass) in enumerate(triples,1):
+              margin=max(5,staff_span*0.65)
+              lo=max(0,int(solo+margin));hi=min(img.shape[0]-1,int(treble-margin))
+              y0=lo+int(np.argmin(smooth[lo:hi+1])) if hi>lo else int((solo+treble)/2)
+              if idx<len(triples):
+                next_solo=triples[idx][0]
+                lo2=max(0,int(bass+margin));hi2=min(img.shape[0]-1,int(next_solo-margin))
+                y1=lo2+int(np.argmin(smooth[lo2:hi2+1])) if hi2>lo2 else int((bass+next_solo)/2)
+              else:
+                y1=min(img.shape[0],int(bass+max(typical_tb,staff_span*3)*0.8))
+              y0=max(0,y0-4);y1=min(img.shape[0],y1+4)
+              path=outdir/f"system_{idx:02d}.png"
+              cv2.imwrite(str(path),img[y0:y1,:])
+              info.append({"system":idx,"y0":y0,"y1":y1})
+            return info,{"centers":centers}
+
+          audit={}
+          for case in CASES:
+            img=cv2.imread(str(ROOT/"pages"/f"{case}.png"))
+            crops,cvmeta=cv_crop(case,img)
+            omr=find_omr(case)
+            with zipfile.ZipFile(omr) as zf:
+              names=[n for n in zf.namelist() if n.endswith(".xml") and "sheet" in n.lower()]
+              root=ET.fromstring(zf.read(sorted(names)[0]))
+            systems=[]
+            for si,system in enumerate([e for e in root.iter() if tag(e)=="system"],1):
+              parts=[e for e in list(system) if tag(e)=="part"]
+              entries=[]
+              for part in parts:
+                staves=[e for e in list(part) if tag(e)=="staff"]
+                measures=[e for e in list(part) if tag(e)=="measure"]
+                entries.append({"staffs":len(staves),"ids":[m.get("id") for m in measures]})
+              piano=[e for e in entries if e["staffs"]==2]
+              solo=[e for e in entries if e["staffs"]==1]
+              systems.append({
+                "system":si,
+                "piano_candidates":len(piano),
+                "solo_candidates":len(solo),
+                "piano_measure_ids":piano[0]["ids"] if len(piano)==1 else [],
+                "valid":len(piano)==1 and len(solo)>=1,
+              })
+            audit[case]={"cv_crops":crops,"cv_meta":cvmeta,"audiveris_systems":systems}
+          (ROOT/"system_audit.json").write_text(json.dumps(audit,indent=2))
+          print(json.dumps(audit,indent=2))
+          PY
+
+      - name: Run homr on piano-only system crops
+        run: |
+          set -euxo pipefail
+          for case in brahms-raw-p01 brahms-raw-p06 brahms-raw-p10 brahms-filter-p01 brahms-filter-p06 brahms-filter-p10 chopin-p01 chopin-p05 chopin-p11 mendelssohn-p01 mendelssohn-p04 mendelssohn-p09 saint-scan-p06 saint-scan-p10 saint-scan-p14 saint-clean-p01 saint-clean-p04 saint-clean-p08; do
+            if compgen -G "/tmp/sixbench/system-crops/$case/*.png" >/dev/null; then
+              docker run --rm \
+                -v /tmp/sixbench:/bench \
+                -e HOMR_COMMAND="uvx --python 3.11 --from homr==0.7.0 homr" \
+                six-score-omr \
+                sh -lc "uvx --python 3.11 --from homr==0.7.0 homr /bench/system-crops/$case"
+            fi
+          done
+
+      - name: Score full-page and hybrid signals
+        run: |
+          docker run -i --rm -v /tmp/sixbench:/bench six-score-omr python3 - <<'PY'
+          from __future__ import annotations
+          from pathlib import Path
+          import copy,json,xml.etree.ElementTree as ET
+          from app.music.musicxml_concat import concat_musicxml
+          from app.pipeline.scoring_facade import evaluate_musicxml_metrics
+
+          ROOT=Path("/bench")
+          CASES="brahms-raw-p01 brahms-raw-p06 brahms-raw-p10 brahms-filter-p01 brahms-filter-p06 brahms-filter-p10 chopin-p01 chopin-p05 chopin-p11 mendelssohn-p01 mendelssohn-p04 mendelssohn-p09 saint-scan-p06 saint-scan-p10 saint-scan-p14 saint-clean-p01 saint-clean-p04 saint-clean-p08".split()
+          audit=json.loads((ROOT/"system_audit.json").read_text())
+
+          def parse(path): return ET.fromstring(Path(path).read_text(errors="replace"))
+          def stats(xml):
+            root=ET.fromstring(xml)
+            parts=root.findall("./part")
+            measures=max((len(p.findall("measure")) for p in parts),default=0)
+            notes=[n for n in root.findall(".//note") if n.find("pitch") is not None]
+            rests=[n for n in root.findall(".//note") if n.find("rest") is not None]
+            names=[(x.text or "") for x in root.findall("./part-list/score-part/part-name")]
+            return {"parts":len(parts),"measures":measures,"pitched_notes":len(notes),"rests":len(rests),"part_names":names}
+
+          def get_piano_part(root):
+            score_parts=root.findall("./part-list/score-part")
+            names={sp.get("id"):(sp.findtext("part-name") or "").lower() for sp in score_parts}
+            parts=root.findall("./part")
+            named=[p for p in parts if any(k in names.get(p.get("id"),"") for k in ("piano","klavier","pianoforte"))]
+            if named:return named[0]
+            return max(parts,key=lambda p:len(p.findall(".//note"))) if parts else None
+
+          def note_seq_by_staff(measure):
+            out={}
+            for n in measure.findall(".//note"):
+              if n.find("pitch") is None: continue
+              staff=n.findtext("staff") or "1"
+              out.setdefault(staff,[]).append(n)
+            return out
+
+          summary={}
+          for case in CASES:
+            aud_path=ROOT/"fullpage-results"/case/"audiveris"/"recognized.musicxml"
+            homr_path=ROOT/"fullpage-results"/case/"homr"/"recognized.musicxml"
+            aud_xml=aud_path.read_text(errors="replace")
+            homr_xml=homr_path.read_text(errors="replace")
+            aud_root=ET.fromstring(aud_xml)
+            aud_piano=get_piano_part(aud_root)
+            aud_measures={m.get("number"):m for m in aud_piano.findall("measure")} if aud_piano is not None else {}
+
+            sysfiles=sorted((ROOT/"system-crops"/case).glob("system_*.musicxml"))
+            sys_xmls=[p.read_text(errors="replace") for p in sysfiles]
+            system_homr_xml=concat_musicxml(sys_xmls) if sys_xmls else None
+            system_stats=stats(system_homr_xml) if system_homr_xml else None
+
+            safe_notes=0; candidate_notes=0; aligned_measures=0; skipped_measures=0
+            adaptive_measure_count=0; system_decisions=[]
+            for meta in audit[case]["audiveris_systems"]:
+              si=meta["system"]
+              ids=[str(x) for x in meta.get("piano_measure_ids",[]) if x is not None]
+              a=len(ids)
+              hroot=None
+              spath=ROOT/"system-crops"/case/f"system_{si:02d}.musicxml"
+              if spath.exists():
+                hroot=ET.fromstring(spath.read_text(errors="replace"))
+              hpart=(hroot.findall("./part")[0] if hroot is not None and hroot.findall("./part") else None)
+              hmeasures=hpart.findall("measure") if hpart is not None else []
+              h=len(hmeasures)
+
+              # Adaptive structure signal: preserve Audiveris when its 2-staff
+              # piano structure is valid; if Audiveris system is malformed and
+              # homr has plausible measures, use homr's count for that system.
+              if meta.get("valid") and a>0:
+                chosen=a;source="audiveris-structure"
+              elif h>0:
+                chosen=h;source="homr-structure-fallback"
+              else:
+                chosen=a;source="audiveris-last-resort"
+              adaptive_measure_count+=chosen
+
+              replaced_here=0;candidate_here=0;aligned_here=0
+              if meta.get("valid") and a==h and a>0:
+                for mid,hm in zip(ids,hmeasures):
+                  am=aud_measures.get(mid)
+                  if am is None:
+                    skipped_measures+=1;continue
+                  aa=note_seq_by_staff(am);hh=note_seq_by_staff(hm)
+                  candidate_here+=sum(len(v) for v in aa.values())
+                  # Only trust pitch replacement when note counts agree on
+                  # every staff. Rhythm/voices/durations remain Audiveris.
+                  if set(aa)==set(hh) and all(len(aa[s])==len(hh[s]) for s in aa):
+                    aligned_here+=1
+                    replaced_here+=sum(len(v) for v in aa.values())
+                  else:
+                    skipped_measures+=1
+              safe_notes+=replaced_here;candidate_notes+=candidate_here;aligned_measures+=aligned_here
+              system_decisions.append({
+                "system":si,"aud_measures":a,"homr_measures":h,
+                "aud_valid":meta.get("valid"),"adaptive_source":source,
+                "adaptive_measures":chosen,"safe_pitch_notes":replaced_here,
+                "candidate_pitch_notes":candidate_here,"aligned_measures":aligned_here,
+              })
+
+            aud_stats=stats(aud_xml); homr_stats=stats(homr_xml)
+            summary[case]={
+              "audiveris":{**aud_stats,"intrinsic":evaluate_musicxml_metrics(aud_xml)},
+              "homr_fullpage":{**homr_stats,"intrinsic":evaluate_musicxml_metrics(homr_xml)},
+              "homr_piano_systems":({**system_stats,"intrinsic":evaluate_musicxml_metrics(system_homr_xml)} if system_homr_xml else None),
+              "hybrid":{
+                "adaptive_measure_count":adaptive_measure_count,
+                "safe_pitch_notes":safe_notes,
+                "candidate_pitch_notes":candidate_notes,
+                "safe_pitch_rate":round(safe_notes/candidate_notes,6) if candidate_notes else 0.0,
+                "aligned_measures":aligned_measures,
+                "systems":system_decisions,
+              }
+            }
+
+          (ROOT/"representative_summary.json").write_text(json.dumps(summary,ensure_ascii=False,indent=2))
+          print("=== REPRESENTATIVE_SUMMARY ===")
+          print(json.dumps(summary,ensure_ascii=False,indent=2))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: six-score-representative-omr-results
+          path: |
+            /tmp/sixbench/representative_summary.json
+            /tmp/sixbench/system_audit.json
+            /tmp/sixbench/fullpage-results
+            /tmp/sixbench/system-crops
+          if-no-files-found: error
