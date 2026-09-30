@@ -262,7 +262,10 @@ export default function App() {
       setWarningsDismissed(false);
       if (androidApp && pdf) {
         try {
-          const engine = result.omr_engine === "homr" ? "homr" : "audiveris";
+          const engine =
+            result.omr_engine === "homr" || result.omr_engine === "hybrid"
+              ? result.omr_engine
+              : "audiveris";
           await putAndroidCache(pdf, result, engine);
           await refreshCacheList();
         } catch (cacheError) {
@@ -798,8 +801,8 @@ export default function App() {
                   </strong>
                   <span>
                     {lang === "ja"
-                      ? "Android版はPDF認識にあなた自身のAudiverisサーバーを使用します。"
-                      : "Android uses your own Audiveris server for PDF recognition."}
+                      ? "Android版はPDF認識にあなた自身のOMRサーバーを使用します。"
+                      : "Android uses your own OMR server for PDF recognition."}
                   </span>
                   <button
                     type="button"
@@ -845,7 +848,11 @@ export default function App() {
                         <span className="cache-item__title">{c.pdf_name}</span>
                         {c.engine && (
                           <span className={"cache-item__engine cache-item__engine--" + c.engine}>
-                            {c.engine === "homr" ? "Neural" : "Audiveris"}
+                            {c.engine === "hybrid"
+                              ? "Hybrid"
+                              : c.engine === "homr"
+                                ? "Neural"
+                                : "Audiveris"}
                           </span>
                         )}
                         <span className="cache-item__date">
