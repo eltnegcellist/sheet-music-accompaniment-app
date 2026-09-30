@@ -1,0 +1,18 @@
+# Confidence-gated hybrid OMR validated on six cello+piano IMSLP scores.
+# Audiveris supplies layout/rhythm when healthy; homr is used for strong
+# fallbacks and only contributes pitch when correspondence is structurally safe.
+meta:
+  id: v7_hybrid
+  version: 7
+  parent: v6_homr
+  description: "Audiveris structure + homr fallback/safe-pitch hybrid v3"
+
+omr:
+  engine: hybrid
+  hybrid:
+    duration_floor: 0.75
+    strong_duration_gain: 0.12
+    minimum_score_gain: 0.03
+    fragmentation_part_limit: 3
+    minimum_safe_pitch_rate: 0.50
+    minimum_safe_pitch_notes: 8
