@@ -1,0 +1,238 @@
+name: six-score-hybrid-structure-benchmark
+
+on:
+  push:
+    branches: ["experiment/omr-real-score-benchmark"]
+    paths: [".github/workflows/six-score-hybrid-structure-benchmark.yml"]
+
+jobs:
+  hybrid:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v6
+      - name: Download exact scores and representative pages
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/hybrid6
+          curl -fL 'https://s9.imslp.org/files/imglnks/usimg/4/43/IMSLP112439-PMLP43440-Brahms_Werke_Band_10_Breitkopf_JB_39_Op_38_scan.pdf' -o /tmp/hybrid6/112439.pdf
+          curl -fL 'https://s9.imslp.org/files/imglnks/usimg/e/e0/IMSLP112440-PMLP43440-Brahms_Werke_Band_10_Breitkopf_JB_39_Op_38_filter.pdf' -o /tmp/hybrid6/112440.pdf
+          curl -fL 'https://s9.imslp.org/files/imglnks/usimg/3/33/IMSLP116248-PMLP05808-FChopin_Cello_Sonata%2C_Op.65_BH11_piano_score.pdf' -o /tmp/hybrid6/116248.pdf
+          curl -fL 'https://s9.imslp.org/files/imglnks/usimg/3/3f/IMSLP40771-PMLP18960-Mendelssohn_-_Variations_Concertantes_Op17_CelloPiano.pdf' -o /tmp/hybrid6/40771.pdf
+          curl -fL 'https://imslp.eu/files/imglnks/euimg/f/ff/IMSLP291389-PMLP30030-Saint-Saens_-_Allegro_Appassionato_Op43_%28E_Schroeder%29_for_Cello_and_Piano.pdf' -o /tmp/hybrid6/291389.pdf
+          curl -fL 'https://s9.imslp.org/files/imglnks/usimg/e/e2/IMSLP413948-PMLP30030-Saint_Saens_Allegro_Mandozzi_Vc_Kl_-_Partitur.pdf' -o /tmp/hybrid6/413948.pdf
+          python3 -m pip install --quiet pypdf opencv-python-headless
+          python3 - <<'PY'
+          from pypdf import PdfReader,PdfWriter
+          from pathlib import Path
+          root=Path("/tmp/hybrid6")
+          specs=[
+              ("112439.pdf",1,"brahms-raw-p01"),
+              ("112439.pdf",6,"brahms-raw-p06"),
+              ("112439.pdf",10,"brahms-raw-p10"),
+              ("112440.pdf",1,"brahms-filter-p01"),
+              ("112440.pdf",6,"brahms-filter-p06"),
+              ("112440.pdf",10,"brahms-filter-p10"),
+              ("116248.pdf",1,"chopin-p01"),
+              ("116248.pdf",5,"chopin-p05"),
+              ("116248.pdf",11,"chopin-p11"),
+              ("40771.pdf",1,"mendelssohn-p01"),
+              ("40771.pdf",4,"mendelssohn-p04"),
+              ("40771.pdf",9,"mendelssohn-p09"),
+              ("291389.pdf",6,"saint-scan-p06"),
+              ("291389.pdf",10,"saint-scan-p10"),
+              ("291389.pdf",14,"saint-scan-p14"),
+              ("413948.pdf",1,"saint-clean-p01"),
+              ("413948.pdf",4,"saint-clean-p04"),
+              ("413948.pdf",8,"saint-clean-p08"),
+          ]
+          for src,p,id in specs:
+            r=PdfReader(root/src);w=PdfWriter();w.add_page(r.pages[p-1])
+            with (root/f"{id}.pdf").open("wb") as f:w.write(f)
+          PY
+      - name: Build OMR image
+        run: docker build --progress=plain -t hybrid6 backend
+      - name: Run Audiveris per page, preserving .omr even on export failure
+        shell: bash
+        run: |
+          set +e
+          mkdir -p /tmp/hybrid6/aud
+          for case in brahms-raw-p01 brahms-raw-p06 brahms-raw-p10 brahms-filter-p01 brahms-filter-p06 brahms-filter-p10 chopin-p01 chopin-p05 chopin-p11 mendelssohn-p01 mendelssohn-p04 mendelssohn-p09 saint-scan-p06 saint-scan-p10 saint-scan-p14 saint-clean-p01 saint-clean-p04 saint-clean-p08; do
+            cat >/tmp/hybrid6/one.yaml <<YAML
+          cases:
+            - id: $case
+              pdf: $case.pdf
+          YAML
+            timeout 600s docker run --rm -v /tmp/hybrid6:/bench hybrid6 \
+              python3 -m app.benchmark.omr_compare --manifest /bench/one.yaml \
+              --engines audiveris --output "/bench/aud/$case"
+            echo "$case AUD_RC=$?"
+          done
+          exit 0
+      - name: Rasterize 300dpi
+        run: |
+          mkdir -p /tmp/hybrid6/pages
+          for case in brahms-raw-p01 brahms-raw-p06 brahms-raw-p10 brahms-filter-p01 brahms-filter-p06 brahms-filter-p10 chopin-p01 chopin-p05 chopin-p11 mendelssohn-p01 mendelssohn-p04 mendelssohn-p09 saint-scan-p06 saint-scan-p10 saint-scan-p14 saint-clean-p01 saint-clean-p04 saint-clean-p08; do
+            docker run --rm -v /tmp/hybrid6:/bench hybrid6 sh -lc \
+              "pdftoppm -png -r 300 -f 1 -singlefile /bench/$case.pdf /bench/pages/$case"
+          done
+      - name: Extract Audiveris structure and crop piano systems
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import cv2,json,numpy as np,statistics,zipfile,xml.etree.ElementTree as ET
+          ROOT=Path("/tmp/hybrid6");CASES="brahms-raw-p01 brahms-raw-p06 brahms-raw-p10 brahms-filter-p01 brahms-filter-p06 brahms-filter-p10 chopin-p01 chopin-p05 chopin-p11 mendelssohn-p01 mendelssohn-p04 mendelssohn-p09 saint-scan-p06 saint-scan-p10 saint-scan-p14 saint-clean-p01 saint-clean-p04 saint-clean-p08".split()
+          def tag(e):return e.tag.rsplit("}",1)[-1]
+          def find_omr(case):
+            xs=list((ROOT/"aud"/case).rglob("*.omr"))
+            return xs[0] if xs else None
+          def crop(case,img):
+            gray=cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
+            bw=cv2.threshold(gray,200,255,cv2.THRESH_BINARY_INV)[1]
+            k=max(40,img.shape[1]//12)
+            hz=cv2.morphologyEx(bw,cv2.MORPH_OPEN,cv2.getStructuringElement(cv2.MORPH_RECT,(k,1)))
+            score=(hz>0).sum(axis=1);rows=np.where(score>img.shape[1]*0.30)[0]
+            lines=[]
+            if len(rows):
+              s=p=int(rows[0])
+              for rr in rows[1:]:
+                rr=int(rr)
+                if rr<=p+3:p=rr
+                else:lines.append((s+p)//2);s=p=rr
+              lines.append((s+p)//2)
+            if len(lines)<8:return []
+            dif=np.diff(lines);small=[int(d) for d in dif if d<np.percentile(dif,45)]
+            gap=max(4,float(np.median(small)));st=[];cur=[lines[0]]
+            for a,b in zip(lines,lines[1:]):
+              if b-a<=gap*2.6:cur.append(b)
+              else:
+                if 3<=len(cur)<=7:st.append(cur)
+                cur=[b]
+            if 3<=len(cur)<=7:st.append(cur)
+            centers=[float(np.mean(x)) for x in st];spans=[max(x)-min(x) for x in st]
+            if len(centers)<3:return []
+            span=float(np.median(spans));full=len(centers)//3
+            tb=[centers[i+2]-centers[i+1] for i in range(0,full*3,3)]
+            tbg=float(np.median(tb)) if tb else span*4
+            if len(centers)%3==2:centers.append(centers[-1]+tbg)
+            if len(centers)%3:return []
+            density=(bw>0).sum(axis=1).astype(np.float32);win=max(5,int(span*.35))
+            sm=np.convolve(density,np.ones(win)/win,mode="same")
+            tri=[centers[i:i+3] for i in range(0,len(centers),3)]
+            out=ROOT/"crops"/case;out.mkdir(parents=True,exist_ok=True);meta=[]
+            for i,(solo,tr,ba) in enumerate(tri):
+              m=max(5,span*.65);lo=max(0,int(solo+m));hi=min(img.shape[0]-1,int(tr-m))
+              y0=lo+int(np.argmin(sm[lo:hi+1])) if hi>lo else int((solo+tr)/2)
+              if i+1<len(tri):
+                ns=tri[i+1][0];lo2=max(0,int(ba+m));hi2=min(img.shape[0]-1,int(ns-m))
+                y1=lo2+int(np.argmin(sm[lo2:hi2+1])) if hi2>lo2 else int((ba+ns)/2)
+              else:y1=min(img.shape[0],int(ba+max(tbg,span*3)*.8))
+              y0=max(0,y0-4);y1=min(img.shape[0],y1+4)
+              cv2.imwrite(str(out/f"system_{i+1:02d}.png"),img[y0:y1,:]);meta.append({"system":i+1})
+            return meta
+          audit={}
+          for case in CASES:
+            img=cv2.imread(str(ROOT/"pages"/f"{case}.png"));crops=crop(case,img)
+            omr=find_omr(case);systems=[];has_omr=omr is not None
+            if omr:
+              with zipfile.ZipFile(omr) as z:
+                names=[n for n in z.namelist() if n.endswith(".xml") and "sheet" in n.lower()]
+                if names:
+                  rt=ET.fromstring(z.read(sorted(names)[0]))
+                  idmap={e.get("id"):e for e in rt.iter() if e.get("id")}
+                  for si,sys in enumerate([e for e in rt.iter() if tag(e)=="system"],1):
+                    entries=[]
+                    for part in [e for e in list(sys) if tag(e)=="part"]:
+                      sts=[e for e in list(part) if tag(e)=="staff"];ms=[e for e in list(part) if tag(e)=="measure"]
+                      entries.append((len(sts),ms))
+                    piano=[x for x in entries if x[0]==2];solo=[x for x in entries if x[0]==1]
+                    ids=[m.get("id") for m in piano[0][1]] if len(piano)==1 else []
+                    narrow=False
+                    # Approximate false-barline signal from Audiveris measure widths.
+                    if len(piano)==1 and len(piano[0][1])>2:
+                      rights=[]
+                      for m in piano[0][1]:
+                        rb=next((e for e in list(m) if tag(e)=="right-barline"),None)
+                        refs=next((e for e in list(rb) if tag(e)=="staff-barlines"),None) if rb is not None else None
+                        xs=[]
+                        for rid in ((refs.text or "").split() if refs is not None else []):
+                          bar=idmap.get(rid);bd=next((e for e in list(bar) if tag(e)=="bounds"),None) if bar is not None else None
+                          if bd is not None:xs.append(float(bd.get("x"))+float(bd.get("w") or 0)/2)
+                        rights.append(statistics.mean(xs) if xs else None)
+                      rr=[x for x in rights if x is not None]
+                      if len(rr)>2:
+                        ws=[b-a for a,b in zip(rr,rr[1:]) if b>a]
+                        if ws:
+                          med=statistics.median(ws);narrow=any(w<.30*med for w in ws)
+                    systems.append({"system":si,"valid":len(piano)==1 and len(solo)>=1 and bool(ids),"ids":ids,"narrow":narrow})
+            audit[case]={"has_omr":has_omr,"crop_count":len(crops),"systems":systems}
+          (ROOT/"structure.json").write_text(json.dumps(audit,indent=2));print(json.dumps(audit,indent=2))
+          PY
+      - name: Run homr on piano-system crops
+        shell: bash
+        run: |
+          set +e
+          for case in brahms-raw-p01 brahms-raw-p06 brahms-raw-p10 brahms-filter-p01 brahms-filter-p06 brahms-filter-p10 chopin-p01 chopin-p05 chopin-p11 mendelssohn-p01 mendelssohn-p04 mendelssohn-p09 saint-scan-p06 saint-scan-p10 saint-scan-p14 saint-clean-p01 saint-clean-p04 saint-clean-p08; do
+            if compgen -G "/tmp/hybrid6/crops/$case/*.png" >/dev/null; then
+              timeout 900s docker run --rm -v /tmp/hybrid6:/bench \
+                -e HOMR_COMMAND="uvx --python 3.11 --from homr==0.7.0 homr" hybrid6 \
+                sh -lc "uvx --python 3.11 --from homr==0.7.0 homr /bench/crops/$case"
+              echo "$case HOMR_CROP_RC=$?"
+            fi
+          done
+          exit 0
+      - name: Summarize adaptive hybrid structure and safe pitch opportunity
+        run: |
+          docker run -i --rm -v /tmp/hybrid6:/bench hybrid6 python3 - <<'PY'
+          from pathlib import Path
+          import json,xml.etree.ElementTree as ET
+          ROOT=Path("/bench");CASES="brahms-raw-p01 brahms-raw-p06 brahms-raw-p10 brahms-filter-p01 brahms-filter-p06 brahms-filter-p10 chopin-p01 chopin-p05 chopin-p11 mendelssohn-p01 mendelssohn-p04 mendelssohn-p09 saint-scan-p06 saint-scan-p10 saint-scan-p14 saint-clean-p01 saint-clean-p04 saint-clean-p08".split();st=json.loads((ROOT/"structure.json").read_text())
+          def get_aud_xml(case):
+            xs=list((ROOT/"aud"/case).rglob("recognized.musicxml"));return xs[0] if xs else None
+          def piano(root):
+            names={x.get("id"):(x.findtext("part-name") or "").lower() for x in root.findall("./part-list/score-part")}
+            ps=root.findall("./part")
+            q=[p for p in ps if any(k in names.get(p.get("id"),"") for k in ("piano","klavier","pianoforte"))]
+            return q[0] if q else (max(ps,key=lambda p:len(p.findall(".//note"))) if ps else None)
+          def notes_by_staff(m):
+            d={}
+            for n in m.findall(".//note"):
+              if n.find("pitch") is None:continue
+              d.setdefault(n.findtext("staff") or "1",[]).append(n)
+            return d
+          summary={}
+          for case in CASES:
+            ax=get_aud_xml(case);aroot=ET.parse(ax).getroot() if ax else None;ap=piano(aroot) if aroot is not None else None
+            amap={m.get("number"):m for m in ap.findall("measure")} if ap is not None else {}
+            adaptive=0;safe=0;cand=0;aligned=0;dec=[]
+            for meta in st[case]["systems"]:
+              si=meta["system"];a=len(meta["ids"])
+              hp=ROOT/"crops"/case/f"system_{si:02d}.musicxml"
+              hm=[]
+              if hp.exists():
+                hr=ET.parse(hp).getroot();parts=hr.findall("./part");hm=parts[0].findall("measure") if parts else []
+              h=len(hm)
+              if not meta["valid"] and h>0:chosen=h;src="homr-invalid-aud"
+              elif meta["narrow"] and h>0 and h<a:chosen=h;src="homr-false-barline"
+              else:chosen=a;src="audiveris"
+              adaptive+=chosen
+              if ap is not None and meta["valid"] and a==h:
+                for mid,x in zip(meta["ids"],hm):
+                  am=amap.get(str(mid))
+                  if am is None:continue
+                  aa=notes_by_staff(am);hh=notes_by_staff(x);cand+=sum(map(len,aa.values()))
+                  if set(aa)==set(hh) and all(len(aa[k])==len(hh[k]) for k in aa):
+                    aligned+=1;safe+=sum(map(len,aa.values()))
+              dec.append({"system":si,"aud":a,"homr":h,"chosen":chosen,"source":src,"narrow":meta["narrow"]})
+            summary[case]={"audiveris_musicxml_available":ax is not None,"adaptive_measures":adaptive,"safe_pitch_notes":safe,"candidate_pitch_notes":cand,"safe_pitch_rate":round(safe/cand,4) if cand else 0,"aligned_measures":aligned,"systems":dec}
+          (ROOT/"hybrid_summary.json").write_text(json.dumps(summary,indent=2));print("===HYBRID_SUMMARY===");print(json.dumps(summary,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: six-score-hybrid-structure-results
+          path: |
+            /tmp/hybrid6/hybrid_summary.json
+            /tmp/hybrid6/structure.json
+            /tmp/hybrid6/aud
+            /tmp/hybrid6/crops
+          if-no-files-found: warn
