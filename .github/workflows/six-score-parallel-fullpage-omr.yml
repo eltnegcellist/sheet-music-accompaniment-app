@@ -1,0 +1,92 @@
+name: six-score-parallel-fullpage-omr
+
+on:
+  push:
+    branches: ["experiment/omr-real-score-benchmark"]
+    paths: [".github/workflows/six-score-parallel-fullpage-omr.yml"]
+
+jobs:
+  score:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - score: brahms-raw
+            id: "112439"
+            url: "https://s9.imslp.org/files/imglnks/usimg/4/43/IMSLP112439-PMLP43440-Brahms_Werke_Band_10_Breitkopf_JB_39_Op_38_scan.pdf"
+            pages: "1 6 10"
+          - score: brahms-filter
+            id: "112440"
+            url: "https://s9.imslp.org/files/imglnks/usimg/e/e0/IMSLP112440-PMLP43440-Brahms_Werke_Band_10_Breitkopf_JB_39_Op_38_filter.pdf"
+            pages: "1 6 10"
+          - score: chopin
+            id: "116248"
+            url: "https://s9.imslp.org/files/imglnks/usimg/3/33/IMSLP116248-PMLP05808-FChopin_Cello_Sonata%2C_Op.65_BH11_piano_score.pdf"
+            pages: "1 5 11"
+          - score: mendelssohn
+            id: "40771"
+            url: "https://s9.imslp.org/files/imglnks/usimg/3/3f/IMSLP40771-PMLP18960-Mendelssohn_-_Variations_Concertantes_Op17_CelloPiano.pdf"
+            pages: "1 4 9"
+          - score: saint-scan
+            id: "291389"
+            url: "https://imslp.eu/files/imglnks/euimg/f/ff/IMSLP291389-PMLP30030-Saint-Saens_-_Allegro_Appassionato_Op43_%28E_Schroeder%29_for_Cello_and_Piano.pdf"
+            pages: "6 10 14"
+          - score: saint-clean
+            id: "413948"
+            url: "https://s9.imslp.org/files/imglnks/usimg/e/e2/IMSLP413948-PMLP30030-Saint_Saens_Allegro_Mandozzi_Vc_Kl_-_Partitur.pdf"
+            pages: "1 4 8"
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+      - name: Download exact score
+        run: |
+          mkdir -p /tmp/score
+          curl -fL '${{ matrix.url }}' -o /tmp/score/source.pdf
+      - name: Extract selected pages
+        run: |
+          python3 -m pip install --quiet pypdf
+          python3 - <<'PY'
+          from pypdf import PdfReader,PdfWriter
+          from pathlib import Path
+          pages=[int(x) for x in "${{ matrix.pages }}".split()]
+          r=PdfReader("/tmp/score/source.pdf")
+          for p in pages:
+            w=PdfWriter();w.add_page(r.pages[p-1])
+            name=f"${{ matrix.score }}-p{p:02d}"
+            with open(f"/tmp/score/{name}.pdf","wb") as fh:w.write(fh)
+          PY
+      - name: Build OMR image
+        run: docker build --progress=plain -t score-omr backend
+      - name: Run each page independently
+        shell: bash
+        run: |
+          set +e
+          mkdir -p /tmp/score/results
+          for page in ${{ matrix.pages }}; do
+            case="${{ matrix.score }}-p$(printf '%02d' "$page")"
+            cat > /tmp/score/one.yaml <<YAML
+          cases:
+            - id: $case
+              pdf: $case.pdf
+          YAML
+            echo "=== AUDIVERIS $case ==="
+            timeout 600s docker run --rm -v /tmp/score:/bench score-omr \
+              python3 -m app.benchmark.omr_compare \
+                --manifest /bench/one.yaml --engines audiveris \
+                --output "/bench/results/$case-audiveris"
+            echo "AUD_RC=$?"
+            echo "=== HOMR $case ==="
+            timeout 900s docker run --rm -v /tmp/score:/bench \
+              -e HOMR_COMMAND="uvx --python 3.11 --from homr==0.7.0 homr" \
+              score-omr python3 -m app.benchmark.omr_compare \
+                --manifest /bench/one.yaml --engines homr \
+                --output "/bench/results/$case-homr"
+            echo "HOMR_RC=$?"
+          done
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: parallel-${{ matrix.score }}-omr
+          path: /tmp/score/results
+          if-no-files-found: warn
