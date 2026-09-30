@@ -111,3 +111,30 @@ def test_hybrid_keeps_audiveris_rhythm_and_fuses_safe_homr_pitch(
     assert "<step>D</step>" in result.music_xml
     assert "<duration>1</duration>" in result.music_xml
     assert any("音高をhomr結果から採用" in w for w in result.warnings)
+
+def test_hybrid_fuses_contiguous_matches_when_homr_has_trailing_extra_measures(
+    tmp_path, monkeypatch
+):
+    aud = _result(_xml("C", measures=2), "aud")
+    homr = _result(_xml("D", measures=3), "homr")
+    monkeypatch.setattr(hybrid_runner, "run_audiveris_chunked", lambda *_a, **_k: aud)
+    monkeypatch.setattr(hybrid_runner, "run_homr", lambda *_a, **_k: homr)
+    monkeypatch.setattr(
+        hybrid_runner,
+        "_metrics",
+        lambda _xml_text: {
+            "final_score": 0.95,
+            "measure_duration_match": 0.98,
+        },
+    )
+
+    result = hybrid_runner.run_hybrid(
+        tmp_path / "score.pdf",
+        tmp_path / "out",
+        minimum_safe_pitch_rate=0.5,
+        minimum_safe_pitch_notes=1,
+    )
+
+    assert result.music_xml.count("<step>D</step>") >= 2
+    assert any("音高をhomr結果から採用" in w for w in result.warnings)
+\n
