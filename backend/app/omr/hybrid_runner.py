@@ -74,17 +74,41 @@ def _copy_pitch(source: etree._Element, target: etree._Element) -> None:
         target.insert(pitch_index + 1, copy.deepcopy(source_accidental))
 
 
+def _measure_structure_matches(
+    aud_measure: etree._Element,
+    homr_measure: etree._Element,
+) -> bool:
+    aud_groups = _pitched_groups(aud_measure)
+    homr_groups = _pitched_groups(homr_measure)
+    if not aud_groups or set(aud_groups) != set(homr_groups):
+        return False
+
+    for key in aud_groups:
+        aa = aud_groups[key]
+        hh = homr_groups[key]
+        if len(aa) != len(hh):
+            return False
+        if [_rhythmic_signature(n) for n in aa] != [
+            _rhythmic_signature(n) for n in hh
+        ]:
+            return False
+    return True
+
+
 def _safe_pitch_fusion(
     audiveris_xml: str,
     homr_xml: str,
 ) -> tuple[str | None, int, int, int]:
     """Return Audiveris XML with safely aligned homr pitches.
 
-    Measures are aligned only when the accompaniment parts have the same measure
-    count. Within each measure, every staff/voice group must have equal note
-    counts *and* an identical duration/chord sequence before any pitch is
-    copied. This deliberately prefers leaving Audiveris untouched over a risky
-    correspondence.
+    When accompaniment measure counts match, measures are compared in order,
+    preserving the original production behaviour. If the counts differ, we do
+    not discard all fusion immediately: uniquely numbered measures may still be
+    considered, but only inside a run of at least two adjacent measures that
+    also align to adjacent homr measures. Every fused measure must still have
+    identical staff/voice groups, pitched-note counts, and duration/chord
+    sequences. This recovers safe trailing-oversegmentation cases without
+    trusting isolated rhythmic coincidences.
     """
     try:
         aud_id = find_accompaniment_part(audiveris_xml)
@@ -102,7 +126,7 @@ def _safe_pitch_fusion(
 
     aud_measures = aud_part.findall("measure")
     homr_measures = homr_part.findall("measure")
-    if not aud_measures or len(aud_measures) != len(homr_measures):
+    if not aud_measures or not homr_measures:
         return None, 0, 0, 0
 
     fused_root = copy.deepcopy(aud_root)
@@ -111,35 +135,63 @@ def _safe_pitch_fusion(
         return None, 0, 0, 0
     fused_measures = fused_part.findall("measure")
 
-    candidate_notes = 0
+    candidate_notes = sum(
+        len(notes)
+        for measure in aud_measures
+        for notes in _pitched_groups(measure).values()
+    )
     fused_notes = 0
     fused_measure_count = 0
 
-    for aud_measure, homr_measure, fused_measure in zip(
-        aud_measures, homr_measures, fused_measures
-    ):
+    if len(aud_measures) == len(homr_measures):
+        safe_pairs = [
+            (index, index)
+            for index, (aud_measure, homr_measure) in enumerate(
+                zip(aud_measures, homr_measures)
+            )
+            if _measure_structure_matches(aud_measure, homr_measure)
+        ]
+    else:
+        # Different total counts often mean one engine over-segmented only a
+        # small tail of the page. Align by exact, unique MusicXML measure
+        # numbers, then require local continuity so a repeated rhythmic pattern
+        # cannot create a one-off false correspondence.
+        homr_by_number: dict[str, tuple[int, etree._Element]] = {}
+        for homr_index, homr_measure in enumerate(homr_measures):
+            number = (homr_measure.get("number") or "").strip()
+            if not number or number in homr_by_number:
+                return None, 0, candidate_notes, 0
+            homr_by_number[number] = (homr_index, homr_measure)
+
+        aligned: list[tuple[int, int]] = []
+        seen_aud_numbers: set[str] = set()
+        for aud_index, aud_measure in enumerate(aud_measures):
+            number = (aud_measure.get("number") or "").strip()
+            if not number or number in seen_aud_numbers:
+                return None, 0, candidate_notes, 0
+            seen_aud_numbers.add(number)
+            match = homr_by_number.get(number)
+            if match is None:
+                continue
+            homr_index, homr_measure = match
+            if _measure_structure_matches(aud_measure, homr_measure):
+                aligned.append((aud_index, homr_index))
+
+        aligned_set = set(aligned)
+        safe_pairs = [
+            pair
+            for pair in aligned
+            if (pair[0] - 1, pair[1] - 1) in aligned_set
+            or (pair[0] + 1, pair[1] + 1) in aligned_set
+        ]
+
+    for aud_index, homr_index in safe_pairs:
+        aud_measure = aud_measures[aud_index]
+        homr_measure = homr_measures[homr_index]
+        fused_measure = fused_measures[aud_index]
         aud_groups = _pitched_groups(aud_measure)
         homr_groups = _pitched_groups(homr_measure)
         fused_groups = _pitched_groups(fused_measure)
-        candidate_notes += sum(len(v) for v in aud_groups.values())
-
-        if not aud_groups or set(aud_groups) != set(homr_groups):
-            continue
-
-        safe = True
-        for key in aud_groups:
-            aa = aud_groups[key]
-            hh = homr_groups[key]
-            if len(aa) != len(hh):
-                safe = False
-                break
-            if [_rhythmic_signature(n) for n in aa] != [
-                _rhythmic_signature(n) for n in hh
-            ]:
-                safe = False
-                break
-        if not safe:
-            continue
 
         copied_here = 0
         for key in aud_groups:
