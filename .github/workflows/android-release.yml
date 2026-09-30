@@ -92,8 +92,13 @@ jobs:
           APK="android/app/build/outputs/apk/release/app-release.apk"
           test -f "$APK"
           APKSIGNER="${ANDROID_HOME}/build-tools/$(ls "${ANDROID_HOME}/build-tools" | sort -V | tail -n1)/apksigner"
-          "$APKSIGNER" verify --verbose "$APK"
-          ACTUAL="$("$APKSIGNER" verify --print-certs "$APK"             | sed -n 's/^Signer #1 certificate SHA-256 digest: //p'             | head -n1 | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          set -euo pipefail
+          REPORT="$RUNNER_TEMP/imslp-apk-signature.txt"
+          "$APKSIGNER" verify --verbose --print-certs "$APK" | tee "$REPORT"
+          grep -qx 'Number of signers: 1' "$REPORT"
+          # Read certificate digests independently of SDK-specific signer labels.
+          ACTUAL="$(sed -n 's/^.* certificate SHA-256 digest: //p' "$REPORT" \
+            | tr -d ':' | tr '[:lower:]' '[:upper:]' | sort -u)"
           echo "APK certificate SHA-256: $ACTUAL"
           test "$ACTUAL" = "$EXPECTED_CERT_SHA256"
 
