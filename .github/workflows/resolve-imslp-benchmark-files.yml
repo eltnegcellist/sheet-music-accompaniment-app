@@ -12,21 +12,47 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6
-      - name: Resolve file URLs from IMSLP work pages
+      - name: Resolve six IMSLP file paths
         shell: bash
         run: |
           set -euxo pipefail
-          UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36'
-          mkdir -p /tmp/imslp-pages
-          fetch() {
-            key="$1"
-            url="$2"
-            curl --compressed -A "$UA" -fsSL "$url" -o "/tmp/imslp-pages/$key.html"
-            echo "===== $key ====="
-            grep -Eo 'https?://[^"'\'' <>]+/files/imglnks/[^"'\'' <>]+\.pdf' "/tmp/imslp-pages/$key.html" | sort -u || true
-            grep -n -E '112439|112440|116248|40771|291389|413948|imglnks|ImagefromIndex' "/tmp/imslp-pages/$key.html" | head -120 || true
+          python3 - <<'PY'
+          import html
+          import re
+          import urllib.request
+
+          UA={"User-Agent":"Mozilla/5.0"}
+          pages={
+            "brahms":"https://imslp.org/wiki/Cello_Sonata_No.1,_Op.38_(Brahms,_Johannes)",
+            "chopin":"https://imslp.org/wiki/Cello_Sonata,_Op.65_(Chopin,_Fr%C3%A9d%C3%A9ric)",
+            "mendelssohn":"https://imslp.org/wiki/Variations_concertantes,_Op.17_(Mendelssohn,_Felix)",
+            "saint":"https://imslp.org/wiki/Allegro_appassionato,_Op.43_(Saint-Sa%C3%ABns,_Camille)",
           }
-          fetch brahms 'https://imslp.org/wiki/Cello_Sonata_No.1,_Op.38_(Brahms,_Johannes)'
-          fetch chopin 'https://imslp.org/wiki/Cello_Sonata,_Op.65_(Chopin,_Fr%C3%A9d%C3%A9ric)'
-          fetch mendelssohn 'https://imslp.org/wiki/Variations_concertantes,_Op.17_(Mendelssohn,_Felix)'
-          fetch saint 'https://imslp.org/wiki/Allegro_appassionato,_Op.43_(Saint-Sa%C3%ABns,_Camille)'
+          wanted={
+            "112439":"brahms",
+            "112440":"brahms",
+            "116248":"chopin",
+            "40771":"mendelssohn",
+            "291389":"saint",
+            "413948":"saint",
+          }
+
+          bodies={}
+          for key,url in pages.items():
+            req=urllib.request.Request(url,headers=UA)
+            with urllib.request.urlopen(req,timeout=30) as r:
+              bodies[key]=r.read().decode("utf-8","replace")
+
+          for idx,key in wanted.items():
+            text=bodies[key]
+            marker=f'id="IMSLP{idx}"'
+            start=text.find(marker)
+            if start<0:
+              raise SystemExit(f"{idx}: marker not found")
+            tail=text[start:start+12000]
+            m=re.search(r'<span class="hidden"><a href="([^"]+\.pdf)"',tail)
+            if not m:
+              raise SystemExit(f"{idx}: hidden pdf href not found")
+            path=html.unescape(m.group(1))
+            print(f"{idx}\thttps://imslp.org{path}")
+          PY
