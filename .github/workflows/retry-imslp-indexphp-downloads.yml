@@ -1,0 +1,71 @@
+name: retry-imslp-indexphp-downloads
+
+on:
+  push:
+    branches:
+      - "experiment/omr-real-score-benchmark"
+    paths:
+      - ".github/workflows/retry-imslp-indexphp-downloads.yml"
+
+jobs:
+  retry:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Retry via index.php title + referer/cookies
+        shell: bash
+        run: |
+          set -u
+          UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36'
+          mkdir -p /tmp/retry
+          declare -A WORK=(
+            [112439]='https://imslp.org/index.php?title=Cello_Sonata_No.1%2C_Op.38_%28Brahms%2C_Johannes%29'
+            [112440]='https://imslp.org/index.php?title=Cello_Sonata_No.1%2C_Op.38_%28Brahms%2C_Johannes%29'
+            [116248]='https://imslp.org/index.php?title=Cello_Sonata%2C_Op.65_%28Chopin%2C_Fr%C3%A9d%C3%A9ric%29'
+            [40771]='https://imslp.org/index.php?title=Variations_Concertantes%2C_Op.17_%28Mendelssohn%2C_Felix%29'
+            [291389]='https://imslp.org/index.php?title=Allegro_appassionato%2C_Op.43_%28Saint-Sa%C3%ABns%2C_Camille%29'
+            [413948]='https://imslp.org/index.php?title=Allegro_appassionato%2C_Op.43_%28Saint-Sa%C3%ABns%2C_Camille%29'
+          )
+          declare -A PDF=(
+            [112439]='https://imslp.org/images/4/43/PMLP43440-Brahms_Werke_Band_10_Breitkopf_JB_39_Op_38_scan.pdf'
+            [112440]='https://imslp.org/images/e/e0/PMLP43440-Brahms_Werke_Band_10_Breitkopf_JB_39_Op_38_filter.pdf'
+            [116248]='https://imslp.org/images/3/33/PMLP05808-FChopin_Cello_Sonata%2C_Op.65_BH11_piano_score.pdf'
+            [40771]='https://imslp.org/images/3/3f/PMLP18960-Mendelssohn_-_Variations_Concertantes_Op17_CelloPiano.pdf'
+            [291389]='https://imslp.org/images/f/ff/PMLP30030-Saint-Saens_-_Allegro_Appassionato_Op43_%28E_Schroeder%29_for_Cello_and_Piano.pdf'
+            [413948]='https://imslp.org/images/e/e2/PMLP30030-Saint_Saens_Allegro_Mandozzi_Vc_Kl_-_Partitur.pdf'
+          )
+
+          ok=0
+          for id in 112439 112440 116248 40771 291389 413948; do
+            echo "===== $id ====="
+            jar="/tmp/retry/$id.cookies"
+            work="/tmp/retry/$id.work.html"
+            out="/tmp/retry/$id.pdf"
+
+            # Establish the same work-page session a real browser gets.
+            curl --compressed -A "$UA" -c "$jar" -b "$jar" -fsSL               "${WORK[$id]}" -o "$work" || true
+
+            # Attempt A: exact index.php Special:ImagefromIndex route.
+            special="https://imslp.org/index.php?title=Special:ImagefromIndex/$id"
+            curl --compressed -A "$UA" -c "$jar" -b "$jar"               -e "${WORK[$id]}" -L -sS               "$special" -o "$out" || true
+            prefix="$(head -c 5 "$out" 2>/dev/null || true)"
+            echo "A special kind=$(file -b "$out" 2>/dev/null || true) bytes=$(stat -c %s "$out" 2>/dev/null || echo 0) prefix=$(printf %q "$prefix")"
+
+            if [ "$prefix" != '%PDF-' ]; then
+              # Attempt B: internal PDF URL, but now with cookies and work-page referer.
+              curl --compressed -A "$UA" -c "$jar" -b "$jar"                 -e "${WORK[$id]}" -L -sS                 "${PDF[$id]}" -o "$out" || true
+              prefix="$(head -c 5 "$out" 2>/dev/null || true)"
+              echo "B direct kind=$(file -b "$out" 2>/dev/null || true) bytes=$(stat -c %s "$out" 2>/dev/null || echo 0) prefix=$(printf %q "$prefix")"
+            fi
+
+            if [ "$prefix" = '%PDF-' ]; then
+              echo "RESULT $id OK bytes=$(stat -c %s "$out") sha256=$(sha256sum "$out" | awk '{print $1}')"
+              ok=$((ok+1))
+            else
+              echo "RESULT $id BLOCKED"
+              head -c 300 "$out" 2>/dev/null | tr '\n' ' ' || true
+              echo
+            fi
+          done
+
+          echo "TOTAL_OK=$ok/6"
