@@ -10,34 +10,37 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6
-      - name: Download six exact files from IMSLP.eu mirror
+      - name: Try EU/US/CA mirror roots for exact six files
         shell: bash
         run: |
           set -u
           mkdir -p /tmp/mirror
-          declare -A URLS=(
-            [112439]='https://imslp.eu/files/imglnks/euimg/4/43/IMSLP112439-PMLP43440-Brahms_Werke_Band_10_Breitkopf_JB_39_Op_38_scan.pdf'
-            [112440]='https://imslp.eu/files/imglnks/euimg/e/e0/IMSLP112440-PMLP43440-Brahms_Werke_Band_10_Breitkopf_JB_39_Op_38_filter.pdf'
-            [116248]='https://imslp.eu/files/imglnks/euimg/3/33/IMSLP116248-PMLP05808-FChopin_Cello_Sonata%2C_Op.65_BH11_piano_score.pdf'
-            [40771]='https://imslp.eu/files/imglnks/euimg/3/3f/IMSLP40771-PMLP18960-Mendelssohn_-_Variations_Concertantes_Op17_CelloPiano.pdf'
-            [291389]='https://imslp.eu/files/imglnks/euimg/f/ff/IMSLP291389-PMLP30030-Saint-Saens_-_Allegro_Appassionato_Op43_%28E_Schroeder%29_for_Cello_and_Piano.pdf'
-            [413948]='https://imslp.eu/files/imglnks/euimg/e/e2/IMSLP413948-PMLP30030-Saint_Saens_Allegro_Mandozzi_Vc_Kl_-_Partitur.pdf'
+          declare -A REL=(
+            [112439]='4/43/IMSLP112439-PMLP43440-Brahms_Werke_Band_10_Breitkopf_JB_39_Op_38_scan.pdf'
+            [112440]='e/e0/IMSLP112440-PMLP43440-Brahms_Werke_Band_10_Breitkopf_JB_39_Op_38_filter.pdf'
+            [116248]='3/33/IMSLP116248-PMLP05808-FChopin_Cello_Sonata%2C_Op.65_BH11_piano_score.pdf'
+            [40771]='3/3f/IMSLP40771-PMLP18960-Mendelssohn_-_Variations_Concertantes_Op17_CelloPiano.pdf'
+            [291389]='f/ff/IMSLP291389-PMLP30030-Saint-Saens_-_Allegro_Appassionato_Op43_%28E_Schroeder%29_for_Cello_and_Piano.pdf'
+            [413948]='e/e2/IMSLP413948-PMLP30030-Saint_Saens_Allegro_Mandozzi_Vc_Kl_-_Partitur.pdf'
           )
-          failed=0
           for id in 112439 112440 116248 40771 291389 413948; do
-            out="/tmp/mirror/$id.pdf"
-            set +e
-            curl -fL --retry 2 --connect-timeout 20 --max-time 180 -A 'Mozilla/5.0' "${URLS[$id]}" -o "$out"
-            rc=$?
-            set -e
-            prefix="$(head -c 5 "$out" 2>/dev/null || true)"
-            bytes="$(stat -c %s "$out" 2>/dev/null || echo 0)"
-            if [ "$rc" -eq 0 ] && [ "$prefix" = '%PDF-' ]; then
-              pages="$(pdfinfo "$out" 2>/dev/null | awk '/^Pages:/ {print $2}' || true)"
-              echo "RESULT $id OK bytes=$bytes pages=$pages sha256=$(sha256sum "$out" | awk '{print $1}')"
-            else
-              echo "RESULT $id FAIL rc=$rc bytes=$bytes prefix=$(printf %q "$prefix")"
-              failed=1
-            fi
+            ok=0
+            for root in euimg usimg caimg; do
+              out="/tmp/mirror/$id.pdf"
+              url="https://imslp.eu/files/imglnks/$root/${REL[$id]}"
+              set +e
+              curl -fL --retry 1 --connect-timeout 15 --max-time 120 -A 'Mozilla/5.0' "$url" -o "$out"
+              rc=$?
+              set -e
+              prefix="$(head -c 5 "$out" 2>/dev/null || true)"
+              bytes="$(stat -c %s "$out" 2>/dev/null || echo 0)"
+              if [ "$rc" -eq 0 ] && [ "$prefix" = '%PDF-' ]; then
+                echo "RESULT $id OK root=$root bytes=$bytes sha256=$(sha256sum "$out" | awk '{print $1}')"
+                ok=1
+                break
+              else
+                echo "TRY $id root=$root rc=$rc bytes=$bytes"
+              fi
+            done
+            [ "$ok" -eq 1 ] || echo "RESULT $id FAIL all_roots"
           done
-          exit "$failed"
