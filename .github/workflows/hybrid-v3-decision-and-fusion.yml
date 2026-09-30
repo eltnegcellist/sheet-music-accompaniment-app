@@ -1,0 +1,270 @@
+name: hybrid-v3-decision-and-fusion
+
+on:
+  push:
+    branches: ["experiment/omr-real-score-benchmark"]
+    paths: [".github/workflows/hybrid-v3-decision-and-fusion.yml"]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  v3:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download full-page OMR artifacts
+        uses: actions/download-artifact@v4
+        with:
+          repository: eltnegcellist/sheet-music-accompaniment-app
+          run-id: 36667381289
+          github-token: ${{ github.token }}
+          pattern: parallel-*-omr
+          path: /tmp/v3/fullpage
+
+      - name: Download hybrid structure artifact
+        uses: actions/download-artifact@v4
+        with:
+          repository: eltnegcellist/sheet-music-accompaniment-app
+          run-id: 36667627748
+          github-token: ${{ github.token }}
+          name: six-score-hybrid-structure-results
+          path: /tmp/v3/hybrid
+
+      - name: Build v3 fused outputs and engine decisions
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from __future__ import annotations
+          import copy, glob, json, os, re, xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          ROOT=Path("/tmp/v3")
+          OUT=ROOT/"out"
+          OUT.mkdir(parents=True,exist_ok=True)
+
+          hybrid_summary=json.load(open(ROOT/"hybrid"/"hybrid_summary.json"))
+          structure=json.load(open(ROOT/"hybrid"/"structure.json"))
+
+          # Gather full-page result rows and MusicXML paths.
+          result_rows={}
+          xml_paths={}
+          for p in glob.glob(str(ROOT/"fullpage"/"**"/"results.json"),recursive=True):
+              for row in json.load(open(p)):
+                  result_rows[(row.get("case_id"),row.get("engine"))]=row
+          for p in glob.glob(str(ROOT/"fullpage"/"**"/"recognized.musicxml"),recursive=True):
+              parts=Path(p).parts
+              engine=parts[-2]
+              case=parts[-3]
+              xml_paths[(case,engine)]=Path(p)
+
+          def tag(el):
+              return el.tag.rsplit("}",1)[-1]
+
+          def piano_part(root):
+              names={
+                  sp.get("id"):(sp.findtext("part-name") or "").lower()
+                  for sp in root.findall("./part-list/score-part")
+              }
+              parts=root.findall("./part")
+              named=[
+                  p for p in parts
+                  if any(k in names.get(p.get("id"),"") for k in ("piano","klavier","pianoforte"))
+              ]
+              if named:
+                  return named[0]
+              return max(parts,key=lambda p:len(p.findall(".//note"))) if parts else None
+
+          def pitched_by_staff(measure):
+              out={}
+              for n in measure.findall(".//note"):
+                  if n.find("pitch") is None:
+                      continue
+                  s=n.findtext("staff") or "1"
+                  out.setdefault(s,[]).append(n)
+              return out
+
+          def copy_pitch(src_note,dst_note):
+              sp=src_note.find("pitch")
+              dp=dst_note.find("pitch")
+              if sp is None or dp is None:
+                  return
+              for child in list(dp):
+                  dp.remove(child)
+              for child in list(sp):
+                  dp.append(copy.deepcopy(child))
+
+          def score_stats(xml_text):
+              root=ET.fromstring(xml_text)
+              parts=root.findall("./part")
+              ms=max((len(p.findall("measure")) for p in parts),default=0)
+              pitched=len([n for n in root.findall(".//note") if n.find("pitch") is not None])
+              rests=len([n for n in root.findall(".//note") if n.find("rest") is not None])
+              return {"parts":len(parts),"measures":ms,"pitched_notes":pitched,"rests":rests}
+
+          def full_metrics(case,engine):
+              r=result_rows.get((case,engine),{})
+              return {
+                  "status":r.get("status"),
+                  "final":r.get("intrinsic_final_score"),
+                  "duration":r.get("intrinsic_measure_duration_match"),
+                  "key":r.get("intrinsic_key_consistency"),
+                  "runtime":r.get("runtime_sec"),
+              }
+
+          def crop_xml(case,system_index):
+              p=ROOT/"hybrid"/"crops"/case/f"system_{system_index:02d}.musicxml"
+              return p if p.exists() else None
+
+          def aud_xml(case):
+              # Prefer the hybrid-run Audiveris output because it matches the
+              # exact structure/crop metadata used for fusion.
+              xs=list((ROOT/"hybrid"/"aud"/case).rglob("recognized.musicxml"))
+              if xs:
+                  return xs[0]
+              return xml_paths.get((case,"audiveris"))
+
+          decisions={}
+          for case,hmeta in hybrid_summary.items():
+              am=full_metrics(case,"audiveris")
+              hm=full_metrics(case,"homr")
+              apath=aud_xml(case)
+              hpath=xml_paths.get((case,"homr"))
+
+              # Gate 1: no usable Audiveris MusicXML -> homr full-page.
+              if not apath or am["status"]!="ok":
+                  chosen="homr-fullpage"
+                  reason="audiveris_failed"
+                  chosen_xml=hpath.read_text(errors="replace") if hpath else ""
+                  fused_count=0
+                  fused_measures=0
+
+              else:
+                  aud_text=apath.read_text(errors="replace")
+                  aud_root=ET.fromstring(aud_text)
+                  aud_piano=piano_part(aud_root)
+                  amap={m.get("number"):m for m in aud_piano.findall("measure")} if aud_piano is not None else {}
+
+                  # Gate 2: clear intrinsic rhythm collapse -> homr full-page
+                  # when homr is materially stronger on BOTH rhythm and total score.
+                  aud_d=am["duration"] if isinstance(am["duration"],(int,float)) else 0.0
+                  homr_d=hm["duration"] if isinstance(hm["duration"],(int,float)) else 0.0
+                  aud_f=am["final"] if isinstance(am["final"],(int,float)) else 0.0
+                  homr_f=hm["final"] if isinstance(hm["final"],(int,float)) else 0.0
+                  if aud_d < 0.75 and homr_d >= aud_d + 0.08 and homr_f >= aud_f + 0.03 and hpath:
+                      chosen="homr-fullpage"
+                      reason="audiveris_rhythm_collapse"
+                      chosen_xml=hpath.read_text(errors="replace")
+                      fused_count=0
+                      fused_measures=0
+                  else:
+                      # Gate 3: keep Audiveris structure. Replace pitch only
+                      # where one entire system has the same measure count and
+                      # every staff has identical pitched-note cardinality.
+                      fused=copy.deepcopy(aud_root)
+                      fp=piano_part(fused)
+                      fmap={m.get("number"):m for m in fp.findall("measure")} if fp is not None else {}
+                      fused_count=0
+                      fused_measures=0
+
+                      for sysmeta in hmeta.get("systems",[]):
+                          si=sysmeta["system"]
+                          ids=[]
+                          # structure.json stores Audiveris IDs in system order.
+                          smatches=[
+                              x for x in structure.get(case,{}).get("systems",[])
+                              if x.get("system")==si
+                          ]
+                          if smatches:
+                              ids=[str(x) for x in smatches[0].get("ids",[]) if x is not None]
+                          cp=crop_xml(case,si)
+                          if not cp or not ids:
+                              continue
+                          hr=ET.parse(cp).getroot()
+                          parts=hr.findall("./part")
+                          if not parts:
+                              continue
+                          hmets=parts[0].findall("measure")
+                          if len(hmets)!=len(ids):
+                              continue
+                          for mid,hmx in zip(ids,hmets):
+                              amx=fmap.get(mid)
+                              if amx is None:
+                                  continue
+                              aa=pitched_by_staff(amx)
+                              hh=pitched_by_staff(hmx)
+                              if not aa or set(aa)!=set(hh):
+                                  continue
+                              if not all(len(aa[s])==len(hh[s]) for s in aa):
+                                  continue
+                              for s in aa:
+                                  for dst,src in zip(aa[s],hh[s]):
+                                      copy_pitch(src,dst)
+                                      fused_count+=1
+                              fused_measures+=1
+
+                      safe_rate=hmeta.get("safe_pitch_rate") or 0.0
+                      if fused_count>0:
+                          chosen="audiveris-structure+homr-safe-pitch"
+                          reason="audiveris_structure_trusted_safe_pitch_fusion"
+                          chosen_xml=ET.tostring(fused,encoding="unicode")
+                      else:
+                          chosen="audiveris-fullpage"
+                          reason="audiveris_structure_trusted_no_safe_fusion"
+                          chosen_xml=aud_text
+
+              cdir=OUT/case
+              cdir.mkdir(parents=True,exist_ok=True)
+              (cdir/"v3.musicxml").write_text(chosen_xml)
+
+              decisions[case]={
+                  "chosen":chosen,
+                  "reason":reason,
+                  "audiveris":am,
+                  "homr":hm,
+                  "safe_pitch_rate_signal":hmeta.get("safe_pitch_rate"),
+                  "safe_pitch_notes_signal":hmeta.get("safe_pitch_notes"),
+                  "fused_pitch_notes_actual":fused_count,
+                  "fused_measures_actual":fused_measures,
+                  "output_stats":score_stats(chosen_xml) if chosen_xml.strip() else None,
+              }
+
+          # Aggregate by repertoire class.
+          groups={
+            "Brahms raw":[k for k in decisions if k.startswith("brahms-raw")],
+            "Brahms filtered":[k for k in decisions if k.startswith("brahms-filter")],
+            "Chopin":[k for k in decisions if k.startswith("chopin")],
+            "Mendelssohn":[k for k in decisions if k.startswith("mendelssohn")],
+            "Saint-Saens scan":[k for k in decisions if k.startswith("saint-scan")],
+            "Saint-Saens clean":[k for k in decisions if k.startswith("saint-clean")],
+          }
+          aggregate={}
+          for g,cases in groups.items():
+              counts={}
+              fused=0
+              fmeas=0
+              for c in cases:
+                  d=decisions[c]
+                  counts[d["chosen"]]=counts.get(d["chosen"],0)+1
+                  fused+=d["fused_pitch_notes_actual"]
+                  fmeas+=d["fused_measures_actual"]
+              aggregate[g]={
+                  "cases":cases,
+                  "choices":counts,
+                  "fused_pitch_notes":fused,
+                  "fused_measures":fmeas,
+              }
+
+          result={"cases":decisions,"aggregate":aggregate}
+          (OUT/"v3_summary.json").write_text(json.dumps(result,ensure_ascii=False,indent=2))
+          print("===V3_SUMMARY===")
+          print(json.dumps(result,ensure_ascii=False,indent=2))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hybrid-v3-decision-and-fusion-results
+          path: /tmp/v3/out
+          if-no-files-found: error
