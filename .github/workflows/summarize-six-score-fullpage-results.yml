@@ -1,0 +1,54 @@
+name: summarize-six-score-fullpage-results
+
+on:
+  push:
+    branches: ["experiment/omr-real-score-benchmark"]
+    paths: [".github/workflows/summarize-six-score-fullpage-results.yml"]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  summarize:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Download currently available benchmark artifacts
+        uses: actions/download-artifact@v4
+        with:
+          repository: eltnegcellist/sheet-music-accompaniment-app
+          run-id: 36667381289
+          github-token: ${{ github.token }}
+          pattern: parallel-*-omr
+          path: /tmp/results
+      - name: Print normalized OMR metrics
+        run: |
+          python3 - <<'PY'
+          import glob,json,os
+          rows=[]
+          for path in glob.glob('/tmp/results/**/results.json',recursive=True):
+              try:
+                  data=json.load(open(path))
+              except Exception as e:
+                  print("READ_ERROR",path,e);continue
+              for row in data:
+                  rows.append(row)
+          rows.sort(key=lambda r:(r.get('case_id',''),r.get('engine','')))
+          print("=== FULL_ROWS ===")
+          print(json.dumps(rows,ensure_ascii=False,indent=2,default=str))
+          print("=== COMPACT ===")
+          for r in rows:
+              compact={
+                'case':r.get('case_id'),
+                'engine':r.get('engine'),
+                'status':r.get('status'),
+                'runtime_sec':r.get('runtime_sec'),
+                'error':r.get('error'),
+              }
+              for k,v in r.items():
+                  if k.startswith('intrinsic_'):
+                      compact[k]=v
+              print(json.dumps(compact,ensure_ascii=False,default=str))
+          print("ROW_COUNT",len(rows))
+          PY
