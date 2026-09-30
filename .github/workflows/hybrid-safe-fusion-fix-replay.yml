@@ -1,0 +1,241 @@
+name: hybrid-safe-fusion-fix-replay
+
+on:
+  push:
+    branches: ["fix/hybrid-safe-fusion-measure-mismatch"]
+    paths: [".github/workflows/hybrid-safe-fusion-fix-replay.yml"]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  replay:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download prior full-page Audiveris and homr outputs
+        uses: actions/download-artifact@v4
+        with:
+          repository: eltnegcellist/sheet-music-accompaniment-app
+          run-id: 36667381289
+          github-token: ${{ github.token }}
+          pattern: parallel-*-omr
+          path: /tmp/replay/fullpage
+
+      - name: Download experimental Hybrid v3 reference
+        uses: actions/download-artifact@v4
+        with:
+          repository: eltnegcellist/sheet-music-accompaniment-app
+          run-id: 36670520610
+          github-token: ${{ github.token }}
+          name: hybrid-v3-decision-and-fusion-results
+          path: /tmp/replay/v3
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install backend
+        run: python -m pip install --quiet -e backend
+
+      - name: Replay production run_hybrid on all 18 representative cases
+        shell: bash
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import re
+          from pathlib import Path
+
+          from app.omr import hybrid_runner
+          from app.omr.result import OmrResult
+
+          ROOT = Path("/tmp/replay")
+          OUT = ROOT / "out"
+          OUT.mkdir(parents=True, exist_ok=True)
+
+          rows = {}
+          xmls = {}
+
+          for p in ROOT.glob("fullpage/**/results.json"):
+              try:
+                  data = json.loads(p.read_text(encoding="utf-8"))
+              except Exception:
+                  continue
+              for row in data:
+                  case = row.get("case_id")
+                  engine = row.get("engine")
+                  if not case or not engine:
+                      continue
+                  rows[(case, engine)] = row
+                  if row.get("status") == "ok":
+                      candidate = p.parent / case / engine / "recognized.musicxml"
+                      if candidate.exists():
+                          xmls[(case, engine)] = candidate
+
+          cases = sorted({case for case, _engine in rows})
+          print("Cases:", len(cases), cases)
+          if len(cases) != 18:
+              raise SystemExit(f"Expected 18 cases, found {len(cases)}")
+
+          v3_path = ROOT / "v3" / "v3_summary.json"
+          v3 = json.loads(v3_path.read_text(encoding="utf-8"))
+
+          def mk_result(xml: str, engine: str) -> OmrResult:
+              return OmrResult(
+                  music_xml=xml,
+                  measures=[],
+                  page_sizes=[],
+                  warnings=[f"replay-source:{engine}"],
+              )
+
+          def intrinsic(xml: str):
+              return hybrid_runner._metrics(xml) or {}
+
+          def classify(warnings: list[str]) -> str:
+              joined = "\n".join(warnings)
+              if "音高をhomr結果から採用" in joined:
+                  return "audiveris-structure+homr-safe-pitch"
+              if "homr結果を採用しました" in joined:
+                  return "homr-fullpage"
+              return "audiveris-fullpage"
+
+          production = {}
+          diffs = []
+
+          for case in cases:
+              aud_path = xmls.get((case, "audiveris"))
+              homr_path = xmls.get((case, "homr"))
+              aud_xml = aud_path.read_text(encoding="utf-8", errors="replace") if aud_path else None
+              homr_xml = homr_path.read_text(encoding="utf-8", errors="replace") if homr_path else None
+
+              def fake_aud(*_args, **_kwargs):
+                  if aud_xml is None:
+                      raise RuntimeError("replay: Audiveris output unavailable")
+                  return mk_result(aud_xml, "audiveris")
+
+              def fake_homr(*_args, **_kwargs):
+                  if homr_xml is None:
+                      raise RuntimeError("replay: homr output unavailable")
+                  return mk_result(homr_xml, "homr")
+
+              hybrid_runner.run_audiveris_chunked = fake_aud
+              hybrid_runner.run_homr = fake_homr
+
+              fused_notes = candidate_notes = fused_measures = 0
+              safe_rate = 0.0
+              if aud_xml is not None and homr_xml is not None:
+                  _fx, fused_notes, candidate_notes, fused_measures = hybrid_runner._safe_pitch_fusion(
+                      aud_xml, homr_xml
+                  )
+                  safe_rate = fused_notes / candidate_notes if candidate_notes else 0.0
+
+              result = hybrid_runner.run_hybrid(
+                  Path(f"{case}.pdf"),
+                  OUT / "work" / case,
+              )
+              chosen = classify(result.warnings)
+              metrics = intrinsic(result.music_xml)
+              aud_metrics = intrinsic(aud_xml) if aud_xml is not None else None
+              homr_metrics = intrinsic(homr_xml) if homr_xml is not None else None
+
+              prod = {
+                  "chosen": chosen,
+                  "audiveris_status": rows.get((case, "audiveris"), {}).get("status"),
+                  "homr_status": rows.get((case, "homr"), {}).get("status"),
+                  "audiveris": aud_metrics,
+                  "homr": homr_metrics,
+                  "production_output": metrics,
+                  "fullpage_safe_pitch_notes": fused_notes,
+                  "fullpage_candidate_notes": candidate_notes,
+                  "fullpage_safe_pitch_rate": safe_rate,
+                  "fullpage_fused_measures": fused_measures,
+                  "warnings": result.warnings,
+              }
+              production[case] = prod
+
+              ref = v3.get("cases", {}).get(case, {})
+              diff = {
+                  "case": case,
+                  "v3_chosen": ref.get("chosen"),
+                  "production_chosen": chosen,
+                  "v3_fused_notes": ref.get("fused_pitch_notes_actual"),
+                  "production_fullpage_fused_notes": fused_notes,
+                  "v3_fused_measures": ref.get("fused_measures_actual"),
+                  "production_fullpage_fused_measures": fused_measures,
+                  "v3_safe_pitch_rate_signal": ref.get("safe_pitch_rate_signal"),
+                  "production_fullpage_safe_pitch_rate": safe_rate,
+              }
+              diff["choice_changed"] = diff["v3_chosen"] != diff["production_chosen"]
+              diffs.append(diff)
+
+              case_dir = OUT / case
+              case_dir.mkdir(parents=True, exist_ok=True)
+              (case_dir / "production.musicxml").write_text(result.music_xml, encoding="utf-8")
+
+          groups = {
+              "Brahms raw": [c for c in cases if c.startswith("brahms-raw")],
+              "Brahms filtered": [c for c in cases if c.startswith("brahms-filter")],
+              "Chopin": [c for c in cases if c.startswith("chopin")],
+              "Mendelssohn": [c for c in cases if c.startswith("mendelssohn")],
+              "Saint-Saens scan": [c for c in cases if c.startswith("saint-scan")],
+              "Saint-Saens clean": [c for c in cases if c.startswith("saint-clean")],
+          }
+          aggregate = {}
+          for group, gcases in groups.items():
+              choices = {}
+              fused = 0
+              fmeas = 0
+              cand = 0
+              for c in gcases:
+                  p = production[c]
+                  choices[p["chosen"]] = choices.get(p["chosen"], 0) + 1
+                  fused += p["fullpage_safe_pitch_notes"]
+                  fmeas += p["fullpage_fused_measures"]
+                  cand += p["fullpage_candidate_notes"]
+              aggregate[group] = {
+                  "cases": gcases,
+                  "choices": choices,
+                  "fullpage_safe_pitch_notes": fused,
+                  "fullpage_candidate_notes": cand,
+                  "fullpage_safe_pitch_rate": (fused / cand if cand else 0.0),
+                  "fullpage_fused_measures": fmeas,
+              }
+
+          summary = {
+              "main_sha": "a3e7eb2563532291c5bc8ef2411e91d611291c06",
+              "source_fullpage_run": 36667381289,
+              "reference_v3_run": 36670520610,
+              "cases": production,
+              "aggregate": aggregate,
+              "diffs": diffs,
+          }
+          (OUT / "production_hybrid_replay_summary.json").write_text(
+              json.dumps(summary, ensure_ascii=False, indent=2),
+              encoding="utf-8",
+          )
+
+          print("=== PRODUCTION_HYBRID_REPLAY ===")
+          for d in diffs:
+              print(
+                  d["case"],
+                  "v3=", d["v3_chosen"],
+                  "prod=", d["production_chosen"],
+                  "v3_fused=", d["v3_fused_notes"],
+                  "prod_fullpage_fused=", d["production_fullpage_fused_notes"],
+                  "prod_rate=", f'{d["production_fullpage_safe_pitch_rate"]:.2%}',
+                  "CHANGED" if d["choice_changed"] else "",
+              )
+          print("=== AGGREGATE ===")
+          print(json.dumps(aggregate, ensure_ascii=False, indent=2))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hybrid-safe-fusion-fix-replay-results
+          path: /tmp/replay/out
+          if-no-files-found: error
