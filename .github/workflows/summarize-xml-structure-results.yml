@@ -43,16 +43,18 @@ jobs:
                       "measures":len(ms),"pitched_notes":len(notes),"rests":len(rests),
                       "staves":sorted(set(staff_values)),
                   })
-              m=re.search(r'/results/([^/]+)-(audiveris|homr)/',path)
-              case=m.group(1) if m else os.path.basename(path)
-              eng=m.group(2) if m else "unknown"
+              # Artifacts are nested as:
+              # /tmp/results/parallel-<score>-omr/<case>-<engine>/<case>/<engine>/recognized.musicxml
+              parts_path=path.split("/")
+              eng=parts_path[-2] if len(parts_path)>=2 and parts_path[-2] in ("audiveris","homr") else "unknown"
+              case=parts_path[-3] if len(parts_path)>=3 else os.path.basename(path)
               rows.append({
                   "case":case,"engine":eng,
                   "parts":len(parts),
                   "max_measures":max((x["measures"] for x in part_rows),default=0),
                   "pitched_notes":sum(x["pitched_notes"] for x in part_rows),
                   "rests":sum(x["rests"] for x in part_rows),
-                  "part_detail":part_rows,
+                  "part_detail":part_rows,"path":path,
               })
           rows.sort(key=lambda x:(x.get("case",""),x.get("engine","")))
           print("=== XML_STRUCTURE ===")
