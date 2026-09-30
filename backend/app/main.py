@@ -67,6 +67,8 @@ def _param_set_for_engine(engine_override: str | None) -> str:
         return "v5_real_pdf"
     if engine == "homr":
         return "v6_homr"
+    if engine == "hybrid":
+        return "v7_hybrid"
     raise ValueError(f"Unsupported OMR engine: {engine_override}")
 
 
@@ -153,7 +155,7 @@ def auth_check() -> dict[str, str]:
 def capabilities() -> dict[str, object]:
     """Describe server features used by Android compatibility checks."""
     return {
-        "omr_engines": ["audiveris", "homr"],
+        "omr_engines": ["audiveris", "homr", "hybrid"],
         "default_param_set": _PARAM_SET_ID,
         "per_request_engine_selection": True,
     }

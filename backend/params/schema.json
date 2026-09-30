@@ -59,7 +59,7 @@
       "required": ["audiveris", "multi_trial"],
       "additionalProperties": false,
       "properties": {
-        "engine": {"enum": ["audiveris", "homr"]},
+        "engine": {"enum": ["audiveris", "homr", "hybrid"]},
         "audiveris": {
           "type": "object",
           "required": ["timeout_sec", "jvm_xmx"],
@@ -78,6 +78,18 @@
             "dpi": {"type": "integer", "minimum": 72, "maximum": 600},
             "timeout_sec": {"type": "integer", "minimum": 1},
             "coreml_encoder": {"type": ["boolean", "null"]}
+          }
+        },
+        "hybrid": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "duration_floor": {"type": "number", "minimum": 0, "maximum": 1},
+            "strong_duration_gain": {"type": "number", "minimum": 0, "maximum": 1},
+            "minimum_score_gain": {"type": "number", "minimum": 0, "maximum": 1},
+            "fragmentation_part_limit": {"type": "integer", "minimum": 1},
+            "minimum_safe_pitch_rate": {"type": "number", "minimum": 0, "maximum": 1},
+            "minimum_safe_pitch_notes": {"type": "integer", "minimum": 1}
           }
         },
         "multi_trial": {

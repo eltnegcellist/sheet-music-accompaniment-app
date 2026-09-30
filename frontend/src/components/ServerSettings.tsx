@@ -83,8 +83,8 @@ export function ServerSettings({ open, onClose, onSaved }: Props) {
 
         <p className="server-settings__lead">
           {ja
-            ? "Android版ではPDFの楽譜認識だけを、あなた自身が用意したOMRサーバーで実行します。従来のAudiverisと、ディープラーニングを使うhomrを選択できます。解析後はPDFと解析結果を端末に保存します。"
-            : "Android sends only PDF recognition to your own OMR server. You can choose classic Audiveris or neural homr. Completed analyses and PDFs are cached on-device."}
+            ? "Android版ではPDFの楽譜認識だけを、あなた自身が用意したOMRサーバーで実行します。Audiveris、homr、両者を自動で使い分けるハイブリッドを選択できます。解析後はPDFと解析結果を端末に保存します。"
+            : "Android sends PDF recognition to your own OMR server. Choose Audiveris, neural homr, or the confidence-gated hybrid that automatically combines both."}
         </p>
 
         <label className="server-settings__field">
@@ -94,10 +94,18 @@ export function ServerSettings({ open, onClose, onSaved }: Props) {
             onChange={(e) =>
               setDraft((d) => ({
                 ...d,
-                omrEngine: e.target.value === "homr" ? "homr" : "audiveris",
+                omrEngine:
+                  e.target.value === "homr" || e.target.value === "hybrid"
+                    ? e.target.value
+                    : "audiveris",
               }))
             }
           >
+            <option value="hybrid">
+              {ja
+                ? "ハイブリッド（推奨・試験運用）"
+                : "Hybrid (recommended, experimental)"}
+            </option>
             <option value="audiveris">
               {ja ? "Audiveris（従来方式）" : "Audiveris (classic)"}
             </option>
@@ -106,13 +114,17 @@ export function ServerSettings({ open, onClose, onSaved }: Props) {
             </option>
           </select>
           <small className="server-settings__hint">
-            {draft.omrEngine === "homr"
+            {draft.omrEngine === "hybrid"
               ? ja
-                ? "深層学習で音高・リズム・大譜表を認識します。現在は精度比較中で、PDF上の小節ハイライトは利用できません。"
-                : "Uses deep learning for pitch, rhythm and grand-staff recognition. Accuracy is still being benchmarked; PDF measure highlighting is unavailable."
-              : ja
-                ? "現在の標準エンジンです。PDF上の小節位置も取得できます。"
-                : "Current default engine. It also provides PDF measure positions."}
+                ? "Audiverisの構造認識とhomrのニューラル認識を自動で比較し、崩れた場合はフォールバック、安全に対応できる音高だけ融合します。"
+                : "Compares Audiveris structure with neural homr, falls back when one collapses, and fuses pitch only when correspondence is safe."
+              : draft.omrEngine === "homr"
+                ? ja
+                  ? "深層学習で音高・リズム・大譜表を認識します。PDF上の小節ハイライトは利用できません。"
+                  : "Uses deep learning for pitch, rhythm and grand-staff recognition. PDF measure highlighting is unavailable."
+                : ja
+                  ? "従来方式です。PDF上の小節位置も取得できます。"
+                  : "Classic engine. It also provides PDF measure positions."}
           </small>
         </label>
 

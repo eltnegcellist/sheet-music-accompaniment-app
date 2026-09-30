@@ -1,4 +1,4 @@
-export type OmrEngine = "audiveris" | "homr";
+export type OmrEngine = "audiveris" | "homr" | "hybrid";
 
 export interface OmrServerConfig {
   serverUrl: string;
@@ -25,7 +25,10 @@ export function getServerConfig(): OmrServerConfig {
     return {
       serverUrl: normalizeServerUrl(parsed.serverUrl ?? ""),
       apiToken: parsed.apiToken ?? "",
-      omrEngine: parsed.omrEngine === "homr" ? "homr" : "audiveris",
+      omrEngine:
+        parsed.omrEngine === "homr" || parsed.omrEngine === "hybrid"
+          ? parsed.omrEngine
+          : "audiveris",
     };
   } catch {
     return { serverUrl: "", apiToken: "", omrEngine: "audiveris" };
@@ -98,18 +101,22 @@ export async function testServerConnection(
         ? body.omr_engines.filter((item): item is string => typeof item === "string")
         : [];
       if (
-        config.omrEngine === "homr" &&
-        (!engines.includes("homr") || body.per_request_engine_selection !== true)
+        config.omrEngine !== "audiveris" &&
+        (!engines.includes(config.omrEngine) ||
+          body.per_request_engine_selection !== true)
       ) {
         return {
           ok: false,
-          message: "このサーバーはニューラルOMR (homr) の選択に対応していません。サーバーを更新してください。",
+          message:
+            config.omrEngine === "hybrid"
+              ? "このサーバーはハイブリッドOMRに対応していません。サーバーを最新版へ更新してください。"
+              : "このサーバーはニューラルOMR (homr) の選択に対応していません。サーバーを更新してください。",
         };
       }
-    } else if (config.omrEngine === "homr") {
+    } else if (config.omrEngine !== "audiveris") {
       return {
         ok: false,
-        message: "このサーバーはニューラルOMR対応を確認できません。サーバーを最新版へ更新してください。",
+        message: "このサーバーは選択したOMR方式への対応を確認できません。サーバーを最新版へ更新してください。",
       };
     }
 

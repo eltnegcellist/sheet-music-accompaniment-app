@@ -15,7 +15,7 @@ export interface TimeSignature {
 export interface AnalyzeResponse {
   music_xml: string;
   /** OMR engine actually used by the server; absent when MusicXML bypassed OMR. */
-  omr_engine?: "audiveris" | "homr" | null;
+  omr_engine?: "audiveris" | "homr" | "hybrid" | null;
   score_title?: string | null;
   accompaniment_part_id: string | null;
   solo_part_id: string | null;
