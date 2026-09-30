@@ -1,0 +1,61 @@
+name: summarize-xml-structure-results
+
+on:
+  push:
+    branches: ["experiment/omr-real-score-benchmark"]
+    paths: [".github/workflows/summarize-xml-structure-results.yml"]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  summarize:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          repository: eltnegcellist/sheet-music-accompaniment-app
+          run-id: 36667381289
+          github-token: ${{ github.token }}
+          pattern: parallel-*-omr
+          path: /tmp/results
+      - name: Count MusicXML structure
+        run: |
+          python3 - <<'PY'
+          import glob,json,xml.etree.ElementTree as ET,os,re
+          rows=[]
+          for path in glob.glob('/tmp/results/**/recognized.musicxml',recursive=True):
+              try:
+                  root=ET.parse(path).getroot()
+              except Exception as e:
+                  rows.append({"path":path,"parse_error":str(e)});continue
+              parts=root.findall('./part')
+              names={sp.get('id'):(sp.findtext('part-name') or '') for sp in root.findall('./part-list/score-part')}
+              part_rows=[]
+              for p in parts:
+                  ms=p.findall('measure')
+                  notes=[n for n in p.findall('.//note') if n.find('pitch') is not None]
+                  rests=[n for n in p.findall('.//note') if n.find('rest') is not None]
+                  staff_values=[n.findtext('staff') for n in p.findall('.//note') if n.findtext('staff')]
+                  part_rows.append({
+                      "id":p.get("id"),"name":names.get(p.get("id"),""),
+                      "measures":len(ms),"pitched_notes":len(notes),"rests":len(rests),
+                      "staves":sorted(set(staff_values)),
+                  })
+              m=re.search(r'/results/([^/]+)-(audiveris|homr)/',path)
+              case=m.group(1) if m else os.path.basename(path)
+              eng=m.group(2) if m else "unknown"
+              rows.append({
+                  "case":case,"engine":eng,
+                  "parts":len(parts),
+                  "max_measures":max((x["measures"] for x in part_rows),default=0),
+                  "pitched_notes":sum(x["pitched_notes"] for x in part_rows),
+                  "rests":sum(x["rests"] for x in part_rows),
+                  "part_detail":part_rows,
+              })
+          rows.sort(key=lambda x:(x.get("case",""),x.get("engine","")))
+          print("=== XML_STRUCTURE ===")
+          for r in rows: print(json.dumps(r,ensure_ascii=False))
+          print("ROW_COUNT",len(rows))
+          PY
