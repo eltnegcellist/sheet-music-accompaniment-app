@@ -1,0 +1,24 @@
+name: export-audiveris-deb
+
+on:
+  push:
+    branches:
+      - "experiment/omr-real-score-benchmark"
+    paths:
+      - ".github/workflows/export-audiveris-deb.yml"
+
+jobs:
+  export:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Download Audiveris 5.10.2 Ubuntu package
+        run: |
+          curl -fL --retry 3             'https://github.com/Audiveris/audiveris/releases/download/5.10.2/Audiveris-5.10.2-ubuntu22.04-x86_64.deb'             -o /tmp/audiveris.deb
+          test -s /tmp/audiveris.deb
+          dpkg-deb -I /tmp/audiveris.deb | head -30
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audiveris-5.10.2-ubuntu22.04-x86_64
+          path: /tmp/audiveris.deb
+          compression-level: 0
