@@ -1,0 +1,32 @@
+name: verify-six-imslp-static-cdn
+
+on:
+  push:
+    branches:
+      - "experiment/omr-real-score-benchmark"
+    paths:
+      - ".github/workflows/verify-six-imslp-static-cdn.yml"
+
+jobs:
+  verify:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Verify static IMSLP CDN URLs
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/six
+          declare -A URLS=(
+            [112439]='https://s9.imslp.org/files/imglnks/usimg/4/43/PMLP43440-Brahms_Werke_Band_10_Breitkopf_JB_39_Op_38_scan.pdf'
+            [112440]='https://s9.imslp.org/files/imglnks/usimg/e/e0/PMLP43440-Brahms_Werke_Band_10_Breitkopf_JB_39_Op_38_filter.pdf'
+            [116248]='https://s9.imslp.org/files/imglnks/usimg/3/33/PMLP05808-FChopin_Cello_Sonata%2C_Op.65_BH11_piano_score.pdf'
+            [40771]='https://s9.imslp.org/files/imglnks/usimg/3/3f/PMLP18960-Mendelssohn_-_Variations_Concertantes_Op17_CelloPiano.pdf'
+            [291389]='https://s9.imslp.org/files/imglnks/usimg/f/ff/PMLP30030-Saint-Saens_-_Allegro_Appassionato_Op43_%28E_Schroeder%29_for_Cello_and_Piano.pdf'
+            [413948]='https://s9.imslp.org/files/imglnks/usimg/e/e2/PMLP30030-Saint_Saens_Allegro_Mandozzi_Vc_Kl_-_Partitur.pdf'
+          )
+          for id in 112439 112440 116248 40771 291389 413948; do
+            curl -fL --retry 3 --connect-timeout 20 --max-time 180 "${URLS[$id]}" -o "/tmp/six/$id.pdf"
+            test "$(head -c 5 "/tmp/six/$id.pdf")" = '%PDF-'
+            echo "RESULT $id OK bytes=$(stat -c %s "/tmp/six/$id.pdf") sha256=$(sha256sum "/tmp/six/$id.pdf" | awk '{print $1}')"
+          done
