@@ -1,0 +1,99 @@
+name: final-six-score-fullpage-summary
+
+on:
+  push:
+    branches: ["experiment/omr-real-score-benchmark"]
+    paths: [".github/workflows/final-six-score-fullpage-summary.yml"]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  summarize:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          repository: eltnegcellist/sheet-music-accompaniment-app
+          run-id: 36667381289
+          github-token: ${{ github.token }}
+          pattern: parallel-*-omr
+          path: /tmp/results
+      - name: Join metrics and MusicXML structure
+        run: |
+          python3 - <<'PY'
+          import glob,json,os,xml.etree.ElementTree as ET
+          result_rows={}
+          for p in glob.glob('/tmp/results/**/results.json',recursive=True):
+            for r in json.load(open(p)):
+              result_rows[(r.get('case_id'),r.get('engine'))]=r
+
+          gt={
+            'brahms-raw-p01':28,'brahms-raw-p06':22,'brahms-raw-p10':23,
+            'brahms-filter-p01':28,'brahms-filter-p06':22,'brahms-filter-p10':23,
+            'saint-clean-p01':26,'saint-clean-p04':31,'saint-clean-p08':32,
+          }
+          rows=[]
+          for path in glob.glob('/tmp/results/**/recognized.musicxml',recursive=True):
+            pp=path.split('/')
+            engine=pp[-2]
+            case=pp[-3]
+            root=ET.parse(path).getroot()
+            parts=root.findall('./part')
+            names={sp.get('id'):(sp.findtext('part-name') or '') for sp in root.findall('./part-list/score-part')}
+            pd=[]
+            for part in parts:
+              ms=part.findall('measure')
+              pd.append({
+                'id':part.get('id'),'name':names.get(part.get('id'),''),
+                'measures':len(ms),
+                'pitched_notes':len([n for n in part.findall('.//note') if n.find('pitch') is not None]),
+                'rests':len([n for n in part.findall('.//note') if n.find('rest') is not None]),
+              })
+            rr=result_rows.get((case,engine),{})
+            measures=max((x['measures'] for x in pd),default=0)
+            row={
+              'case':case,'engine':engine,'status':rr.get('status','ok'),
+              'runtime_sec':rr.get('runtime_sec'),
+              'final_score':rr.get('intrinsic_final_score'),
+              'duration_match':rr.get('intrinsic_measure_duration_match'),
+              'key_consistency':rr.get('intrinsic_key_consistency'),
+              'parts':len(parts),'measures':measures,
+              'ground_truth_measures':gt.get(case),
+              'measure_error':(measures-gt[case] if case in gt else None),
+              'pitched_notes':sum(x['pitched_notes'] for x in pd),
+              'rests':sum(x['rests'] for x in pd),
+              'part_detail':pd,
+            }
+            rows.append(row)
+
+          # Include engine failures that have no MusicXML.
+          for (case,engine),rr in result_rows.items():
+            if not any(x['case']==case and x['engine']==engine for x in rows):
+              rows.append({
+                'case':case,'engine':engine,'status':rr.get('status'),
+                'runtime_sec':rr.get('runtime_sec'),'error':rr.get('error'),
+                'ground_truth_measures':gt.get(case)
+              })
+          rows.sort(key=lambda x:(x['case'],x['engine']))
+          print('=== FINAL_FULLPAGE_SUMMARY ===')
+          for r in rows: print(json.dumps(r,ensure_ascii=False,default=str))
+          print('ROW_COUNT',len(rows))
+
+          # Same-edition Brahms image-processing comparison.
+          print('=== BRAHMS_RAW_FILTER_DELTA ===')
+          for page in ('p01','p06','p10'):
+            for engine in ('audiveris','homr'):
+              raw=next((x for x in rows if x['case']==f'brahms-raw-{page}' and x['engine']==engine),None)
+              fil=next((x for x in rows if x['case']==f'brahms-filter-{page}' and x['engine']==engine),None)
+              if raw and fil:
+                print(json.dumps({
+                  'page':page,'engine':engine,
+                  'raw_final':raw.get('final_score'),'filter_final':fil.get('final_score'),
+                  'delta_final':round((fil.get('final_score') or 0)-(raw.get('final_score') or 0),4),
+                  'raw_duration':raw.get('duration_match'),'filter_duration':fil.get('duration_match'),
+                  'raw_measures':raw.get('measures'),'filter_measures':fil.get('measures'),
+                  'raw_parts':raw.get('parts'),'filter_parts':fil.get('parts'),
+                },ensure_ascii=False))
+          PY
