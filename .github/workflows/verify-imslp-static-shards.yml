@@ -1,0 +1,44 @@
+name: verify-imslp-static-shards
+
+on:
+  push:
+    branches: ["experiment/omr-real-score-benchmark"]
+    paths: [".github/workflows/verify-imslp-static-shards.yml"]
+
+jobs:
+  verify:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Try IMSLP static shard hosts
+        shell: bash
+        run: |
+          set -u
+          mkdir -p /tmp/shards
+          declare -A REL=(
+            [112439]='4/43/IMSLP112439-PMLP43440-Brahms_Werke_Band_10_Breitkopf_JB_39_Op_38_scan.pdf'
+            [112440]='e/e0/IMSLP112440-PMLP43440-Brahms_Werke_Band_10_Breitkopf_JB_39_Op_38_filter.pdf'
+            [116248]='3/33/IMSLP116248-PMLP05808-FChopin_Cello_Sonata%2C_Op.65_BH11_piano_score.pdf'
+            [40771]='3/3f/IMSLP40771-PMLP18960-Mendelssohn_-_Variations_Concertantes_Op17_CelloPiano.pdf'
+            [413948]='e/e2/IMSLP413948-PMLP30030-Saint_Saens_Allegro_Mandozzi_Vc_Kl_-_Partitur.pdf'
+          )
+          for id in 112439 112440 116248 40771 413948; do
+            ok=0
+            for shard in s9 s8 s7 s6 s5 s4 s3 s2 s1; do
+              for root in usimg euimg; do
+                out="/tmp/shards/$id.pdf"
+                url="https://$shard.imslp.org/files/imglnks/$root/${REL[$id]}"
+                set +e
+                curl -fL --retry 0 --connect-timeout 8 --max-time 45 -A 'Mozilla/5.0' "$url" -o "$out" >/dev/null 2>&1
+                rc=$?
+                set -e
+                prefix="$(head -c 5 "$out" 2>/dev/null || true)"
+                if [ "$rc" -eq 0 ] && [ "$prefix" = '%PDF-' ]; then
+                  echo "RESULT $id OK shard=$shard root=$root bytes=$(stat -c %s "$out") sha256=$(sha256sum "$out"|awk '{print $1}')"
+                  ok=1
+                  break 2
+                fi
+              done
+            done
+            [ "$ok" -eq 1 ] || echo "RESULT $id FAIL all_shards"
+          done
