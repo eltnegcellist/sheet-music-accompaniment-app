@@ -1,0 +1,519 @@
+name: hybrid-omr-v2-structural-benchmark
+
+on:
+  push:
+    branches:
+      - "experiment/omr-real-score-benchmark"
+    paths:
+      - ".github/workflows/hybrid-omr-v2-structural-benchmark.yml"
+
+jobs:
+  structural-hybrid:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download exact IMSLP scores
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/hybridv2
+          curl -fL --retry 3 \
+            'https://s9.imslp.org/files/imglnks/usimg/8/80/IMSLP52413-PMLP04421-Beethoven_Werke_Breitkopf_Serie_13_No_107_Op_69.pdf' \
+            -o /tmp/hybridv2/beethoven.pdf
+          curl -fL --retry 3 \
+            'https://s9.imslp.org/files/imglnks/usimg/e/e2/IMSLP413948-PMLP30030-Saint_Saens_Allegro_Mandozzi_Vc_Kl_-_Partitur.pdf' \
+            -o /tmp/hybridv2/saintsaens.pdf
+
+      - name: Prepare representative pages and host tools
+        run: |
+          python3 -m pip install --quiet pypdf opencv-python-headless
+          python3 - <<'PY'
+          from pathlib import Path
+          from pypdf import PdfReader, PdfWriter
+
+          root=Path('/tmp/hybridv2')
+          specs=[
+              ('beethoven',3,'beethoven-p03'),
+              ('beethoven',11,'beethoven-p11'),
+              ('beethoven',24,'beethoven-p24'),
+              ('saintsaens',1,'saint-p01'),
+          ]
+          for source,page,case in specs:
+              reader=PdfReader(root/f'{source}.pdf')
+              writer=PdfWriter(); writer.add_page(reader.pages[page-1])
+              with (root/f'{case}.pdf').open('wb') as fh:
+                  writer.write(fh)
+          PY
+
+      - name: Build dual-engine OMR image
+        run: docker build --progress=plain -t imslp-hybrid-v2 backend
+
+      - name: Run Audiveris structure pass
+        run: |
+          cat > /tmp/hybridv2/manifest.yaml <<'YAML'
+          cases:
+            - id: beethoven-p03
+              pdf: beethoven-p03.pdf
+            - id: beethoven-p11
+              pdf: beethoven-p11.pdf
+            - id: beethoven-p24
+              pdf: beethoven-p24.pdf
+            - id: saint-p01
+              pdf: saint-p01.pdf
+          YAML
+          docker run --rm \
+            -v /tmp/hybridv2:/bench \
+            imslp-hybrid-v2 \
+            python3 -m app.benchmark.omr_compare \
+              --manifest /bench/manifest.yaml \
+              --engines audiveris \
+              --output /bench/audiveris-results
+
+      - name: Rasterize pages at 300 DPI
+        run: |
+          mkdir -p /tmp/hybridv2/pages
+          for case in beethoven-p03 beethoven-p11 beethoven-p24 saint-p01; do
+            docker run --rm -v /tmp/hybridv2:/bench imslp-hybrid-v2 \
+              sh -lc "pdftoppm -png -r 300 -f 1 -singlefile /bench/$case.pdf /bench/pages/$case"
+          done
+
+      - name: Build system crops and Audiveris-anchored cumulative measure crops
+        run: |
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import statistics
+          import zipfile
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          import cv2
+          import numpy as np
+
+          ROOT=Path('/tmp/hybridv2')
+          CASES=['beethoven-p03','beethoven-p11','beethoven-p24','saint-p01']
+
+          def tag(el):
+              return el.tag.rsplit('}',1)[-1]
+
+          def find_omr(case):
+              found=list((ROOT/'audiveris-results'/case/'audiveris').rglob('*.omr'))
+              if len(found)!=1:
+                  raise RuntimeError(f'{case}: expected one .omr, got {found}')
+              return found[0]
+
+          def staff_points(staff):
+              ys=[]
+              for el in staff.iter():
+                  if tag(el)=='point' and el.get('y') is not None:
+                      ys.append(float(el.get('y')))
+              return ys
+
+          def system_crops_cv(case, img):
+              """Previous successful hybrid-v1 crop: bottom two of each 3-staff system."""
+              gray=cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
+              bw=cv2.threshold(gray,200,255,cv2.THRESH_BINARY_INV)[1]
+              k=max(40,img.shape[1]//12)
+              horiz=cv2.morphologyEx(
+                  bw, cv2.MORPH_OPEN,
+                  cv2.getStructuringElement(cv2.MORPH_RECT,(k,1))
+              )
+              score=(horiz>0).sum(axis=1)
+              rows=np.where(score>img.shape[1]*0.30)[0]
+              line_centers=[]
+              if len(rows):
+                  s=p=int(rows[0])
+                  for rr in rows[1:]:
+                      rr=int(rr)
+                      if rr<=p+3:
+                          p=rr
+                      else:
+                          line_centers.append((s+p)//2); s=p=rr
+                  line_centers.append((s+p)//2)
+              if len(line_centers)<10:
+                  raise RuntimeError(f'{case}: could not find enough staff lines')
+              diffs=np.diff(line_centers)
+              small=[int(d) for d in diffs if d < np.percentile(diffs,45)]
+              line_gap=max(4,float(np.median(small)))
+              staves=[]; cur=[line_centers[0]]
+              for a,b in zip(line_centers,line_centers[1:]):
+                  if b-a <= line_gap*2.6:
+                      cur.append(b)
+                  else:
+                      if 3 <= len(cur) <= 7:
+                          staves.append(cur)
+                      cur=[b]
+              if 3 <= len(cur) <= 7:
+                  staves.append(cur)
+              centers=[float(np.mean(s)) for s in staves]
+              spans=[max(s)-min(s) for s in staves]
+              staff_span=float(np.median(spans))
+              full=len(centers)//3
+              tb=[centers[i+2]-centers[i+1] for i in range(0,full*3,3)]
+              typical_tb=float(np.median(tb)) if tb else staff_span*4
+              if len(centers)%3==2:
+                  centers.append(centers[-1]+typical_tb)
+              if len(centers)%3 != 0:
+                  raise RuntimeError(f'{case}: CV staff count not divisible by 3: {centers}')
+
+              density=(bw>0).sum(axis=1).astype(np.float32)
+              win=max(5,int(staff_span*0.35))
+              smooth=np.convolve(density,np.ones(win)/win,mode='same')
+              triples=[centers[i:i+3] for i in range(0,len(centers),3)]
+              outdir=ROOT/'system-crops'/case
+              outdir.mkdir(parents=True,exist_ok=True)
+              info=[]
+              for idx,(solo,treble,bass) in enumerate(triples):
+                  margin=max(5,staff_span*0.65)
+                  lo=max(0,int(solo+margin)); hi=min(img.shape[0]-1,int(treble-margin))
+                  y0=lo+int(np.argmin(smooth[lo:hi+1])) if hi>lo else int((solo+treble)/2)
+                  if idx+1<len(triples):
+                      next_solo=triples[idx+1][0]
+                      lo2=max(0,int(bass+margin)); hi2=min(img.shape[0]-1,int(next_solo-margin))
+                      y1=lo2+int(np.argmin(smooth[lo2:hi2+1])) if hi2>lo2 else int((bass+next_solo)/2)
+                  else:
+                      y1=min(img.shape[0],int(bass+max(typical_tb,staff_span*3)*0.8))
+                  y0=max(0,y0-4); y1=min(img.shape[0],y1+4)
+                  path=outdir/f'system_{idx+1:02d}.png'
+                  cv2.imwrite(str(path),img[y0:y1,:])
+                  info.append({'system':idx+1,'y0':y0,'y1':y1})
+              return info
+
+          audits={}
+          for case in CASES:
+              image_path=ROOT/'pages'/f'{case}.png'
+              img=cv2.imread(str(image_path))
+              if img is None:
+                  raise RuntimeError(f'{case}: cannot open rendered page')
+              system_cv=system_crops_cv(case,img)
+
+              omr=find_omr(case)
+              with zipfile.ZipFile(omr) as zf:
+                  sheet_names=[n for n in zf.namelist() if n.endswith('.xml') and 'sheet' in n.lower()]
+                  if not sheet_names:
+                      raise RuntimeError(f'{case}: no sheet XML in .omr')
+                  root=ET.fromstring(zf.read(sorted(sheet_names)[0]))
+
+              picture=next((e for e in root.iter() if tag(e)=='picture'),None)
+              omr_w=float(picture.get('width')); omr_h=float(picture.get('height'))
+              sx=img.shape[1]/omr_w; sy=img.shape[0]/omr_h
+              idmap={e.get('id'):e for e in root.iter() if e.get('id')}
+              systems=[e for e in root.iter() if tag(e)=='system']
+
+              anchor_dir=ROOT/'anchor-crops'/case
+              anchor_dir.mkdir(parents=True,exist_ok=True)
+              seq=0
+              global_ids=[]
+              all_valid=True
+              suspicious_narrow=False
+              system_meta=[]
+
+              for system_index,system in enumerate(systems, start=1):
+                  parts=[e for e in list(system) if tag(e)=='part']
+                  candidates=[]
+                  for part in parts:
+                      staves=[e for e in list(part) if tag(e)=='staff']
+                      candidates.append((len(staves),part,staves))
+                  piano_candidates=[x for x in candidates if x[0]==2]
+                  solo_candidates=[x for x in candidates if x[0]==1]
+                  if len(piano_candidates)!=1:
+                      all_valid=False
+                      system_meta.append({
+                          'system':system_index,
+                          'valid':False,
+                          'reason':f'piano_2staff_candidates={len(piano_candidates)}',
+                      })
+                      continue
+
+                  _,piano,piano_staves=piano_candidates[0]
+                  measures=[e for e in list(piano) if tag(e)=='measure']
+                  ids=[m.get('id') or '' for m in measures]
+                  if len(set(ids))!=len(ids):
+                      all_valid=False
+
+                  # Exact piano vertical extent from Audiveris staff-line splines.
+                  p_ys=[y for st in piano_staves for y in staff_points(st)]
+                  if not p_ys:
+                      all_valid=False
+                      system_meta.append({'system':system_index,'valid':False,'reason':'no_piano_staff_points'})
+                      continue
+                  piano_top=min(p_ys); piano_bottom=max(p_ys)
+
+                  solo_bottom=None
+                  if solo_candidates:
+                      solo_ys=[y for _,_,sts in solo_candidates for st in sts for y in staff_points(st)]
+                      if solo_ys:
+                          solo_bottom=max(solo_ys)
+
+                  # Next detected staff/system gives a safe lower crop boundary.
+                  next_top=None
+                  if system_index < len(systems):
+                      nxt=systems[system_index]
+                      next_ys=[]
+                      for p in [e for e in list(nxt) if tag(e)=='part']:
+                          for st in [e for e in list(p) if tag(e)=='staff']:
+                              next_ys.extend(staff_points(st))
+                      if next_ys:
+                          next_top=min(next_ys)
+
+                  gap=(piano_bottom-piano_top)/8.0
+                  y0=(solo_bottom+piano_top)/2 if solo_bottom is not None else piano_top-4*gap
+                  y1=(piano_bottom+next_top)/2 if next_top is not None else piano_bottom+5*gap
+                  y0=max(0.0,y0); y1=min(omr_h,y1)
+
+                  staff_left=min(float(st.get('left')) for st in piano_staves)
+                  rights=[]; grades=[]
+                  for measure in measures:
+                      rb=next((e for e in list(measure) if tag(e)=='right-barline'),None)
+                      refs=next((e for e in list(rb) if tag(e)=='staff-barlines'),None) if rb is not None else None
+                      ids_ref=(refs.text or '').split() if refs is not None else []
+                      xs=[]; gs=[]
+                      for rid in ids_ref:
+                          bar=idmap.get(rid)
+                          if bar is None:
+                              continue
+                          bounds=next((e for e in list(bar) if tag(e)=='bounds'),None)
+                          if bounds is not None:
+                              x=float(bounds.get('x'))
+                              w=float(bounds.get('w') or bounds.get('width') or 0)
+                              xs.append(x+w/2)
+                          if bar.get('grade'):
+                              gs.append(float(bar.get('grade')))
+                      if not xs:
+                          all_valid=False
+                          rights.append(None); grades.append(None)
+                      else:
+                          rights.append(statistics.mean(xs))
+                          grades.append(min(gs) if gs else None)
+
+                  widths=[]; prev=staff_left
+                  for right in rights:
+                      if right is None:
+                          widths.append(None)
+                      else:
+                          widths.append(right-prev); prev=right
+                  present=[w for w in widths if w and w>0]
+                  median_width=statistics.median(present) if present else 1.0
+                  ratios=[(w/median_width if w else None) for w in widths]
+                  if any(r is not None and r<0.30 for r in ratios):
+                      suspicious_narrow=True
+
+                  local_valid=(len(set(ids))==len(ids) and all(r is not None for r in rights))
+                  system_meta.append({
+                      'system':system_index,
+                      'valid':local_valid,
+                      'measure_ids':ids,
+                      'width_ratios':ratios,
+                      'barline_grades':grades,
+                  })
+
+                  if not local_valid:
+                      all_valid=False
+                      continue
+
+                  # One cumulative image per Audiveris measure. It always starts
+                  # at the piano system header, so clef/key/time context is retained.
+                  for measure_id,right in zip(ids,rights):
+                      seq+=1
+                      global_ids.append(measure_id)
+                      x0=max(0,int((staff_left-15)*sx))
+                      x1=min(img.shape[1],int((right+15)*sx))
+                      yy0=max(0,int(y0*sy)); yy1=min(img.shape[0],int(y1*sy))
+                      crop=img[yy0:yy1,x0:x1]
+                      cv2.imwrite(str(anchor_dir/f'measure_{seq:03d}.png'),crop)
+
+              # Global IDs must be strictly unique/increasing to trust Audiveris structure.
+              try:
+                  nums=[int(x) for x in global_ids]
+                  if nums != sorted(nums) or len(set(nums))!=len(nums):
+                      all_valid=False
+              except ValueError:
+                  all_valid=False
+
+              audits[case]={
+                  'aud_structure_valid':all_valid,
+                  'aud_anchor_count':len(global_ids),
+                  'aud_measure_ids':global_ids,
+                  'suspicious_narrow_measure':suspicious_narrow,
+                  'systems':system_meta,
+                  'cv_systems':system_cv,
+              }
+
+          (ROOT/'structure_audit.json').write_text(json.dumps(audits,indent=2))
+          print(json.dumps(audits,indent=2))
+          PY
+
+      - name: Run homr on piano-only system crops
+        run: |
+          set -euxo pipefail
+          for case in beethoven-p03 beethoven-p11 beethoven-p24 saint-p01; do
+            docker run --rm \
+              -v /tmp/hybridv2:/bench \
+              -e HOMR_COMMAND="uvx --python 3.11 --from homr==0.7.0 homr" \
+              imslp-hybrid-v2 \
+              sh -lc "uvx --python 3.11 --from homr==0.7.0 homr /bench/system-crops/$case"
+          done
+
+      - name: Run homr on Audiveris-anchored cumulative measure crops
+        run: |
+          set -euxo pipefail
+          for case in beethoven-p03 beethoven-p11 beethoven-p24 saint-p01; do
+            if compgen -G "/tmp/hybridv2/anchor-crops/$case/*.png" > /dev/null; then
+              docker run --rm \
+                -v /tmp/hybridv2:/bench \
+                -e HOMR_COMMAND="uvx --python 3.11 --from homr==0.7.0 homr" \
+                imslp-hybrid-v2 \
+                sh -lc "uvx --python 3.11 --from homr==0.7.0 homr /bench/anchor-crops/$case"
+            fi
+          done
+
+      - name: Build fixed-structure and confidence-gated hybrid MusicXML
+        run: |
+          docker run --rm -v /tmp/hybridv2:/bench imslp-hybrid-v2 python3 - <<'PY'
+          from __future__ import annotations
+
+          import copy
+          import json
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          from app.music.musicxml_concat import concat_musicxml
+          from app.pipeline.scoring_facade import evaluate_musicxml_metrics
+
+          ROOT=Path('/bench')
+          CASES=['beethoven-p03','beethoven-p11','beethoven-p24','saint-p01']
+          EXPECTED={'beethoven-p03':24,'beethoven-p11':18,'beethoven-p24':29,'saint-p01':26}
+          audits=json.loads((ROOT/'structure_audit.json').read_text())
+          outroot=ROOT/'v2-results'; outroot.mkdir(exist_ok=True)
+
+          def measure_count(xml):
+              root=ET.fromstring(xml)
+              return max((len(p.findall('measure')) for p in root.findall('./part')),default=0)
+
+          def piano_only_system_xml(case):
+              xmls=[p.read_text(errors='replace') for p in sorted((ROOT/'system-crops'/case).glob('system_*.musicxml'))]
+              if not xmls:
+                  raise RuntimeError(f'{case}: no system homr XML')
+              return concat_musicxml(xmls)
+
+          def anchored_xml(case, measure_ids):
+              files=sorted((ROOT/'anchor-crops'/case).glob('measure_*.musicxml'))
+              if len(files)!=len(measure_ids):
+                  return None, {'expected_files':len(measure_ids),'actual_files':len(files),'failed':True}
+              scaffold=None
+              out_part=None
+              detail=[]
+              for index,(path,measure_id) in enumerate(zip(files,measure_ids),start=1):
+                  root=ET.fromstring(path.read_text(errors='replace'))
+                  parts=root.findall('./part')
+                  if not parts:
+                      return None, {'failed':True,'reason':f'{path.name}: no part'}
+                  source_part=parts[0]
+                  measures=source_part.findall('measure')
+                  if not measures:
+                      return None, {'failed':True,'reason':f'{path.name}: no measure'}
+                  chosen=copy.deepcopy(measures[-1])
+                  chosen.set('number',str(measure_id))
+                  detail.append({
+                      'input':path.name,
+                      'homr_measures_seen':len(measures),
+                      'selected_last_measure':measure_id,
+                      'selected_notes':len([n for n in chosen.findall('.//note') if n.find('pitch') is not None]),
+                      'selected_rests':len([n for n in chosen.findall('.//note') if n.find('rest') is not None]),
+                  })
+                  if scaffold is None:
+                      scaffold=copy.deepcopy(root)
+                      scaffold_parts=scaffold.findall('./part')
+                      out_part=scaffold_parts[0]
+                      for m in list(out_part.findall('measure')):
+                          out_part.remove(m)
+                      # The crop contains only a piano grand staff, so retain one part.
+                      for extra in scaffold_parts[1:]:
+                          scaffold.remove(extra)
+                      plist=scaffold.find('./part-list')
+                      if plist is not None:
+                          score_parts=plist.findall('score-part')
+                          for extra in score_parts[1:]:
+                              plist.remove(extra)
+                          if score_parts:
+                              name=score_parts[0].find('part-name')
+                              if name is None:
+                                  name=ET.SubElement(score_parts[0],'part-name')
+                              name.text='Piano'
+                  out_part.append(chosen)
+
+              xml=ET.tostring(scaffold,encoding='unicode')
+              return xml, {'failed':False,'details':detail}
+
+          summary={}
+          for case in CASES:
+              caseout=outroot/case; caseout.mkdir(exist_ok=True)
+              aud=audits[case]
+              system_xml=piano_only_system_xml(case)
+              system_count=measure_count(system_xml)
+              (caseout/'piano_system_homr.musicxml').write_text(system_xml)
+
+              fixed_xml,fixed_detail=anchored_xml(case,aud['aud_measure_ids'])
+              fixed_count=measure_count(fixed_xml) if fixed_xml else None
+              if fixed_xml:
+                  (caseout/'audiveris_fixed_structure_homr_notes.musicxml').write_text(fixed_xml)
+
+              # Confidence gate:
+              # 1) malformed/fragmented Audiveris structure -> use piano-only homr;
+              # 2) if homr finds fewer measures AND Audiveris contains an
+              #    extremely narrow candidate measure, treat it as an Audiveris
+              #    false barline and use homr structure;
+              # 3) otherwise preserve Audiveris measure boundaries and use homr notes.
+              if not aud['aud_structure_valid'] or fixed_xml is None:
+                  chosen='piano-system-homr'
+                  reason='audiveris_structure_invalid'
+                  adaptive_xml=system_xml
+              elif system_count < fixed_count and aud['suspicious_narrow_measure']:
+                  chosen='piano-system-homr'
+                  reason='audiveris_probable_false_barline'
+                  adaptive_xml=system_xml
+              else:
+                  chosen='audiveris-fixed-structure+homr-notes'
+                  reason='audiveris_structure_trusted'
+                  adaptive_xml=fixed_xml
+
+              adaptive_count=measure_count(adaptive_xml)
+              (caseout/'adaptive_hybrid.musicxml').write_text(adaptive_xml)
+
+              aud_xml=(ROOT/'audiveris-results'/case/'audiveris'/'recognized.musicxml').read_text(errors='replace')
+              aud_xml_count=measure_count(aud_xml)
+
+              summary[case]={
+                  'expected_measures_manual':EXPECTED[case],
+                  'audiveris_musicxml_measures':aud_xml_count,
+                  'audiveris_structure_valid':aud['aud_structure_valid'],
+                  'audiveris_anchor_measures':aud['aud_anchor_count'],
+                  'suspicious_narrow_measure':aud['suspicious_narrow_measure'],
+                  'piano_system_homr_measures':system_count,
+                  'fixed_structure_hybrid_measures':fixed_count,
+                  'adaptive_choice':chosen,
+                  'adaptive_reason':reason,
+                  'adaptive_measures':adaptive_count,
+                  'adaptive_measure_error':adaptive_count-EXPECTED[case],
+                  'adaptive_metrics':evaluate_musicxml_metrics(adaptive_xml),
+                  'fixed_metrics':evaluate_musicxml_metrics(fixed_xml) if fixed_xml else None,
+                  'system_homr_metrics':evaluate_musicxml_metrics(system_xml),
+                  'anchor_detail':fixed_detail,
+              }
+
+          (outroot/'summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2))
+          print(json.dumps(summary,ensure_ascii=False,indent=2))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hybrid-v2-audiveris-structure-homr-notes
+          path: |
+            /tmp/hybridv2/structure_audit.json
+            /tmp/hybridv2/system-crops
+            /tmp/hybridv2/anchor-crops
+            /tmp/hybridv2/v2-results
+            /tmp/hybridv2/audiveris-results
+          if-no-files-found: error
