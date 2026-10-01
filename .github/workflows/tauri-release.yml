@@ -97,4 +97,4 @@ jobs:
             frontend/src-tauri/target/release/bundle/appimage/*.AppImage
             frontend/src-tauri/target/release/bundle/deb/*.deb
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 2
