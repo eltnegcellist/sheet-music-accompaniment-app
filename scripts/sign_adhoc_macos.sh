@@ -16,6 +16,10 @@ app = Path(sys.argv[1])
 with (app / "Contents/Info.plist").open("rb") as file:
     info = plistlib.load(file)
 main_executable = app / "Contents/MacOS" / info["CFBundleExecutable"]
+sidecar = app / "Contents/MacOS/accompanist-server"
+with sidecar.open("rb") as file:
+    if file.read(2) == b"#!":
+        raise RuntimeError("Development sidecar wrapper cannot be distributed; build with --onefile")
 magics = {
     b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe",
     b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe",
