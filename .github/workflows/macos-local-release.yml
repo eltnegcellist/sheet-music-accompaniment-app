@@ -47,6 +47,12 @@ jobs:
             frontend/src-tauri/target/release/build
             frontend/src-tauri/target/release/.fingerprint
           key: macos-local-cargo-${{ hashFiles('frontend/src-tauri/Cargo.toml') }}
+      - name: Restore Python download cache
+        uses: actions/cache/restore@v5
+        id: pip-downloads
+        with:
+          path: ~/Library/Caches/pip
+          key: macos-local-pip-${{ hashFiles('backend/pyproject.toml') }}
       - name: Install build tools
         run: |
           test "$(uname -m)" = arm64
@@ -54,6 +60,12 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install pyinstaller -e "backend[dev]"
           npm ci --prefix frontend
+      - name: Save Python downloads
+        if: steps.pip-downloads.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: ~/Library/Caches/pip
+          key: ${{ steps.pip-downloads.outputs.cache-primary-key }}
       - name: Frontend and backend regression checks
         run: |
           npm test --prefix frontend
