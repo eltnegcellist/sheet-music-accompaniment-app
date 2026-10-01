@@ -71,7 +71,7 @@ def main() -> None:
                     response = requests.post(
                         url + "/analyze",
                         files={"pdf": ("mac-smoke.pdf", pdf, "application/pdf")},
-                        data={"omr_engine": engine, "force": "true"}, timeout=1800,
+                        data={"omr_engine": engine}, timeout=1800,
                     )
                 if not response.ok:
                     raise RuntimeError(f"{engine}: HTTP {response.status_code}: {response.text}")
