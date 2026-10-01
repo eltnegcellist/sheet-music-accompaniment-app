@@ -63,7 +63,10 @@ export function SheetViewer({
     osmdRef.current = osmd;
 
     const tryLoad = async (xml: string): Promise<void> => {
-      await osmd.load(xml);
+      // OSMD interprets declaration-free strings as URLs. Hybrid output and
+          // XMLSerializer may omit the declaration, so pass a parsed document.
+          const document = new DOMParser().parseFromString(xml, "application/xml");
+          await osmd.load(document);
       osmd.Zoom = zoomPct / 100;
       osmd.render();
     };

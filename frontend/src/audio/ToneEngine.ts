@@ -65,6 +65,9 @@ export function getPianoSampler(): Promise<Tone.Sampler> {
  *  Tone.PolySynth satisfy this — keep the surface narrow so the scheduler
  *  doesn't accidentally rely on Sampler-only methods. */
 export interface SoloInstrument {
+  triggerAttack(notes: string | string[], time?: Tone.Unit.Time, velocity?: number): unknown;
+  triggerRelease(notes: string | string[], time?: Tone.Unit.Time): unknown;
+  releaseAll(time?: Tone.Unit.Time): unknown;
   triggerAttackRelease(
     notes: string | string[],
     duration: Tone.Unit.Time,
