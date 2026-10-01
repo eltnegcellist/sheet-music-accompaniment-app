@@ -40,6 +40,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
+          retention-days: 2
           name: Backend-and-audio-verification
           path: verification-results
           if-no-files-found: error
