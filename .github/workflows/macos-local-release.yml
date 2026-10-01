@@ -37,12 +37,15 @@ jobs:
           python-version: "3.11"
           cache: pip
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/cache@v5
+      - uses: actions/cache/restore@v5
+        id: cargo-cache
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            frontend/src-tauri/target
+            frontend/src-tauri/target/release/deps
+            frontend/src-tauri/target/release/build
+            frontend/src-tauri/target/release/.fingerprint
           key: macos-local-cargo-${{ hashFiles('frontend/src-tauri/Cargo.toml') }}
       - name: Install build tools
         run: |
@@ -56,14 +59,42 @@ jobs:
           npm test --prefix frontend
           cd backend
           pytest -q tests/test_homr_runner.py tests/test_hybrid_runner.py tests/test_api_smoke.py tests/test_runtime_paths.py
+      - name: Restore bundled runtimes
+        uses: actions/cache/restore@v5
+        id: runtime-cache
+        with:
+          path: |
+            frontend/src-tauri/resources
+            frontend/src-tauri/legal-bundle
+          key: macos-local-runtime-${{ hashFiles('scripts/fetch_runtime_macos.sh', 'scripts/fetch_homr_macos.sh', 'scripts/bundle_macho_macos.sh', 'THIRD_PARTY_NOTICES.md', 'LICENSE') }}
       - name: Stage complete local runtimes
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
         run: bash scripts/fetch_runtime_macos.sh
+      - name: Save staged runtimes
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            frontend/src-tauri/resources
+            frontend/src-tauri/legal-bundle
+          key: ${{ steps.runtime-cache.outputs.cache-primary-key }}
       - name: Build frozen backend
         run: bash scripts/build_sidecar.sh
       - name: Validate staged bundle
         run: bash scripts/validate_bundle.sh
       - name: Build Mac app
         run: npm run tauri:build --prefix frontend
+      - name: Save Mac compiler cache
+        if: steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            frontend/src-tauri/target/release/deps
+            frontend/src-tauri/target/release/build
+            frontend/src-tauri/target/release/.fingerprint
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
       - name: Restore notices and sign app
         run: |
           bash scripts/post_bundle_macos.sh

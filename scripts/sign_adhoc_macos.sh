@@ -8,10 +8,14 @@ APP="${APP_PATH:-$APP_PATH_DEFAULT}"
 [[ -d "$APP" ]] || { echo "App bundle missing: $APP" >&2; exit 1; }
 python3 - "$APP" <<'PY'
 from pathlib import Path
+import plistlib
 import subprocess
 import sys
 
 app = Path(sys.argv[1])
+with (app / "Contents/Info.plist").open("rb") as file:
+    info = plistlib.load(file)
+main_executable = app / "Contents/MacOS" / info["CFBundleExecutable"]
 magics = {
     b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe",
     b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe",
@@ -20,7 +24,9 @@ magics = {
 }
 signed = 0
 for path in sorted((app / "Contents").rglob("*")):
-    if not path.is_file() or path.is_symlink():
+    # Signing the main executable implicitly seals its enclosing .app.
+    # Sign all nested executables first; seal the main app last.
+    if path == main_executable or not path.is_file() or path.is_symlink():
         continue
     if not (path.name.endswith((".dylib", ".so")) or path.stat().st_mode & 0o111):
         continue
