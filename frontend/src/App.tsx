@@ -33,6 +33,8 @@ import {
   type SoloInstrumentName,
 } from "./audio/ToneEngine";
 import { PdfUploader, type PdfUploaderHandle } from "./components/PdfUploader";
+import { DesktopOmrSettings } from "./components/DesktopOmrSettings";
+import { isDesktopApp } from "./api/desktopConfig";
 import { ServerSettings } from "./components/ServerSettings";
 import { getServerConfig, hasConfiguredServer, isAndroidApp } from "./api/serverConfig";
 import { LegalNotice } from "./components/LegalNotice";
@@ -99,6 +101,7 @@ export default function App() {
   const [serverSettingsOpen, setServerSettingsOpen] = useState(false);
   const [serverConfigured, setServerConfigured] = useState(() => hasConfiguredServer());
   const androidApp = isAndroidApp();
+  const desktopApp = isDesktopApp();
   const serverRequired = androidApp && !serverConfigured;
   const pendingIncomingRef = useRef<File | null>(null);
 
@@ -686,12 +689,15 @@ export default function App() {
             </>
           )}
           <div className="topbar__spacer" />
-          {androidApp && (
+          {(androidApp || desktopApp) && (
             <button
               type="button"
               className="server-settings-btn"
+              disabled={busy}
               onClick={() => setServerSettingsOpen(true)}
-              title={lang === "ja" ? "OMRサーバー設定" : "OMR server settings"}
+              title={desktopApp
+                ? lang === "ja" ? "楽譜認識の設定" : "Recognition settings"
+                : lang === "ja" ? "OMRサーバー設定" : "OMR server settings"}
             >
               ⚙ <span>OMR</span>
             </button>
@@ -1005,8 +1011,10 @@ export default function App() {
             <span className="zoom-ctl__val">{zoom}%</span>
           </div>
         )}
+        <DesktopOmrSettings open={desktopApp && serverSettingsOpen}
+          onClose={() => setServerSettingsOpen(false)} />
         <ServerSettings
-          open={serverSettingsOpen}
+          open={androidApp && serverSettingsOpen}
           onClose={() => setServerSettingsOpen(false)}
           onSaved={() => {
             setServerConfigured(hasConfiguredServer());

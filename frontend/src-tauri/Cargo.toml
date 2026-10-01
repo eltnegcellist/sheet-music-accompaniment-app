@@ -1,6 +1,6 @@
 [package]
 name = "imslp-accompanist"
-version = "0.1.1"
+version = "0.2.0"
 description = "IMSLP Accompanist desktop app"
 authors = ["IMSLP Accompanist contributors"]
 license = "AGPL-3.0-or-later"

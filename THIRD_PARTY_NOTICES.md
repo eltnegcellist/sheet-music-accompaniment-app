@@ -17,15 +17,23 @@ Source: <https://github.com/Audiveris/audiveris/tree/5.10.2>
 The exact Audiveris license text is included in distributed builds as
 `AUDIVERIS-LICENSE`.
 
-## homr 0.7.0 (optional experimental OMR engine)
+## homr 0.7.0
 
-When the optional homr backend is installed, score recognition can instead be
-performed by homr 0.7.0. homr is licensed under the GNU Affero General Public
+The Apple Silicon Mac distribution includes homr 0.7.0 for local neural
+recognition and the confidence-gated Hybrid engine. Server deployments can
+also install homr as an optional backend. homr is licensed under the GNU Affero General Public
 License version 3.
 Source: <https://github.com/liebharc/homr/tree/v0.7.0>
 
-homr is not yet included in the published desktop DMG. Its Python dependency
-and model files must be installed separately for experimental use.
+The Mac distribution includes homr's CPU/CoreML model files and a relocatable
+CPython 3.11.16 runtime from python-build-standalone release 20260929.
+The Python archive is verified against its pinned SHA-256 at build time.
+`homr/HOMR-LICENSE`, `homr/PYTHON-LICENSE`, and the installed package list are
+included with the distribution notices. Python package license files remain
+in their bundled dist-info directories; the runtime manifest records model
+filenames and SHA-256 hashes.
+Python source: <https://www.python.org/>
+Portable Python build source: <https://github.com/astral-sh/python-build-standalone/tree/20260929>
 
 ## Audio samples
 

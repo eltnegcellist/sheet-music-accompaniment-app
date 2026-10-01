@@ -169,6 +169,8 @@ rm -rf "$RES/runtime/poppler"
     "$POPPLER_PREFIX/bin/pdftocairo"
 xattr -rc "$RES/runtime/poppler" 2>/dev/null || true
 
+"$ROOT/scripts/fetch_homr_macos.sh"
+
 echo "[runtime] done. Layout:"
 find "$RES" -maxdepth 3 -type d | sort
 

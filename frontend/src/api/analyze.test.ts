@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { analyzePdf, getCacheList } from "./analyze";
+import { saveDesktopOmrEngine } from "./desktopConfig";
 import { saveServerConfig } from "./serverConfig";
 
 // resolveBackendUrl is module-private, but every public client function
@@ -190,5 +191,55 @@ describe("hybrid OMR analyze preflight", () => {
 
     expect(result.omr_engine).toBe("hybrid");
     expect(requestBody?.get("omr_engine")).toBe("hybrid");
+  });
+});
+
+describe("desktop local OMR selection", () => {
+  afterEach(() => {
+    delete window.__BACKEND_URL__;
+    localStorage.clear();
+    vi.restoreAllMocks();
+  });
+
+  it.each(["audiveris", "homr", "hybrid"] as const)(
+    "uses local %s without sending remote credentials",
+    async (engine) => {
+      window.__BACKEND_URL__ = "http://127.0.0.1:43210";
+      saveServerConfig({ serverUrl: "https://remote.example.test", apiToken: "secret", omrEngine: "homr" });
+      saveDesktopOmrEngine(engine);
+      const mock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+        expect(String(input)).toMatch(/^http:\/\/127\.0\.0\.1:43210\//);
+        expect(init?.headers).toEqual({});
+        if (String(input).endsWith("/capabilities")) {
+          return new Response(JSON.stringify({
+            omr_engines: ["audiveris", "homr", "hybrid"],
+            per_request_engine_selection: true,
+          }));
+        }
+        expect((init?.body as FormData).get("omr_engine")).toBe(engine);
+        return new Response(JSON.stringify({ omr_engine: engine }));
+      });
+      const response = await analyzePdf(new File(["pdf"], "score.pdf"));
+      expect(response.omr_engine).toBe(engine);
+      expect(mock).toHaveBeenCalledTimes(engine === "audiveris" ? 1 : 2);
+    },
+  );
+
+  it("refuses unsupported local Hybrid before sending the PDF", async () => {
+    window.__BACKEND_URL__ = "http://127.0.0.1:43210";
+    saveDesktopOmrEngine("hybrid");
+    const mock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      omr_engines: ["audiveris"], per_request_engine_selection: true,
+    })));
+    await expect(analyzePdf(new File(["pdf"], "score.pdf"))).rejects.toThrow("対応していません");
+    expect(mock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps remote tokens out of the local cache request", async () => {
+    window.__BACKEND_URL__ = "http://127.0.0.1:43210";
+    saveServerConfig({ serverUrl: "https://remote.example.test", apiToken: "secret", omrEngine: "homr" });
+    const mock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("[]"));
+    await getCacheList();
+    expect(mock).toHaveBeenCalledWith("http://127.0.0.1:43210/cache", { headers: {} });
   });
 });

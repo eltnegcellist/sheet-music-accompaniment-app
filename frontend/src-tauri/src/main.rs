@@ -85,6 +85,13 @@ fn spawn_sidecar(app: &tauri::AppHandle) -> tauri::Result<CommandChild> {
         format!("{}{}{}", poppler_bin.to_string_lossy(), path_sep, parent_path)
     };
 
+    let homr_launcher = resource_dir.join("runtime/homr/bin/homr");
+    let mut omr_env = HashMap::new();
+    if cfg!(target_os = "macos") && homr_launcher.is_file() {
+        omr_env.insert("HOMR_LAUNCHER".to_string(), homr_launcher.to_string_lossy().into_owned());
+        omr_env.insert("HOMR_COREML_MODEL_CACHE_DIR".to_string(), app_data.join("homr/coreml").to_string_lossy().into_owned());
+    }
+
     let (mut rx, child) = Command::new_sidecar("accompanist-server")
         .expect("failed to create sidecar command")
         .args([
@@ -92,7 +99,8 @@ fn spawn_sidecar(app: &tauri::AppHandle) -> tauri::Result<CommandChild> {
             "--port", "0",
             "--app-data", app_data.to_string_lossy().as_ref(),
         ])
-        .envs(HashMap::from([
+        .envs({
+            let mut env = HashMap::from([
             ("AUDIVERIS_LAUNCHER".to_string(), audiveris.to_string_lossy().into_owned()),
             ("JAVA_HOME".to_string(), java_home.to_string_lossy().into_owned()),
             ("TESSDATA_PREFIX".to_string(), tessdata.to_string_lossy().into_owned()),
@@ -106,7 +114,10 @@ fn spawn_sidecar(app: &tauri::AppHandle) -> tauri::Result<CommandChild> {
                 "ALLOWED_ORIGINS".to_string(),
                 "tauri://localhost,https://tauri.localhost,http://localhost:5173".into(),
             ),
-        ]))
+            ]);
+            env.extend(omr_env);
+            env
+        })
         .spawn()?;
 
     let app_handle = app.clone();

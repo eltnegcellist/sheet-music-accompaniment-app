@@ -1,0 +1,183 @@
+name: macos-local-release
+
+on:
+  push:
+    branches: [main, "feat/macos-local-omr"]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "scripts/*macos*"
+      - "scripts/verify_macos_local_omr.py"
+      - ".github/workflows/macos-local-release.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: macos-local-release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    name: Apple Silicon local OMR bundle
+    runs-on: macos-14
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache/restore@v5
+        id: cargo-cache
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            frontend/src-tauri/target/release/deps
+            frontend/src-tauri/target/release/build
+            frontend/src-tauri/target/release/.fingerprint
+          key: macos-local-cargo-${{ hashFiles('frontend/src-tauri/Cargo.toml') }}
+      - name: Restore Python download cache
+        uses: actions/cache/restore@v5
+        id: pip-downloads
+        with:
+          path: ~/Library/Caches/pip
+          key: macos-local-pip-${{ hashFiles('backend/pyproject.toml', 'backend/constraints/macos-release.txt') }}
+      - name: Install build tools
+        run: |
+          test "$(uname -m)" = arm64
+          brew install tesseract poppler
+          python -m pip install --upgrade pip
+          python -m pip install --no-cache-dir -c backend/constraints/macos-release.txt pydantic pydantic-core
+          python -m pip install -c backend/constraints/macos-release.txt pyinstaller -e "backend[dev]"
+          npm ci --prefix frontend
+      - name: Save Python downloads
+        if: steps.pip-downloads.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: ~/Library/Caches/pip
+          key: ${{ steps.pip-downloads.outputs.cache-primary-key }}
+      - name: Frontend and backend regression checks
+        run: |
+          npm test --prefix frontend
+          cd backend
+          pytest -q tests/test_homr_runner.py tests/test_hybrid_runner.py tests/test_api_smoke.py tests/test_runtime_paths.py
+      - name: Restore bundled runtimes
+        uses: actions/cache/restore@v5
+        id: runtime-cache
+        with:
+          path: |
+            frontend/src-tauri/resources
+            frontend/src-tauri/legal-bundle
+          key: macos-local-runtime-${{ hashFiles('scripts/fetch_runtime_macos.sh', 'scripts/fetch_homr_macos.sh', 'scripts/bundle_macho_macos.sh', 'THIRD_PARTY_NOTICES.md', 'LICENSE') }}
+      - name: Stage complete local runtimes
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
+        run: bash scripts/fetch_runtime_macos.sh
+      - name: Save staged runtimes
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            frontend/src-tauri/resources
+            frontend/src-tauri/legal-bundle
+          key: ${{ steps.runtime-cache.outputs.cache-primary-key }}
+      - name: Build frozen backend
+        run: bash scripts/build_sidecar.sh --onefile
+      - name: Validate staged bundle
+        run: bash scripts/validate_bundle.sh
+      - name: Build Mac app
+        run: npm run tauri:build --prefix frontend
+      - name: Save Mac compiler cache
+        if: steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            frontend/src-tauri/target/release/deps
+            frontend/src-tauri/target/release/build
+            frontend/src-tauri/target/release/.fingerprint
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
+      - name: Restore notices and sign app
+        run: |
+          bash scripts/post_bundle_macos.sh
+          bash scripts/sign_adhoc_macos.sh
+      - name: Prepare one-page packaging smoke input
+        run: |
+          mkdir -p macos-verification
+          curl --fail --location --retry 3 \
+            'https://s9.imslp.org/files/imglnks/usimg/e/e2/IMSLP413948-PMLP30030-Saint_Saens_Allegro_Mandozzi_Vc_Kl_-_Partitur.pdf' \
+            -o macos-verification/source.pdf
+          python - <<'PY'
+          from pypdf import PdfReader, PdfWriter
+          reader = PdfReader("macos-verification/source.pdf")
+          writer = PdfWriter()
+          writer.add_page(reader.pages[0])
+          writer.write("macos-verification/page1.pdf")
+          PY
+      - name: Offline local analysis through signed bundle
+        run: |
+          APP='frontend/src-tauri/target/release/bundle/macos/IMSLP Accompanist.app'
+          chmod -R a-w "$APP/Contents/Resources"
+          python scripts/verify_macos_local_omr.py \
+            --app "$PWD/$APP" \
+            --pdf macos-verification/page1.pdf \
+            --output macos-verification/results
+          codesign --verify --deep --strict --verbose=2 "$APP"
+      - name: Build DMG
+        run: |
+          bash scripts/build_dmg_macos.sh
+          cp frontend/src-tauri/resources/runtime/homr/manifest.json dist/homr-runtime-manifest.json
+          cp macos-verification/results/report.json dist/macos-local-omr-report.json
+          (cd dist && shasum -a 256 *.dmg > SHA256SUMS)
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-local-omr-verification
+          path: |
+            macos-verification/results/report.json
+            macos-verification/results/*.musicxml
+            macos-verification/results/sidecar.stdout
+            macos-verification/results/sidecar.stderr
+            frontend/src-tauri/resources/runtime/homr/manifest.json
+          retention-days: 30
+      - name: Upload Mac distribution
+        uses: actions/upload-artifact@v4
+        with:
+          name: IMSLP-Accompanist-macOS-arm64
+          path: dist/
+          compression-level: 0
+          retention-days: 30
+      - name: Publish verified Mac release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="$(python -c 'import json; print(json.load(open("frontend/src-tauri/tauri.conf.json"))["package"]["version"])')"
+          TAG="macos-v$VERSION"
+          cat > macos-release-notes.md <<'EOF'
+          Apple Silicon Mac版。外部OMRサーバーの設定なしでAudiveris / homr / Hybridを選択できます。
+          Python、Java、OMRモデルを同梱。既定方式はAudiverisです。
+          CoreMLを使用するhomrの初回処理にはコンパイル時間がかかります。
+          配布前に同梱バックエンドの3方式を実際の1ページPDFで検証しています。
+          このDMGはad-hoc署名です。Appleの公証はありません。
+          インストール方法は docs/macos_unsigned_distribution.md を参照してください。
+          M4での処理速度と画面操作は実機で確認してください。
+          EOF
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --target "$GITHUB_SHA" \
+              --title "IMSLP Accompanist $VERSION — macOS Apple Silicon" \
+              --notes-file macos-release-notes.md --prerelease
+          fi
+          gh release upload "$TAG" dist/* --clobber

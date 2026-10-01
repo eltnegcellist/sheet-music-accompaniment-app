@@ -1,0 +1,4 @@
+# Mac release build dependency pair. Keep the native core compatible with Pydantic.
+# Upstream: https://github.com/pydantic/pydantic/blob/v2.12.4/pyproject.toml
+pydantic==2.12.4
+pydantic-core==2.41.5
