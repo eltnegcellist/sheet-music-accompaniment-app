@@ -13,7 +13,7 @@ let page, browser;
     ignoreHTTPSErrors: true,
   });
   await context.addInitScript(() => {
-    localStorage.setItem("imslp-accompanist.lang", "en");
+    localStorage.setItem("lang", "en");
     localStorage.setItem("imslp-accompanist.omr-server.v1", JSON.stringify({
       serverUrl: "http://127.0.0.1:18765", apiToken: "integration-test-token", omrEngine: "hybrid",
     }));

@@ -43,3 +43,33 @@ jobs:
           name: Backend-and-audio-verification
           path: verification-results
           if-no-files-found: error
+
+  repair-v024-checksum:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/test/backend-audio-integration'
+    needs: browser-api-audio
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Repair checksum for existing verified v0.2.4 asset
+        run: |
+          set -euo pipefail
+          gh release download v0.2.4 --pattern IMSLP-Accompanist-Android-v0.2.4.apk
+          echo "05ed3d2e5d70bad07158a953b83c2ab4c3872cfb77d2139fccf7f26101d823c5  IMSLP-Accompanist-Android-v0.2.4.apk" | sha256sum -c -
+          APKSIGNER="${ANDROID_HOME}/build-tools/$(ls "${ANDROID_HOME}/build-tools" | sort -V | tail -n1)/apksigner"
+          "$APKSIGNER" verify --verbose --print-certs IMSLP-Accompanist-Android-v0.2.4.apk > certificate.txt
+          grep -qx 'Number of signers: 1' certificate.txt
+          ACTUAL="$(sed -n 's/^.* certificate SHA-256 digest: //p' certificate.txt | tr -d ':' | tr '[:lower:]' '[:upper:]' | sort -u)"
+          test "$ACTUAL" = AFB14F54F734FAB564A93F3549E3E733F1FC97F3FE83AE1C843AF47C41B25BE3
+          sha256sum IMSLP-Accompanist-Android-v0.2.4.apk > IMSLP-Accompanist-v0.2.4-SHA256SUMS.txt
+          gh release upload v0.2.4 IMSLP-Accompanist-v0.2.4-SHA256SUMS.txt --clobber
+          gh release view v0.2.4 --json body --jq .body > notes.md
+          python - <<'PY'
+          from pathlib import Path
+          p = Path("notes.md")
+          p.write_text(p.read_text().replace("2ac55dcbaae65d91ec0d59328628db0c5acc9e16aa28b34e23331f039df708d6", "05ed3d2e5d70bad07158a953b83c2ab4c3872cfb77d2139fccf7f26101d823c5"))
+          PY
+          gh release edit v0.2.4 --notes-file notes.md
