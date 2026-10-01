@@ -1,0 +1,48 @@
+name: Cleanup old Actions artifacts
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/cleanup-old-artifacts.yml"
+  schedule:
+    - cron: "17 3 * * *"
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete artifacts older than 2 days
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const cutoff = Date.now() - 2 * 24 * 60 * 60 * 1000;
+            const { owner, repo } = context.repo;
+            const artifacts = await github.paginate(
+              github.rest.actions.listArtifactsForRepo,
+              { owner, repo, per_page: 100 }
+            );
+
+            let deleted = 0;
+            let kept = 0;
+
+            for (const artifact of artifacts) {
+              const created = Date.parse(artifact.created_at);
+              if (created < cutoff) {
+                await github.rest.actions.deleteArtifact({
+                  owner,
+                  repo,
+                  artifact_id: artifact.id
+                });
+                deleted += 1;
+                core.info(`Deleted ${artifact.name} (${artifact.id}) from ${artifact.created_at}`);
+              } else {
+                kept += 1;
+              }
+            }
+
+            core.notice(`Artifact cleanup complete: deleted=${deleted}, kept=${kept}`);
