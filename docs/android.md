@@ -1,4 +1,4 @@
-# Android v0.2.3 — mobile-first self-hosted OMR
+# Android v0.2.5 — mobile-first self-hosted OMR
 
 The Android edition is designed as a **free/open-source, phone-first client with user-owned
 OMR infrastructure**. v0.2.1 replaces the desktop-oriented drag/drop and wide
@@ -6,7 +6,7 @@ transport controls with a dedicated touch UI.
 
 The Android app contains the score viewer, playback engine, local cache and
 server settings. PDF recognition itself is performed by the user's own
-FastAPI server, which can run either classic **Audiveris** or neural **homr**.
+FastAPI server, which can run **Audiveris**, neural **homr**, or confidence-gated **Hybrid**.
 
 ## Mobile-first UI
 
@@ -80,7 +80,7 @@ The API token is sent only to the server URL configured by the user.
 On first launch:
 
 1. tap **OMR** in the top bar,
-2. choose **Audiveris** or **homr (neural OMR)**,
+2. choose **Audiveris**, **homr (neural OMR)**, or **Hybrid**,
 3. enter the server URL,
 4. enter the API token,
 5. tap **接続テスト / Test connection**,
@@ -102,7 +102,7 @@ Android PDF
    ↓
 user-owned FastAPI server
    ↓
-Audiveris  OR  neural homr
+Audiveris  OR  neural homr  OR  Hybrid
    ↓
 MusicXML
    ↓
@@ -125,8 +125,11 @@ Audiveris-compatible PDF measure bounding boxes,
 so **PDF measure highlighting is disabled for homr output**. Score-view
 playback still works.
 
-Audiveris remains the default while the neural benchmark is being measured.
-The Android setting allows explicit opt-in to homr for real-score testing.
+Audiveris remains the default. Hybrid runs both engines, retains healthy
+Audiveris structure and fuses only safely matched pitches, or chooses homr when
+Audiveris fails or rhythm is clearly better. It costs additional server time.
+The app checks /capabilities before uploading a Hybrid PDF and separates cached
+results by engine. Hybrid PDF highlighting depends on the chosen layout.
 
 After analysis, the PDF and parsed response are stored in Android WebView
 IndexedDB. The **Recently opened** list on Android is therefore device-local,
@@ -202,30 +205,21 @@ Configure these repository secrets once:
 - `ANDROID_KEY_ALIAS`
 - `ANDROID_KEY_PASSWORD`
 
-Example one-time keystore creation:
-
-```bash
-keytool -genkeypair \
-  -keystore imslp-accompanist-release.jks \
-  -alias imslp-accompanist \
-  -keyalg RSA -keysize 4096 -validity 10000
-```
-
-Encode the keystore for the GitHub secret:
-
-```bash
-base64 < imslp-accompanist-release.jks | tr -d '\n'
-```
+Use the existing fixed release keystore from the private backup. **Do not generate
+a replacement key.** The four secrets have been restored from the original key.
 
 Keep the original keystore and passwords backed up privately. Losing the
 signing key means existing installations cannot be updated with a newly signed
 APK.
 
-After the secrets are configured, pushing a tag such as `v0.2.0` builds,
-verifies and attaches:
+After tests and signature verification, main builds publish a prerelease with
+the matching source tag and checksum. Download from [GitHub Releases](https://github.com/eltnegcellist/sheet-music-accompaniment-app/releases).
+
+Release files:
 
 ```text
-IMSLP-Accompanist-Android-v0.2.0.apk
+IMSLP-Accompanist-Android-v0.2.5.apk
+IMSLP-Accompanist-v0.2.5-SHA256SUMS.txt
 ```
 
 ## Desktop compatibility
@@ -277,3 +271,22 @@ installed normally as updates as long as `versionCode` increases.
 Do not distribute APKs from the ordinary `android-ci` debug artifact as user
 updates. Those artifacts are test builds only. Use the
 `android-stable-release` workflow artifact or tagged GitHub Release.
+
+## Cloud validation and remaining device checks
+
+The backend-and-audio-verification workflow reuses checked-in outputs from
+Saint-Saens clean #413948 p8 (run 36667381289). It executes the real authenticated
+HTTP API, parameter loading, production Hybrid fusion and engine cache isolation;
+only the recognition drivers are replayed. Expected fusion is 25 measures,
+170 notes, 81.3%. No new OMR benchmark is executed.
+
+Chromium exercises the built Android UI, renders declaration-free Hybrid
+MusicXML, measures non-silent Salamander piano audio, and checks completion,
+live tempo changes, loop playback and silence after Stop. Evidence includes
+screenshots, JSON results and waveform measurements.
+
+The previous signed v0.2.3-to-v0.2.4 emulator update passed in run 36682924672,
+including retained settings and IndexedDB scores. Physical Galaxy S25 update,
+speaker output, share/import, MusicXML export, screen-awake behaviour and
+new recognition runtime still require device checks. Do not uninstall the
+fixed-signed v0.2.3 app; install the newer fixed-signed APK over it.

@@ -46,7 +46,7 @@ Grab the latest **`IMSLP-Accompanist-<version>.dmg`** from the
 
 ### Android (self-hosted OMR)
 
-Android v0.2.0 uses the same score viewer/player while moving heavy Audiveris
+Android v0.2.5 uses the same score viewer/player while moving heavy Audiveris
 OMR to a server owned by the user. The server can run on a home PC, NAS or VM.
 
 ```bash
@@ -277,7 +277,7 @@ macOS / Android 対応の伴奏アプリです。IMSLP などのパブリック�
 
 ### Android版（セルフホスト OMR）
 
-Android v0.2.0では、楽譜表示・伴奏再生・端末内キャッシュをスマホ側で
+Android v0.2.5では、楽譜表示・伴奏再生・端末内キャッシュをスマホ側で
 行い、AudiverisによるPDF認識だけをユーザー自身のPC/NAS/VMへ送ります。
 
 ```bash
@@ -311,7 +311,7 @@ MusicXML保存、再生中の画面スリープ防止にも対応しています
 - **macOS (Apple Silicon)**: ✅ サポート対象。
 - **macOS (Intel)**: ⚠️ 未検証。
 - **Windows**: ⏳ 未対応 / 検証中。
-- **Android（セルフホスト OMR）**: ✅ v0.2.0 実装完了。アプリ内の
+- **Android（セルフホスト OMR）**: ✅ v0.2.5 実装完了。アプリ内の
   サーバー設定、端末内キャッシュ、「このアプリで開く」、MusicXML保存
   まで対応。GitHub Actionsでインストール可能なdebug APKを生成し、
   固定署名のReleaseワークフローも用意済みです。詳細は
