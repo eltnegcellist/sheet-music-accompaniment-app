@@ -112,6 +112,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
+          retention-days: 2
           name: IMSLP-Accompanist-Android-stable-update
           path: |
             IMSLP-Accompanist-Android-v*.apk
