@@ -50,7 +50,7 @@ APP_LEGAL="$APP/Contents/Resources/legal"
   exit 1
 }
 mkdir -p "$STAGE/Open Source Licenses"
-cp "$APP_LEGAL/"* "$STAGE/Open Source Licenses/"
+cp -R "$APP_LEGAL/"* "$STAGE/Open Source Licenses/"
 
 echo "[dmg] creating $DMG"
 hdiutil create \

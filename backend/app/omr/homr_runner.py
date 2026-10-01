@@ -32,6 +32,12 @@ class HomrError(OmrError):
 
 def _homr_command() -> list[str]:
     """Resolve homr from an override or from PATH."""
+    launcher = os.environ.get("HOMR_LAUNCHER")
+    if launcher:
+        if not Path(launcher).is_file():
+            raise HomrError(f"Bundled homr launcher missing: {launcher}")
+        # Treat a bundle path containing spaces as one executable.
+        return [launcher]
     explicit = os.environ.get("HOMR_COMMAND")
     if explicit:
         command = shlex.split(explicit)
@@ -45,6 +51,19 @@ def _homr_command() -> list[str]:
             "HOMR_COMMAND to the homr launcher."
         )
     return [executable]
+
+
+def _homr_environment() -> dict[str, str]:
+    env = os.environ.copy()
+    if env.get("HOMR_LAUNCHER"):
+        # Do not load the frozen sidecar's Python or native libraries.
+        for name in ("PYTHONHOME", "PYTHONPATH", "DYLD_LIBRARY_PATH", "LD_LIBRARY_PATH"):
+            original = env.pop(name + "_ORIG", None)
+            env.pop(name, None)
+            if original:
+                env[name] = original
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+    return env
 
 
 def _page_sizes(pdf_path: Path) -> list[tuple[float, float]]:
@@ -165,6 +184,7 @@ def run_homr(
     try:
         proc = subprocess.Popen(
             cmd,
+            env=_homr_environment(),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,

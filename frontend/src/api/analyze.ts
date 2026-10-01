@@ -1,4 +1,5 @@
 import type { AnalyzeResponse } from "../types";
+import { desktopOmrEngine, isDesktopApp } from "./desktopConfig";
 import {
   authHeaders,
   configuredOmrEngine,
@@ -11,6 +12,7 @@ function resolveBackendUrl(): string {
   if (typeof window !== "undefined" && window.__BACKEND_URL__) {
     return window.__BACKEND_URL__;
   }
+  if (isDesktopApp()) throw new Error("ローカルOMRを起動中です。少し待って再試行してください。");
   const configured = configuredServerUrl();
   if (configured) return configured;
   const fromEnv = import.meta.env.VITE_BACKEND_URL as string | undefined;
@@ -20,6 +22,10 @@ function resolveBackendUrl(): string {
 
 function backendUrl(): string {
   return resolveBackendUrl();
+}
+
+function requestHeaders(): Record<string, string> {
+  return isDesktopApp() ? {} : authHeaders();
 }
 
 export interface AnalyzeOptions {
@@ -38,15 +44,16 @@ export async function analyzePdf(
     throw new Error("PDF か MusicXML のどちらかを選択してください。");
   }
 
-  const serverUrl = configuredServerUrl();
-  const selectedEngine = configuredOmrEngine();
+  const local = isDesktopApp();
+  const serverUrl = local ? backendUrl() : configuredServerUrl();
+  const selectedEngine = local ? desktopOmrEngine() : configuredOmrEngine();
 
   // A pre-v0.2.3 server may silently ignore unknown multipart fields.
   // For neural requests, require explicit capability support before uploading
   // the PDF so a "homr" selection can never fall back to Audiveris unnoticed.
-  if (serverUrl && selectedEngine !== "audiveris") {
+  if (pdf && serverUrl && selectedEngine !== "audiveris") {
     const capabilities = await fetch(`${serverUrl}/capabilities`, {
-      headers: authHeaders(),
+      headers: requestHeaders(),
     });
     if (!capabilities.ok) {
       throw new Error(
@@ -74,15 +81,14 @@ export async function analyzePdf(
   if (musicXml) form.append("music_xml", musicXml);
   if (options.soloPdf) form.append("solo_pdf", options.soloPdf);
   if (options.force) form.append("force", "true");
-  // Only self-hosted/Android server requests carry an engine preference.
-  // Desktop Tauri continues to follow PIPELINE_PARAM_SET in its sidecar.
+  // Desktop and Android preferences are stored independently.
   if (serverUrl) {
     form.append("omr_engine", selectedEngine);
   }
 
   const response = await fetch(`${backendUrl()}/analyze`, {
     method: "POST",
-    headers: authHeaders(),
+    headers: requestHeaders(),
     body: form,
   });
 
@@ -106,7 +112,7 @@ export interface CacheEntry {
 
 export async function getCacheList(): Promise<CacheEntry[]> {
   const response = await fetch(`${backendUrl()}/cache`, {
-    headers: authHeaders(),
+    headers: requestHeaders(),
   });
   if (!response.ok) throw new Error("Failed to fetch cache list");
   return (await response.json()) as CacheEntry[];
@@ -117,7 +123,7 @@ export async function getCachedAnalysis(
   paramSetId: string,
 ): Promise<AnalyzeResponse> {
   const response = await fetch(`${backendUrl()}/cache/${key}/${paramSetId}`, {
-    headers: authHeaders(),
+    headers: requestHeaders(),
   });
   if (!response.ok) throw new Error("Failed to fetch cached analysis");
   return (await response.json()) as AnalyzeResponse;
@@ -129,7 +135,7 @@ export async function getCachedPdf(
 ): Promise<File> {
   const response = await fetch(
     `${backendUrl()}/cache/${key}/${paramSetId}/pdf`,
-    { headers: authHeaders() },
+    { headers: requestHeaders() },
   );
   if (!response.ok) throw new Error("Failed to fetch cached PDF");
   const blob = await response.blob();
@@ -142,7 +148,7 @@ export async function deleteCache(
 ): Promise<void> {
   const response = await fetch(`${backendUrl()}/cache/${key}/${paramSetId}`, {
     method: "DELETE",
-    headers: authHeaders(),
+    headers: requestHeaders(),
   });
   if (!response.ok) throw new Error("Failed to delete cache entry");
 }
@@ -155,7 +161,7 @@ export async function touchCache(
     `${backendUrl()}/cache/${key}/${paramSetId}/touch`,
     {
       method: "POST",
-      headers: authHeaders(),
+      headers: requestHeaders(),
     },
   );
   if (!response.ok) throw new Error("Failed to touch cache entry");

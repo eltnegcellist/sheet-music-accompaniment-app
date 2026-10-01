@@ -54,6 +54,7 @@ mkdir -p "$NOTICE_DEST"
 cp "$ROOT/LICENSE" "$NOTICE_DEST/IMSLP-ACCOMPANIST-LICENSE"
 cp "$ROOT/THIRD_PARTY_NOTICES.md" "$NOTICE_DEST/THIRD_PARTY_NOTICES.md"
 cp "$PROJECT_LEGAL/AUDIVERIS-LICENSE" "$NOTICE_DEST/AUDIVERIS-LICENSE"
+cp -R "$PROJECT_LEGAL/homr" "$NOTICE_DEST/homr"
 echo "[post-bundle] legal/ entries:"
 find "$NOTICE_DEST" -maxdepth 1 -type f -print | sed 's/^/    /'
 echo "[post-bundle] done"

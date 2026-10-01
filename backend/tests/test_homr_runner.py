@@ -200,3 +200,32 @@ def test_engine_selects_hybrid_from_params(monkeypatch):
     assert driver.func is omr_engine.run_hybrid
     assert driver.keywords["homr_dpi"] == 300
     assert driver.keywords["minimum_safe_pitch_rate"] == 0.5
+
+def test_bundled_launcher_path_with_spaces(tmp_path, monkeypatch):
+    launcher = tmp_path / "IMSLP Accompanist.app" / "homr"
+    launcher.parent.mkdir()
+    launcher.write_text("#!/bin/sh\n")
+    monkeypatch.setenv("HOMR_LAUNCHER", str(launcher))
+    monkeypatch.setenv("HOMR_COMMAND", "unrelated-command")
+    assert homr_runner._homr_command() == [str(launcher)]
+
+
+def test_bundled_launcher_missing_is_clear(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOMR_LAUNCHER", str(tmp_path / "missing"))
+    with pytest.raises(HomrError, match="Bundled homr launcher missing"):
+        homr_runner._homr_command()
+
+
+def test_bundled_python_environment_is_isolated(monkeypatch):
+    monkeypatch.setenv("HOMR_LAUNCHER", "/Applications/IMSLP Accompanist.app/homr")
+    monkeypatch.setenv("PYTHONHOME", "/frozen")
+    monkeypatch.setenv("PYTHONPATH", "/frozen/modules")
+    monkeypatch.setenv("DYLD_LIBRARY_PATH", "/frozen/libs")
+    monkeypatch.setenv("DYLD_LIBRARY_PATH_ORIG", "/user/libs")
+    monkeypatch.setenv("HOMR_COREML_MODEL_CACHE_DIR", "/user/data/coreml")
+    env = homr_runner._homr_environment()
+    assert "PYTHONHOME" not in env
+    assert "PYTHONPATH" not in env
+    assert env["DYLD_LIBRARY_PATH"] == "/user/libs"
+    assert env["HOMR_COREML_MODEL_CACHE_DIR"] == "/user/data/coreml"
+    assert env["PYTHONDONTWRITEBYTECODE"] == "1"
