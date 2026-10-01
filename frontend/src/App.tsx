@@ -459,6 +459,9 @@ export default function App() {
     const transport = Tone.getTransport();
     transport.stop();
     transport.cancel(0);
+    // Cancelling Transport events does not release notes already sounding.
+    samplerRef.current?.releaseAll();
+    soloBusRef.current?.synth.releaseAll();
     metronomeRef.current?.stop();
     if (handleRef.current) cancelSchedule(handleRef.current);
     handleRef.current = null;

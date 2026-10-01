@@ -88,14 +88,16 @@ export function scheduleScore(opts: ScheduleOptions): ScheduledHandle {
 
   for (const note of playable) {
     const id = transport.schedule((t) => {
-      sampler.triggerAttackRelease(
+      sampler.triggerAttack(
         note.pitch,
-        toToneDuration(note.durationBeats),
         t,
         note.velocity,
       );
     }, beatsToBarsBeats(note.beat - offset));
     ids.push(id);
+    ids.push(transport.schedule((t) => {
+      sampler.triggerRelease(note.pitch, t);
+    }, beatsToBarsBeats(releaseBeat(note, offset, endBeat, Boolean(loop)))));
   }
 
   if (soloNotes && soloSynth) {
@@ -104,14 +106,16 @@ export function scheduleScore(opts: ScheduleOptions): ScheduledHandle {
     );
     for (const note of playableSolo) {
       const id = transport.schedule((t) => {
-        soloSynth.triggerAttackRelease(
+        soloSynth.triggerAttack(
           note.pitch,
-          toToneDuration(note.durationBeats),
           t,
           normalizeSoloVelocity(note.velocity),
         );
       }, beatsToBarsBeats(note.beat - offset));
       ids.push(id);
+      ids.push(transport.schedule((t) => {
+        soloSynth.triggerRelease(note.pitch, t);
+      }, beatsToBarsBeats(releaseBeat(note, offset, endBeat, Boolean(loop)))));
     }
   }
 
@@ -180,7 +184,11 @@ function beatsToBarsBeats(beats: number): string {
   return `${bars}:${remBeats}:0`;
 }
 
-function toToneDuration(beats: number): string {
-  // Tone accepts "0:beats:0" form for arbitrary durations.
-  return `0:${beats}:0`;
+function releaseBeat(note: NoteEvent, offset: number, endBeat: number, loop: boolean): number {
+  // Keep note-off on Transport so tempo changes affect sustained notes too.
+  // Sampler.triggerAttackRelease removes its active source when it schedules
+  // the future note-off, preventing Stop/releaseAll from finding it.
+  // Release just before the exclusive loop boundary so no note remains held.
+  const boundary = endBeat - (loop ? 0.00001 : 0);
+  return Math.max(0, Math.min(note.beat + note.durationBeats, boundary) - offset);
 }

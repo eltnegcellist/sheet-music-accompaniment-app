@@ -107,18 +107,45 @@ jobs:
           VERSION="$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' android/app/build.gradle.kts | head -n1)"
           test -n "$VERSION"
           echo "ANDROID_VERSION=$VERSION" >> "$GITHUB_ENV"
-          cp android/app/build/outputs/apk/release/app-release.apk             "IMSLP-Accompanist-Android-v${VERSION}.apk"
+          cp android/app/build/outputs/apk/release/app-release.apk "IMSLP-Accompanist-Android-v${VERSION}.apk"
+          sha256sum "IMSLP-Accompanist-Android-v${VERSION}.apk" > "IMSLP-Accompanist-v${VERSION}-SHA256SUMS.txt"
 
       - uses: actions/upload-artifact@v4
         with:
           name: IMSLP-Accompanist-Android-stable-update
-          path: IMSLP-Accompanist-Android-v*.apk
+          path: |
+            IMSLP-Accompanist-Android-v*.apk
+            IMSLP-Accompanist-v*-SHA256SUMS.txt
           if-no-files-found: error
 
-      - name: Attach APK to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Publish verified APK and matching checksum
+        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'push' && github.ref == 'refs/heads/main')
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 ||             gh release create "$GITHUB_REF_NAME" --generate-notes --title "IMSLP Accompanist $GITHUB_REF_NAME"
-          gh release upload "$GITHUB_REF_NAME" "IMSLP-Accompanist-Android-v${ANDROID_VERSION}.apk" --clobber
+          set -euo pipefail
+          TAG="v${ANDROID_VERSION}"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            test "$GITHUB_REF_NAME" = "$TAG"
+          fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            TAG_SHA="$(gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq '.object.sha')"
+            if [ "$TAG_SHA" != "$GITHUB_SHA" ]; then
+              echo "Existing release points to another commit; keeping this build as an artifact."
+              exit 0
+            fi
+          else
+            cat > "$RUNNER_TEMP/release-notes.md" <<EOF
+          Android ${ANDROID_VERSION}, package app.imslp.accompanist.
+          Signed with the existing v0.2.2/v0.2.3 release key; install over the existing app to retain data.
+          Audiveris remains the default; Audiveris, homr and Hybrid are selectable.
+          Fixes declaration-free MusicXML display and releases sustained notes on Stop.
+          Source: $GITHUB_SHA
+          Certificate SHA-256: $EXPECTED_CERT_SHA256
+          Galaxy S25 speaker, sharing and physical update checks remain to be performed.
+          EOF
+            gh release create "$TAG" --target "$GITHUB_SHA" --draft --prerelease --latest=false --title "IMSLP Accompanist $TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
+          fi
+          gh release upload "$TAG" "IMSLP-Accompanist-Android-v${ANDROID_VERSION}.apk" "IMSLP-Accompanist-v${ANDROID_VERSION}-SHA256SUMS.txt" --clobber
+          gh release edit "$TAG" --draft=false --prerelease --latest=false

@@ -1,0 +1,17 @@
+{
+  "score": "Saint-Saens Op.43 IMSLP413948 p8",
+  "source_run": 36667381289,
+  "artifact_id": 11077361086,
+  "artifact_sha256": "7f03a7fefdd8fc0fb229ff7f25ad47cc9aa45be1be7953404bffd4ef37d16eff",
+  "recognition_reexecuted": false,
+  "files": {
+    "audiveris.musicxml": {
+      "sha256": "415a4672a632d14505913a7bcd36ca95289db120f25c6a89d0d66bd5f6e2f2ca",
+      "path_in_artifact": "saint-clean-p08-audiveris/saint-clean-p08/audiveris/recognized.musicxml"
+    },
+    "homr.musicxml": {
+      "sha256": "8893da0b2316bf5274f98b8e74372b038ab4a12527032eab682c35923e95fc30",
+      "path_in_artifact": "saint-clean-p08-homr/saint-clean-p08/homr/recognized.musicxml"
+    }
+  }
+}
