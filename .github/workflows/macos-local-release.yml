@@ -139,7 +139,7 @@ jobs:
           bash scripts/build_dmg_macos.sh
           cp frontend/src-tauri/resources/runtime/homr/manifest.json dist/homr-runtime-manifest.json
           cp macos-verification/results/report.json dist/macos-local-omr-report.json
-          shasum -a 256 dist/*.dmg > dist/SHA256SUMS
+          (cd dist && shasum -a 256 *.dmg > SHA256SUMS)
       - name: Upload verification evidence
         if: always()
         uses: actions/upload-artifact@v4

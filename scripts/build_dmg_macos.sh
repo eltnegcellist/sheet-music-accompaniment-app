@@ -38,7 +38,7 @@ mkdir -p "$OUT_DIR"
 rm -f "$DMG"
 
 STAGE="$(mktemp -d)"
-trap 'rm -rf "$STAGE"' EXIT
+trap 'chmod -R u+w "$STAGE"; rm -rf "$STAGE"' EXIT
 
 # Drop the .app and an /Applications symlink into the stage dir so
 # the user's drag-to-install workflow is the conventional one.
