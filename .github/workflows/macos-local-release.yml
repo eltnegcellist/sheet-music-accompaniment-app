@@ -52,13 +52,14 @@ jobs:
         id: pip-downloads
         with:
           path: ~/Library/Caches/pip
-          key: macos-local-pip-${{ hashFiles('backend/pyproject.toml') }}
+          key: macos-local-pip-${{ hashFiles('backend/pyproject.toml', 'backend/constraints/macos-release.txt') }}
       - name: Install build tools
         run: |
           test "$(uname -m)" = arm64
           brew install tesseract poppler
           python -m pip install --upgrade pip
-          python -m pip install pyinstaller -e "backend[dev]"
+          python -m pip install --no-cache-dir -c backend/constraints/macos-release.txt pydantic pydantic-core
+          python -m pip install -c backend/constraints/macos-release.txt pyinstaller -e "backend[dev]"
           npm ci --prefix frontend
       - name: Save Python downloads
         if: steps.pip-downloads.outputs.cache-hit != 'true'
