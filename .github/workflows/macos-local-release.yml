@@ -10,6 +10,13 @@ on:
       - "scripts/verify_macos_local_omr.py"
       - ".github/workflows/macos-local-release.yml"
   workflow_dispatch:
+  pull_request:
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "scripts/*macos*"
+      - "scripts/verify_macos_local_omr.py"
+      - ".github/workflows/macos-local-release.yml"
 
 concurrency:
   group: macos-local-release-${{ github.ref }}

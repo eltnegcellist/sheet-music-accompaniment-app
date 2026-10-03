@@ -1,7 +1,7 @@
 {
   "name": "imslp-accompanist-frontend",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "license": "AGPL-3.0-or-later",
   "repository": "https://github.com/eltnegcellist/sheet-music-accompaniment-app",
   "type": "module",

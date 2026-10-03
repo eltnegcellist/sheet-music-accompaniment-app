@@ -20,8 +20,6 @@ interface Props {
   onTotalPages?: (total: number) => void;
 }
 
-const BASE_SCALE = 1.4;
-
 export function PdfViewer({
   pdfFile,
   measures,
@@ -34,6 +32,8 @@ export function PdfViewer({
 }: Props) {
   const { T } = useLang();
   const pageCanvasRef = useRef<HTMLCanvasElement>(null);
+  const paperRef = useRef<HTMLDivElement>(null);
+  const [paperWidth, setPaperWidth] = useState(0);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
   const [pdf, setPdf] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
   const [internalPage, setInternalPage] = useState(0);
@@ -45,6 +45,16 @@ export function PdfViewer({
   const [renderSize, setRenderSize] = useState<{ w: number; h: number } | null>(
     null,
   );
+
+  useEffect(() => {
+    const paper = paperRef.current;
+    if (!paper) return;
+    const update = () => setPaperWidth(paper.clientWidth);
+    const observer = new ResizeObserver(update);
+    observer.observe(paper);
+    update();
+    return () => observer.disconnect();
+  }, [pdfFile]);
 
   useEffect(() => {
     if (!pdfFile) {
@@ -75,23 +85,30 @@ export function PdfViewer({
   }, [currentMeasureIndex, measures, pageIndex]);
 
   useEffect(() => {
-    if (!pdf || !pageCanvasRef.current) return;
+    if (!pdf || !pageCanvasRef.current || paperWidth <= 0) return;
     let cancelled = false;
+    let renderTask: pdfjsLib.RenderTask | undefined;
     (async () => {
       const page = await pdf.getPage(pageIndex + 1);
-      const viewport = page.getViewport({ scale: BASE_SCALE * (zoomPct / 100) });
+      if (cancelled) return;
+      const natural = page.getViewport({ scale: 1 });
+      const viewport = page.getViewport({ scale: paperWidth / natural.width * (zoomPct / 100) });
       const canvas = pageCanvasRef.current!;
       const context = canvas.getContext("2d")!;
       canvas.width = viewport.width;
       canvas.height = viewport.height;
       if (cancelled) return;
-      await page.render({ canvasContext: context, viewport }).promise;
-      setRenderSize({ w: viewport.width, h: viewport.height });
-    })();
+      renderTask = page.render({ canvasContext: context, viewport });
+      await renderTask.promise;
+      if (!cancelled) setRenderSize({ w: viewport.width, h: viewport.height });
+    })().catch((error) => {
+      if (!cancelled) console.error("PDF render failed", error);
+    });
     return () => {
       cancelled = true;
+      renderTask?.cancel();
     };
-  }, [pdf, pageIndex, zoomPct]);
+  }, [pdf, pageIndex, zoomPct, paperWidth]);
 
   useEffect(() => {
     const canvas = overlayCanvasRef.current;
@@ -123,7 +140,7 @@ export function PdfViewer({
 
   return (
     <>
-      <div className="score-paper">
+      <div className="score-paper" ref={paperRef}>
         <div className="score-paper__inner">
           <canvas ref={pageCanvasRef} />
           <canvas ref={overlayCanvasRef} className="pdf-overlay" />

@@ -9,7 +9,7 @@
   },
   "package": {
     "productName": "IMSLP Accompanist",
-    "version": "0.2.0"
+    "version": "0.2.1"
   },
   "tauri": {
     "allowlist": {
@@ -28,6 +28,7 @@
       },
       "fs": {
         "all": false,
+        "writeFile": true,
         "scope": ["$APPDATA/**", "$APPLOCALDATA/**"]
       },
       "protocol": {

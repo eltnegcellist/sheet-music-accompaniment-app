@@ -86,6 +86,28 @@ def _sanitize_note_rest_durations(score: stream.Score) -> None:
                         el.duration.quarterLength = Fraction(ql).limit_denominator(64)
 
 
+def _complete_voice_continuations(score: stream.Score) -> None:
+    """Give music21 destinations for rests tied across voiced measures.
+
+    OMR can omit a silent voice from the next measure. During export,
+    music21 fills gaps and splits long rests using the original voice id;
+    without a matching destination it raises KeyError. Empty containers
+    preserve existing notes, offsets and voice ids while allowing that split.
+    Unvoiced measures remain untouched.
+    """
+    for part in score.parts:
+        measures = list(part.getElementsByClass(stream.Measure))
+        voice_ids = dict.fromkeys(v.id for m in measures for v in m.voices)
+        for measure in measures:
+            voices = list(measure.voices)
+            if not voices:
+                continue
+            present = {v.id for v in voices}
+            for voice_id in voice_ids:
+                if voice_id not in present:
+                    measure.insert(0, stream.Voice(id=voice_id))
+
+
 def write_musicxml(score: stream.Score) -> str:
     """Serialise a music21 Score back to a MusicXML string.
 
@@ -106,6 +128,7 @@ def write_musicxml(score: stream.Score) -> str:
 
     logger.info("postprocess.write_musicxml start")
     _sanitize_note_rest_durations(score)
+    _complete_voice_continuations(score)
     logger.info("postprocess.write_musicxml sanitize_done timeout_s=%s", timeout_s)
 
     prev_handler = signal.signal(signal.SIGALRM, _alarm_handler)

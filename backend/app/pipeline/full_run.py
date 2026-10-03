@@ -73,7 +73,7 @@ def run_postprocess_and_evaluate(
     Each is independently togglable; defaults preserve the behaviour
     that existed before each knob was added.
 
-    Returns None when the input is unparseable so the caller can fall
+    Returns None when parsing or export fails so the caller can fall
     back to raw scoring.
     """
     if not music_xml or not music_xml.strip():

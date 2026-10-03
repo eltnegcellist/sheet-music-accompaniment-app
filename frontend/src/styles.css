@@ -544,15 +544,17 @@ body {
   border-radius: 3px;
   box-shadow: 0 12px 60px oklch(0% 0 0 / 0.55);
   position: relative;
-  overflow: hidden;
+  overflow-x: auto;
   flex-shrink: 0;
   width: 100%;
   display: flex;
-  justify-content: center;
+  justify-content: flex-start;
 }
 .score-paper__inner {
   position: relative;
   display: inline-block;
+  flex-shrink: 0;
+  margin: 0 auto;
   background: #fff;
 }
 .score-paper__inner canvas {

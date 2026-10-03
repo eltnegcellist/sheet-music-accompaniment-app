@@ -77,6 +77,36 @@ def test_parse_returns_score_object():
     assert hasattr(score, "parts") and len(list(score.parts)) >= 1
 
 
+def test_export_continues_rest_into_measure_with_missing_voice():
+    from music21 import meter, note, stream
+
+    score = stream.Score()
+    part = stream.Part()
+    score.append(part)
+    for number, pitch in ((1, "C4"), (2, "D4")):
+        measure = stream.Measure(number=number)
+        if number == 1:
+            measure.timeSignature = meter.TimeSignature("4/4")
+        melody = stream.Voice(id="1")
+        melody.append(note.Note(pitch, quarterLength=4))
+        measure.insert(0, melody)
+        if number == 1:
+            silent_voice = stream.Voice(id="3")
+            silent_voice.append(note.Rest(quarterLength=6))
+            measure.insert(0, silent_voice)
+        part.append(measure)
+
+    # music21 previously raised KeyError('3') while splitting this rest.
+    out = write_musicxml(score)
+    root = etree.fromstring(out.encode("utf-8"))
+    assert [n.findtext("pitch/step") for n in root.iter("note")
+            if n.find("pitch") is not None] == ["C", "D"]
+    second = root.find(".//measure[@number='2']")
+    assert second is not None
+    assert any(n.find("rest") is not None and n.findtext("voice") == "3"
+               for n in second.findall("note"))
+
+
 # --- registered stage ----------------------------------------------------
 
 
