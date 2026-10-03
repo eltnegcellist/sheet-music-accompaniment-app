@@ -143,14 +143,14 @@ def _apply_postprocess(
         max_edits_per_measure=max_edits,
     )
     if run is None:
-        # Postprocess couldn't parse — surface so the operator knows.
+        # Parsing or export failed — surface so the operator knows.
         return OmrResult(
             music_xml=omr_result.music_xml,
             measures=omr_result.measures,
             page_sizes=omr_result.page_sizes,
             warnings=[
                 *omr_result.warnings,
-                "postprocess could not be applied (parse failure); "
+                "postprocess could not be applied (parse or export failure); "
                 "raw OMR output returned.",
             ],
         )

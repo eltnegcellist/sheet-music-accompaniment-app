@@ -87,6 +87,7 @@ export default function App() {
   const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [filePreparing, setFilePreparing] = useState(false);
   const [playback, setPlayback] = useState<PlaybackState>(DEFAULT_PLAYBACK);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentMeasure, setCurrentMeasure] = useState<number | null>(null);
@@ -151,7 +152,7 @@ export default function App() {
     ]?.index ?? 1;
 
   const isLoaded = !!analysis;
-  const scene: Scene = busy && !analysis ? "analyzing" : isLoaded ? "loaded" : "upload";
+  const scene: Scene = filePreparing || (busy && !analysis) ? "analyzing" : isLoaded ? "loaded" : "upload";
 
   // Cache state is signaled by a sentinel string in the warnings list (set by
   // the backend when it returns a cached payload); strip it here so it doesn't
@@ -812,6 +813,7 @@ export default function App() {
                 ref={uploaderRef}
                 disabled={busy || serverRequired}
                 onSelect={handleSelect}
+                onPreparationChange={setFilePreparing}
                 mobile={androidApp}
               />
               <div className="lang-switch">
@@ -870,7 +872,7 @@ export default function App() {
               )}
             </div>
           )}
-          {scene === "analyzing" && <Analyzing />}
+          {scene === "analyzing" && <Analyzing preparing={filePreparing} />}
 
           {/* Hidden file input is always mounted so the topbar file chip can
               invoke the picker even when the upload zone isn't on screen. */}
@@ -879,6 +881,7 @@ export default function App() {
               ref={uploaderRef}
               disabled={busy || serverRequired}
               onSelect={handleSelect}
+              onPreparationChange={setFilePreparing}
               mobile={androidApp}
               hidden
             />
@@ -1020,18 +1023,23 @@ export default function App() {
   );
 }
 
-function Analyzing() {
-  const { T } = useLang();
+function Analyzing({ preparing }: { preparing: boolean }) {
+  const { T, lang } = useLang();
   const [sec, setSec] = useState(0);
   useEffect(() => {
     const t = window.setInterval(() => setSec((s) => s + 1), 1000);
     return () => window.clearInterval(t);
   }, []);
   return (
-    <div className="analyzing">
+    <div className="analyzing" role="status" aria-live="polite">
       <div className="analyzing__ring" />
-      <div className="analyzing__title">{T.analyzingTitle}</div>
+      <div className="analyzing__title">{preparing
+        ? (lang === "ja" ? "楽譜ファイルを読み込み中…" : "Reading score file…")
+        : T.analyzingTitle}</div>
       <div className="analyzing__elapsed">{T.analyzingElapsed(sec)}</div>
+      {!preparing && <div className="analyzing__elapsed">{lang === "ja"
+        ? "認識エンジンの初期化とPDFの画像変換を含みます。初回やページ数の多い楽譜では時間がかかります。"
+        : "Includes engine initialization and PDF conversion. First runs and longer scores take more time."}</div>}
     </div>
   );
 }
