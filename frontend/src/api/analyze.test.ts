@@ -120,7 +120,7 @@ describe("self-hosted OMR engine selection", () => {
       "https://omr.example.test/capabilities",
       { headers: { Authorization: "Bearer token" } },
     );
-    expect(requestBody?.get("omr_engine")).toBe("homr");
+    expect((requestBody as FormData | null)?.get("omr_engine")).toBe("homr");
   });
 });
 
@@ -190,7 +190,7 @@ describe("hybrid OMR analyze preflight", () => {
     const result = await analyzePdf(pdf);
 
     expect(result.omr_engine).toBe("hybrid");
-    expect(requestBody?.get("omr_engine")).toBe("hybrid");
+    expect((requestBody as FormData | null)?.get("omr_engine")).toBe("hybrid");
   });
 });
 

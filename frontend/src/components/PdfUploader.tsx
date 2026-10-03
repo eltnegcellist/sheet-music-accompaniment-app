@@ -1,6 +1,7 @@
 import { useCallback, useImperativeHandle, useRef, useState, forwardRef } from "react";
 
 import { useLang } from "../i18n";
+import { isDesktopApp } from "../api/desktopConfig";
 
 interface Props {
   disabled?: boolean;
@@ -23,10 +24,6 @@ const SOLO_NAME_RE =
 // sheet that can render behind the main window on macOS Tahoe. Detect
 // the Tauri runtime so we can route through @tauri-apps/api/dialog,
 // which always brings the picker to the front.
-const isTauri =
-  typeof window !== "undefined" &&
-  typeof (window as { __TAURI__?: unknown }).__TAURI__ !== "undefined";
-
 async function pickViaTauri(): Promise<File[]> {
   const [{ open }, { convertFileSrc }] = await Promise.all([
     import("@tauri-apps/api/dialog"),
@@ -103,7 +100,7 @@ export const PdfUploader = forwardRef<PdfUploaderHandle, Props>(
 
     const openPicker = useCallback(() => {
       if (disabled) return;
-      if (isTauri) {
+      if (isDesktopApp()) {
         pickViaTauri()
           .then((files) => handleFiles(files))
           .catch((err) => {

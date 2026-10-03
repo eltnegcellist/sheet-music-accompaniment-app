@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as Tone from "tone";
+import { exportMusicXml } from "./api/exportMusicXml";
 
 import {
   analyzePdf,
@@ -89,7 +90,7 @@ export default function App() {
   const [playback, setPlayback] = useState<PlaybackState>(DEFAULT_PLAYBACK);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentMeasure, setCurrentMeasure] = useState<number | null>(null);
-  const [currentMeasureOrdinal, setCurrentMeasureOrdinal] = useState<
+  const [, setCurrentMeasureOrdinal] = useState<
     number | null
   >(null);
   const [viewMode, setViewMode] = useState<ViewMode>("sheet");
@@ -126,7 +127,7 @@ export default function App() {
   const parsedScore = useMemo(() => {
     if (!analysis) return null;
     return parseScore(
-      analysis.music_xml,
+      sanitizeForOsmd(analysis.music_xml),
       analysis.accompaniment_part_id,
       analysis.solo_part_id ?? null,
     );
@@ -260,7 +261,6 @@ export default function App() {
     setCurrentMeasureOrdinal(null);
     try {
       const result = await analyzePdf(pdf, musicXml, { soloPdf, force });
-      result.music_xml = sanitizeForOsmd(result.music_xml);
       setAnalysis(result);
       setWarningsDismissed(false);
       if (androidApp && pdf) {
@@ -435,27 +435,15 @@ export default function App() {
     setIsPlaying(true);
   };
 
-  const handleDownloadMusicXml = () => {
+  const handleDownloadMusicXml = async () => {
     if (!analysis) return;
-    const blob = new Blob([analysis.music_xml], {
-      type: "application/vnd.recordare.musicxml+xml",
-    });
     const base = pdfFile?.name.replace(/\.pdf$/i, "") ?? "score";
     const fileName = `${base}.musicxml`;
-    if (window.AndroidBridge?.saveTextFile) {
-      window.AndroidBridge.saveTextFile(
-        fileName,
-        "application/vnd.recordare.musicxml+xml",
-        analysis.music_xml,
-      );
-      return;
+    try {
+      await exportMusicXml(fileName, analysis.music_xml);
+    } catch (error) {
+      setErrorText(`MusicXML: ${String(error)}`);
     }
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = fileName;
-    a.click();
-    URL.revokeObjectURL(url);
   };
 
   const handleStop = () => {
@@ -578,7 +566,6 @@ export default function App() {
         ]);
         await touchCache(entry.key, entry.param_set_id).catch(() => {});
       }
-      analysisResult.music_xml = sanitizeForOsmd(analysisResult.music_xml);
       setPdfFile(pdfFileResult);
       setAnalysis(analysisResult);
       setWarningsDismissed(false);

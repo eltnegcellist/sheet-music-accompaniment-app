@@ -3,6 +3,7 @@ import { OpenSheetMusicDisplay } from "opensheetmusicdisplay";
 
 import { useLang } from "../i18n";
 import { sanitizeForOsmd } from "../music/sanitize";
+import "../music/osmdCompatibility";
 
 interface Props {
   musicXml: string | null;
@@ -52,7 +53,7 @@ export function SheetViewer({
     lastSyncedMeasureRef.current = null;
     setStatus(tRef.current.generatingSheet);
 
-    const osmd = new OpenSheetMusicDisplay(container, {
+    const createOsmd = () => new OpenSheetMusicDisplay(container, {
       autoResize: true,
       backend: "svg",
       drawTitle: false,
@@ -60,13 +61,16 @@ export function SheetViewer({
       drawCredits: false,
       followCursor: true,
     });
+    let osmd = createOsmd();
     osmdRef.current = osmd;
 
     const tryLoad = async (xml: string): Promise<void> => {
       // OSMD interprets declaration-free strings as URLs. Hybrid output and
-          // XMLSerializer may omit the declaration, so pass a parsed document.
-          const document = new DOMParser().parseFromString(xml, "application/xml");
-          await osmd.load(document);
+      // XMLSerializer may omit the declaration, so pass a parsed document.
+      const document = new DOMParser().parseFromString(xml, "application/xml");
+      if (document.querySelector("parsererror")) throw new Error("Invalid MusicXML");
+      await osmd.load(document);
+      if (cancelled) return;
       osmd.Zoom = zoomPct / 100;
       osmd.render();
     };
@@ -83,6 +87,8 @@ export function SheetViewer({
         try {
           // OSMD holds internal state from the failed attempt; discard it.
           container.innerHTML = "";
+          osmd = createOsmd();
+          osmdRef.current = osmd;
           await tryLoad(musicXml);
           if (!cancelled) {
             setStatus(tRef.current.sheetNoSanitize);
@@ -174,8 +180,6 @@ export function SheetViewer({
     }
   }, [currentMeasureIndex, isPlaying, isVisible]);
 
-
-  const maxW = `calc((100vw - 48px) * ${zoomPct / 100})`;
 
   if (!musicXml) {
     return (

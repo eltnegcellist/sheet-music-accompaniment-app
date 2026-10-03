@@ -28,6 +28,7 @@
       },
       "fs": {
         "all": false,
+        "writeFile": true,
         "scope": ["$APPDATA/**", "$APPLOCALDATA/**"]
       },
       "protocol": {
