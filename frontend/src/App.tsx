@@ -602,10 +602,17 @@ export default function App() {
             <span className="topbar__name">IMSLP Accompanist</span>
           </div>
           <div className="topbar__sep" />
-          <div className={`file-chip${isLoaded ? " file-chip--loaded" : ""}`}>
+          <button
+            type="button"
+            className={`file-chip${isLoaded ? " file-chip--loaded" : ""}`}
+            disabled={busy || serverRequired}
+            onClick={() => uploaderRef.current?.open()}
+            aria-label={lang === "ja" ? "楽譜ファイルを開く" : "Open score files"}
+            title={fileLabel}
+          >
             <span className="file-chip__icon">{isLoaded ? "📄" : "＋"}</span>
             <span className="file-chip__name">{fileLabel}</span>
-          </div>
+          </button>
           {isLoaded && analysis && (
             <>
               <div className="topbar__sep" />
