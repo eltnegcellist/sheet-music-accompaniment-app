@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as Tone from "tone";
 import { exportMusicXml } from "./api/exportMusicXml";
+import { useAutoHideControls } from "./useAutoHideControls";
 
 import {
   analyzePdf,
@@ -112,11 +113,8 @@ export default function App() {
     setCacheList(entries);
   };
 
-  // Auto-hide topbar/transport based on cursor proximity. The badge / play
-  // pill stay visible so the user always has an entry point.
-  const [headerVisible, setHeaderVisible] = useState(true);
-  const [footerVisible, setFooterVisible] = useState(false);
-  const hideTimers = useRef<{ h?: number; f?: number }>({});
+  const { headerVisible, footerVisible, controlsPinned, toggleControlsPinned } =
+    useAutoHideControls(!androidApp);
 
   const uploaderRef = useRef<PdfUploaderHandle>(null);
   const samplerRef = useRef<Tone.Sampler | null>(null);
@@ -179,43 +177,6 @@ export default function App() {
       metronomeRef.current.setBeatsPerBar(beats);
     }
   }, [accompanimentScore, analysis]);
-
-  // Mouse-proximity auto-hide.
-  useEffect(() => {
-    const HEADER_ZONE = 110;
-    const FOOTER_ZONE = 140;
-    const onMove = (e: MouseEvent) => {
-      const y = e.clientY;
-      const h = window.innerHeight;
-      if (y < HEADER_ZONE) {
-        window.clearTimeout(hideTimers.current.h);
-        setHeaderVisible(true);
-      } else {
-        window.clearTimeout(hideTimers.current.h);
-        hideTimers.current.h = window.setTimeout(
-          () => setHeaderVisible(false),
-          1200,
-        );
-      }
-      if (y > h - FOOTER_ZONE) {
-        window.clearTimeout(hideTimers.current.f);
-        setFooterVisible(true);
-      } else {
-        window.clearTimeout(hideTimers.current.f);
-        hideTimers.current.f = window.setTimeout(
-          () => setFooterVisible(false),
-          1500,
-        );
-      }
-    };
-    window.addEventListener("mousemove", onMove);
-    return () => {
-      window.removeEventListener("mousemove", onMove);
-      Object.values(hideTimers.current).forEach((t) =>
-        window.clearTimeout(t),
-      );
-    };
-  }, []);
 
   const tempoLabel = useMemo(() => {
     if (!analysis) return "";
@@ -608,6 +569,18 @@ export default function App() {
   return (
     <LangContext.Provider value={{ lang, T, toggleLang }}>
       <div className={androidApp ? "app app--android" : "app"}>
+        {!androidApp && (
+          <button
+            type="button"
+            className="controls-pin"
+            aria-pressed={controlsPinned}
+            onClick={toggleControlsPinned}
+          >
+            {lang === "ja"
+              ? controlsPinned ? "操作パネルの固定を解除" : "操作パネルを表示・固定"
+              : controlsPinned ? "Unpin controls" : "Show and pin controls"}
+          </button>
+        )}
         {/* Always-visible logo badge (shown when topbar is collapsed). */}
         <div
           className={`logo-badge${headerVisible ? " logo-badge--hidden" : ""}${isLoaded ? " logo-badge--clickable" : ""}`}
