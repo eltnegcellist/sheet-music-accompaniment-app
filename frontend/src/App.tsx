@@ -252,6 +252,8 @@ export default function App() {
     setPdfFile(pdf ?? null);
     setMusicXmlFile(musicXml ?? null);
     setSoloPdfFile(soloPdf ?? null);
+    // An XML-only import cannot display the previous score's PDF view.
+    if (!pdf) setViewMode("sheet");
     setPdfPage(0);
     setPdfTotalPages(0);
     await runAnalyze(pdf, musicXml, soloPdf, false);
