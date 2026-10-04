@@ -45,7 +45,7 @@ export function useAutoHideControls(enabled = true) {
     return () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("focusin", onFocus);
-      Object.values(hideTimers.current).forEach(window.clearTimeout);
+      Object.values(hideTimers.current).forEach((timer) => window.clearTimeout(timer));
     };
   }, [enabled]);
 
