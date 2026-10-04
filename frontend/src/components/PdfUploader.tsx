@@ -164,21 +164,26 @@ export const PdfUploader = forwardRef<PdfUploaderHandle, Props>(
 
     return (
       <div className="upload">
-        <div
+        <button
+          type="button"
           className={`drop-card${drag ? " drop-card--drag" : ""}`}
+          disabled={disabled}
+          aria-label={lang === "ja" ? "楽譜ファイルを選択" : "Choose score files"}
           onClick={openPicker}
           onDragOver={(e) => {
             e.preventDefault();
+            if (disabled) return;
             setDrag(true);
           }}
           onDragLeave={() => setDrag(false)}
           onDrop={(e) => {
             e.preventDefault();
             setDrag(false);
+            if (disabled) return;
             handleFiles(e.dataTransfer.files);
           }}
         >
-          <div className="drop-card__bg">
+          <span className="drop-card__bg" aria-hidden="true">
             {[
               { s: 90, x: "5%", y: "8%", o: 0.07 },
               { s: 70, x: "70%", y: "12%", o: 0.05 },
@@ -216,20 +221,20 @@ export const PdfUploader = forwardRef<PdfUploaderHandle, Props>(
                 />
               ))}
             </svg>
-          </div>
-          <div
+          </span>
+          <span
             className="drop-card__icon"
             style={{ position: "relative", zIndex: 1 }}
           >
             𝄞
-          </div>
-          <div className="drop-card__title">{T.dropTitle}</div>
-          <div className="drop-card__sub" style={{ marginTop: 8 }}>
+          </span>
+          <span className="drop-card__title">{T.dropTitle}</span>
+          <span className="drop-card__sub" style={{ marginTop: 8 }}>
             {T.clickToSelect}
             <br />
             <em>.pdf</em> {T.pdfOnly} <em>.pdf + .musicxml</em>{T.skipOmr}
-          </div>
-        </div>
+          </span>
+        </button>
         <div className="upload__hint">{T.uploaderHint}</div>
         {input}
       </div>
